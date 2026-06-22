@@ -39,6 +39,29 @@ export interface PriceSnapshot {
   inStock: boolean;
 }
 
+export interface Build {
+  id: number;
+  name: string;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BuildItem {
+  id: number;
+  build_id: number;
+  component_id: number;
+  quantity: number;
+  notes: string | null;
+  added_at: string;
+}
+
+export interface BuildItemWithComponent extends BuildItem {
+  component_name: string;
+  component_category: string;
+  component_search_query: string;
+}
+
 let _db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
@@ -76,6 +99,24 @@ function initSchema(db: Database.Database): void {
       url          TEXT,
       in_stock     INTEGER NOT NULL DEFAULT 1,
       recorded_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS builds (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT    NOT NULL UNIQUE,
+      description TEXT,
+      created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+      updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS build_items (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      build_id     INTEGER NOT NULL REFERENCES builds(id) ON DELETE CASCADE,
+      component_id INTEGER NOT NULL REFERENCES tracked_components(id) ON DELETE CASCADE,
+      quantity     INTEGER NOT NULL DEFAULT 1,
+      notes        TEXT,
+      added_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(build_id, component_id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_price_component_time
@@ -204,6 +245,111 @@ export function getDailyPriceTrend(componentId: number, days = 30): PriceTrend[]
     .all(componentId, `-${days}`) as PriceTrend[];
 }
 
+// ── Price intelligence ─────────────────────────────────────────────────────
+
+export interface PriceStats {
+  component_id: number;
+  all_time_low: number | null;
+  all_time_high: number | null;
+  avg_30d: number | null;
+  avg_7d: number | null;
+  current_best: number | null;
+  prev_best_24h: number | null;
+  total_records: number;
+  oldest_record: string | null;
+  currency: string;
+}
+
+export function getPriceStats(componentId: number): PriceStats {
+  const db = getDb();
+
+  const stats = db.prepare(`
+    SELECT
+      MIN(price)                                                              AS all_time_low,
+      MAX(price)                                                              AS all_time_high,
+      ROUND(AVG(CASE WHEN recorded_at >= datetime('now', '-30 days') THEN price END), 2) AS avg_30d,
+      ROUND(AVG(CASE WHEN recorded_at >= datetime('now', '-7 days')  THEN price END), 2) AS avg_7d,
+      COUNT(*)                                                                AS total_records,
+      MIN(recorded_at)                                                        AS oldest_record,
+      MAX(currency)                                                           AS currency
+    FROM price_records
+    WHERE component_id = ?
+  `).get(componentId) as any;
+
+  // Current best (in last 48h so it reflects a "now" price)
+  const currentRow = db.prepare(`
+    SELECT MIN(price) AS price FROM price_records
+    WHERE component_id = ? AND recorded_at >= datetime('now', '-48 hours')
+  `).get(componentId) as any;
+
+  // Previous best (24–96h ago) for change comparison
+  const prevRow = db.prepare(`
+    SELECT MIN(price) AS price FROM price_records
+    WHERE component_id = ?
+      AND recorded_at >= datetime('now', '-96 hours')
+      AND recorded_at <  datetime('now', '-24 hours')
+  `).get(componentId) as any;
+
+  return {
+    component_id: componentId,
+    all_time_low: stats?.all_time_low ?? null,
+    all_time_high: stats?.all_time_high ?? null,
+    avg_30d: stats?.avg_30d ?? null,
+    avg_7d: stats?.avg_7d ?? null,
+    current_best: currentRow?.price ?? null,
+    prev_best_24h: prevRow?.price ?? null,
+    total_records: stats?.total_records ?? 0,
+    oldest_record: stats?.oldest_record ?? null,
+    currency: stats?.currency ?? 'GBP',
+  };
+}
+
+export interface PriceDrop {
+  component: TrackedComponent;
+  currentBest: number;
+  previousBest: number;
+  dropAmount: number;
+  dropPercent: number;
+  currency: string;
+  bestRetailer: string;
+  bestUrl: string | null;
+}
+
+export function getRecentPriceDrops(minDropPercent = 2): PriceDrop[] {
+  const components = getTrackedComponents();
+  const drops: PriceDrop[] = [];
+
+  for (const c of components) {
+    const stats = getPriceStats(c.id);
+    if (
+      stats.current_best == null ||
+      stats.prev_best_24h == null ||
+      stats.current_best >= stats.prev_best_24h
+    ) continue;
+
+    const dropAmount = stats.prev_best_24h - stats.current_best;
+    const dropPercent = (dropAmount / stats.prev_best_24h) * 100;
+    if (dropPercent < minDropPercent) continue;
+
+    const latest = getLatestPricePerRetailer(c.id);
+    const best = latest[0];
+    drops.push({
+      component: c,
+      currentBest: stats.current_best,
+      previousBest: stats.prev_best_24h,
+      dropAmount,
+      dropPercent,
+      currency: stats.currency,
+      bestRetailer: best?.retailer ?? 'Unknown',
+      bestUrl: best?.url ?? null,
+    });
+  }
+
+  return drops.sort((a, b) => b.dropPercent - a.dropPercent);
+}
+
+// ── Alert candidates ───────────────────────────────────────────────────────
+
 export interface AlertCandidate {
   component: TrackedComponent;
   currentBestPrice: number;
@@ -233,4 +379,109 @@ export function getComponentsBelowAlertPrice(): AlertCandidate[] {
     }
   }
   return results;
+}
+
+// ── Builds ─────────────────────────────────────────────────────────────────
+
+export function createBuild(name: string, description?: string | null): Build {
+  return getDb()
+    .prepare(`
+      INSERT INTO builds (name, description)
+      VALUES (?, ?)
+      RETURNING *
+    `)
+    .get(name, description ?? null) as Build;
+}
+
+export function getBuilds(): Build[] {
+  return getDb().prepare('SELECT * FROM builds ORDER BY name ASC').all() as Build[];
+}
+
+export function getBuildById(id: number): Build | undefined {
+  return getDb().prepare('SELECT * FROM builds WHERE id = ?').get(id) as Build | undefined;
+}
+
+export function deleteBuild(id: number): boolean {
+  return getDb().prepare('DELETE FROM builds WHERE id = ?').run(id).changes > 0;
+}
+
+export function renameBuild(id: number, name: string, description?: string | null): boolean {
+  return getDb()
+    .prepare(`UPDATE builds SET name = ?, description = ?, updated_at = datetime('now') WHERE id = ?`)
+    .run(name, description ?? null, id).changes > 0;
+}
+
+export function addBuildItem(
+  buildId: number,
+  componentId: number,
+  quantity = 1,
+  notes?: string | null,
+): BuildItem {
+  return getDb()
+    .prepare(`
+      INSERT INTO build_items (build_id, component_id, quantity, notes)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(build_id, component_id) DO UPDATE SET quantity = excluded.quantity, notes = excluded.notes
+      RETURNING *
+    `)
+    .get(buildId, componentId, quantity, notes ?? null) as BuildItem;
+}
+
+export function removeBuildItem(buildId: number, componentId: number): boolean {
+  return getDb()
+    .prepare('DELETE FROM build_items WHERE build_id = ? AND component_id = ?')
+    .run(buildId, componentId).changes > 0;
+}
+
+export function getBuildItems(buildId: number): BuildItemWithComponent[] {
+  return getDb()
+    .prepare(`
+      SELECT bi.*,
+             tc.name     AS component_name,
+             tc.category AS component_category,
+             tc.search_query AS component_search_query
+      FROM build_items bi
+      JOIN tracked_components tc ON tc.id = bi.component_id
+      WHERE bi.build_id = ?
+      ORDER BY tc.category ASC, tc.name ASC
+    `)
+    .all(buildId) as BuildItemWithComponent[];
+}
+
+export interface BuildSummary {
+  build: Build;
+  items: BuildItemWithComponent[];
+  bestPrices: Map<number, { price: number; currency: string; retailer: string; url: string | null }>;
+  totalCost: number;
+  currency: string;
+  missingPrices: number;
+}
+
+export function getBuildSummary(buildId: number): BuildSummary | null {
+  const build = getBuildById(buildId);
+  if (!build) return null;
+
+  const items = getBuildItems(buildId);
+  const bestPrices = new Map<number, { price: number; currency: string; retailer: string; url: string | null }>();
+  let totalCost = 0;
+  let missingPrices = 0;
+
+  for (const item of items) {
+    const latest = getLatestPricePerRetailer(item.component_id);
+    const best = latest[0];
+    if (best) {
+      const lineTotal = best.price * item.quantity;
+      bestPrices.set(item.component_id, {
+        price: best.price,
+        currency: best.currency,
+        retailer: best.retailer,
+        url: best.url,
+      });
+      totalCost += lineTotal;
+    } else {
+      missingPrices++;
+    }
+  }
+
+  return { build, items, bestPrices, totalCost, currency: 'GBP', missingPrices };
 }

@@ -11,65 +11,89 @@ import { z } from 'zod';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
 import { scrapeEbayGpuPrices, resolveGpuSlug, listSupportedGpus } from './sources/pcprice.js';
+import { searchAllUkRetailers } from './sources/uk-retailers.js';
 
 // ── Argument schemas ───────────────────────────────────────────────────────
 
 const SearchSchema = z.object({
-  query: z.string().min(1).describe('Component name or description, e.g. "RTX 4080" or "Ryzen 9 7950X"'),
-  country: z.string().default('gb').describe('Two-letter country code (default: gb for UK)'),
-  max_results: z.number().int().min(1).max(10).default(5).describe('Number of products to return (1–10)'),
-  offers_per_product: z.number().int().min(1).max(20).default(10).describe('Retailer offers per product (1–20)'),
+  query: z.string().min(1),
+  country: z.string().default('gb'),
+  max_results: z.number().int().min(1).max(10).default(5),
+  offers_per_product: z.number().int().min(1).max(20).default(10),
+});
+
+const UkRetailersSchema = z.object({
+  query: z.string().min(1),
+  retailers: z
+    .array(z.enum(['scan', 'overclockers', 'ebuyer']))
+    .default(['scan', 'overclockers', 'ebuyer'])
+    .describe('Which retailers to query'),
 });
 
 const TrackSchema = z.object({
-  name: z.string().min(1).describe('Friendly display name, e.g. "RTX 4080 GPU"'),
-  search_query: z.string().min(1).describe('Search query used for price lookups, e.g. "RTX 4080 16GB"'),
+  name: z.string().min(1),
+  search_query: z.string().min(1),
   category: z
     .enum(['gpu', 'cpu', 'ram', 'motherboard', 'storage', 'psu', 'case', 'cooling', 'monitor', 'other'])
     .default('other'),
-  alert_price: z
-    .number()
-    .positive()
-    .optional()
-    .describe('Alert when price drops below this GBP value'),
-  notes: z.string().optional().describe('Optional notes about this component'),
-  fetch_now: z.boolean().default(true).describe('Fetch and store current prices immediately'),
+  alert_price: z.number().positive().optional(),
+  notes: z.string().optional(),
+  fetch_now: z.boolean().default(true),
   country: z.string().default('gb'),
 });
 
-const UntrackSchema = z.object({
-  id: z.number().int().positive().describe('Tracked component ID (from list_tracked)'),
-});
+const IdSchema = z.object({ id: z.number().int().positive() });
 
 const SetAlertSchema = z.object({
   id: z.number().int().positive(),
-  alert_price: z.number().positive().nullable().describe('GBP threshold; null to remove alert'),
+  alert_price: z.number().positive().nullable(),
 });
 
 const HistorySchema = z.object({
   id: z.number().int().positive(),
   days: z.number().int().min(1).max(365).default(30),
-  show_trend: z.boolean().default(false).describe('Show daily min/avg/max trend instead of raw records'),
-});
-
-const LatestSchema = z.object({
-  id: z.number().int().positive(),
+  show_trend: z.boolean().default(false),
 });
 
 const RefreshSchema = z.object({
-  id: z.number().int().positive().optional().describe('Specific component ID to refresh; omit for all'),
+  id: z.number().int().positive().optional(),
   country: z.string().default('gb'),
 });
 
 const EbaySchema = z.object({
-  query: z.string().min(1).describe('GPU model name, e.g. "RTX 4080" or "RX 7900 XTX"'),
-  country: z.string().default('gb').describe('Two-letter country code for eBay market'),
+  query: z.string().min(1),
+  country: z.string().default('gb'),
 });
+
+const PriceDropSchema = z.object({
+  min_drop_percent: z.number().min(0).default(2),
+});
+
+const CreateBuildSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+});
+
+const AddBuildItemSchema = z.object({
+  build_id: z.number().int().positive(),
+  component_id: z.number().int().positive(),
+  quantity: z.number().int().min(1).default(1),
+  notes: z.string().optional(),
+});
+
+const RemoveBuildItemSchema = z.object({
+  build_id: z.number().int().positive(),
+  component_id: z.number().int().positive(),
+});
+
+const GetBuildSchema = z.object({ id: z.number().int().positive() });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function formatCurrency(amount: number, currency = 'GBP'): string {
-  const symbols: Record<string, string> = { GBP: '£', USD: '$', EUR: '€', AUD: 'A$', CAD: 'C$' };
+function fmt(amount: number, currency = 'GBP'): string {
+  const symbols: Record<string, string> = {
+    GBP: '£', USD: '$', EUR: '€', AUD: 'A$', CAD: 'C$', JPY: '¥',
+  };
   const sym = symbols[currency] ?? `${currency} `;
   return `${sym}${amount.toFixed(2)}`;
 }
@@ -78,8 +102,8 @@ function ok(text: string) {
   return { content: [{ type: 'text' as const, text }] };
 }
 
-function err(message: string): never {
-  throw new McpError(ErrorCode.InvalidRequest, message);
+function notFound(entity: string, id: number): never {
+  throw new McpError(ErrorCode.InvalidRequest, `No ${entity} with ID ${id}`);
 }
 
 async function refreshComponent(
@@ -111,49 +135,74 @@ async function refreshComponent(
 
   return {
     saved: snapshots.length,
-    note: products.length === 0 ? 'No products found for this query' : `${products.length} products, ${snapshots.length} offers`,
+    note:
+      products.length === 0
+        ? 'No products found for this query'
+        : `${products.length} products, ${snapshots.length} offers saved`,
   };
 }
 
-// ── Tool definitions ───────────────────────────────────────────────────────
+// ── Tool catalogue ─────────────────────────────────────────────────────────
 
 const TOOLS = [
+  // ── Search ──────────────────────────────────────────────────────────────
   {
     name: 'search_components',
     description:
-      'Search for UK PC component prices across 40+ retailers (Amazon UK, Scan, Ebuyer, etc.) ' +
-      'using PricesAPI.io. Cold queries can take 30–90s; cached queries return instantly. ' +
-      'Results are not saved — use track_component to persist and monitor prices.',
+      'Search UK PC component prices across 40+ retailers via PricesAPI.io (Amazon UK, Scan, Ebuyer, etc.). ' +
+      'Cold queries take 30–90s; cached queries return instantly. ' +
+      'Results are NOT saved — use track_component to persist and monitor.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        query: { type: 'string', description: 'Component name, e.g. "RTX 4080 16GB" or "Ryzen 9 7950X"' },
-        country: { type: 'string', description: 'Two-letter country code (default: gb)', default: 'gb' },
-        max_results: { type: 'number', description: 'Products to return (1–10)', default: 5 },
-        offers_per_product: { type: 'number', description: 'Retailer offers per product (1–20)', default: 10 },
+        query: { type: 'string', description: 'Component name, e.g. "RTX 4080 16GB"' },
+        country: { type: 'string', default: 'gb' },
+        max_results: { type: 'number', default: 5 },
+        offers_per_product: { type: 'number', default: 10 },
       },
       required: ['query'],
     },
   },
   {
-    name: 'track_component',
+    name: 'search_uk_retailers',
     description:
-      'Add a PC component to your price watchlist. Stores it in the local SQLite database ' +
-      'and optionally fetches current prices immediately. Set alert_price to be notified when ' +
-      'prices drop below your target.',
+      'Directly scrape Scan.co.uk, Overclockers UK, and Ebuyer in parallel — no API key required. ' +
+      'Results are best-effort (these sites are JS-heavy; JSON-LD and structured data are extracted where available). ' +
+      'Faster than search_components for new-retail GB pricing.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        name: { type: 'string', description: 'Display name, e.g. "RTX 4080 GPU"' },
-        search_query: { type: 'string', description: 'Query for price lookups, e.g. "RTX 4080 16GB"' },
+        query: { type: 'string', description: 'Component to search for' },
+        retailers: {
+          type: 'array',
+          items: { type: 'string', enum: ['scan', 'overclockers', 'ebuyer'] },
+          description: 'Which retailers to query (default: all three)',
+          default: ['scan', 'overclockers', 'ebuyer'],
+        },
+      },
+      required: ['query'],
+    },
+  },
+  // ── Tracking ─────────────────────────────────────────────────────────────
+  {
+    name: 'track_component',
+    description:
+      'Add a PC component to your watchlist. Stored in local SQLite. ' +
+      'Optionally fetches current prices immediately to establish a baseline. ' +
+      'Set alert_price to be notified when price drops below your target.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string' },
+        search_query: { type: 'string', description: 'Query string used for price lookups' },
         category: {
           type: 'string',
           enum: ['gpu', 'cpu', 'ram', 'motherboard', 'storage', 'psu', 'case', 'cooling', 'monitor', 'other'],
           default: 'other',
         },
         alert_price: { type: 'number', description: 'Alert threshold in GBP' },
-        notes: { type: 'string', description: 'Optional notes' },
-        fetch_now: { type: 'boolean', description: 'Fetch current prices immediately', default: true },
+        notes: { type: 'string' },
+        fetch_now: { type: 'boolean', default: true },
         country: { type: 'string', default: 'gb' },
       },
       required: ['name', 'search_query'],
@@ -161,106 +210,183 @@ const TOOLS = [
   },
   {
     name: 'untrack_component',
-    description: 'Remove a component from tracking. Deletes all stored price history for that component.',
+    description: 'Remove a component from the watchlist and delete all stored price history.',
     inputSchema: {
       type: 'object' as const,
-      properties: {
-        id: { type: 'number', description: 'Component ID from list_tracked' },
-      },
+      properties: { id: { type: 'number', description: 'Component ID from list_tracked' } },
       required: ['id'],
     },
   },
   {
     name: 'list_tracked',
-    description: 'List all tracked components with their latest known prices and alert thresholds.',
+    description: 'List all tracked components with their best current price and alert status.',
     inputSchema: { type: 'object' as const, properties: {} },
   },
   {
     name: 'set_price_alert',
-    description: 'Set or remove a price alert threshold for a tracked component. Use null to remove the alert.',
+    description: 'Set or remove a GBP price alert threshold for a tracked component.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        id: { type: 'number', description: 'Component ID' },
-        alert_price: { type: ['number', 'null'], description: 'GBP alert price; null to remove' },
+        id: { type: 'number' },
+        alert_price: { type: ['number', 'null'], description: 'GBP threshold, or null to remove' },
       },
       required: ['id', 'alert_price'],
     },
   },
+  // ── Price data ────────────────────────────────────────────────────────────
+  {
+    name: 'get_latest_prices',
+    description: 'Latest price per retailer for a tracked component, sorted cheapest first.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: { id: { type: 'number' } },
+      required: ['id'],
+    },
+  },
   {
     name: 'get_price_history',
-    description:
-      'Get stored price history for a tracked component. Use show_trend for a daily min/avg/max summary.',
+    description: 'Stored price history for a tracked component. Use show_trend for a daily summary table.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        id: { type: 'number', description: 'Component ID' },
-        days: { type: 'number', description: 'History window in days (default: 30)', default: 30 },
-        show_trend: {
-          type: 'boolean',
-          description: 'Show daily trend (true) or raw records (false)',
-          default: false,
-        },
+        id: { type: 'number' },
+        days: { type: 'number', default: 30 },
+        show_trend: { type: 'boolean', default: false },
       },
       required: ['id'],
     },
   },
   {
-    name: 'get_latest_prices',
-    description: 'Get the most recent price for each retailer for a tracked component.',
+    name: 'get_price_stats',
+    description:
+      'Price intelligence summary for a tracked component: all-time low/high, 7-day and 30-day averages, ' +
+      'current best price, and change vs. previous 24h. Requires price history — run refresh_prices first.',
     inputSchema: {
       type: 'object' as const,
-      properties: {
-        id: { type: 'number', description: 'Component ID' },
-      },
+      properties: { id: { type: 'number' } },
       required: ['id'],
     },
   },
   {
     name: 'refresh_prices',
     description:
-      'Fetch fresh prices from PricesAPI.io and save them to the database. ' +
-      'Omit id to refresh all tracked components (may take several minutes for cold queries).',
+      'Fetch fresh prices from PricesAPI.io and save to database. ' +
+      'Omit id to refresh all tracked components (may take several minutes for cold queries). ' +
+      'Displays price change vs previous refresh.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        id: { type: 'number', description: 'Component ID to refresh; omit for all' },
+        id: { type: 'number', description: 'Component ID; omit for all' },
         country: { type: 'string', default: 'gb' },
       },
     },
   },
   {
     name: 'check_price_alerts',
-    description:
-      'Check all tracked components against their alert thresholds. Returns components whose ' +
-      'current best price is at or below the alert_price.',
+    description: 'Show tracked components whose current best price is at or below their alert threshold.',
     inputSchema: { type: 'object' as const, properties: {} },
   },
   {
+    name: 'get_price_drops',
+    description:
+      'Show tracked components where the best price has dropped since the previous check. ' +
+      'Compares the last 24h best price against the 24–96h window.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        min_drop_percent: { type: 'number', description: 'Minimum drop % to include (default: 2)', default: 2 },
+      },
+    },
+  },
+  // ── eBay ─────────────────────────────────────────────────────────────────
+  {
     name: 'get_ebay_gpu_prices',
     description:
-      'Get eBay UK secondhand GPU prices from pcprice.watch. Covers 40+ GPU models with ' +
-      'median prices from active listings. Useful for used/resale price research.',
+      'eBay secondhand GPU prices from pcprice.watch. Median prices from active listings. ' +
+      'Used/resale market only — not new retail pricing.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         query: { type: 'string', description: 'GPU model, e.g. "RTX 4080" or "RX 9070 XT"' },
-        country: { type: 'string', description: 'eBay market country code (default: gb)', default: 'gb' },
+        country: { type: 'string', default: 'gb' },
       },
       required: ['query'],
     },
   },
   {
     name: 'list_supported_gpus',
-    description: 'List all GPU models supported by the pcprice.watch eBay price scraper.',
+    description: 'List all GPU models supported by the pcprice.watch eBay scraper.',
     inputSchema: { type: 'object' as const, properties: {} },
+  },
+  // ── Builds ────────────────────────────────────────────────────────────────
+  {
+    name: 'create_build',
+    description: 'Create a named PC build to group components and track total cost.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'Build name, e.g. "Gaming Rig 2024"' },
+        description: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'list_builds',
+    description: 'List all saved PC builds with their component count and total cost.',
+    inputSchema: { type: 'object' as const, properties: {} },
+  },
+  {
+    name: 'get_build',
+    description: 'Get full build details — all components, individual prices, and total cost.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: { id: { type: 'number' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'add_to_build',
+    description: 'Add a tracked component to a build. The component must already be in the watchlist.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        build_id: { type: 'number' },
+        component_id: { type: 'number', description: 'ID from list_tracked' },
+        quantity: { type: 'number', default: 1, description: 'Number of units (e.g. 2 for dual RAM sticks)' },
+        notes: { type: 'string' },
+      },
+      required: ['build_id', 'component_id'],
+    },
+  },
+  {
+    name: 'remove_from_build',
+    description: 'Remove a component from a build (does not delete the component from tracking).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        build_id: { type: 'number' },
+        component_id: { type: 'number' },
+      },
+      required: ['build_id', 'component_id'],
+    },
+  },
+  {
+    name: 'delete_build',
+    description: 'Delete a build (does not delete the tracked components inside it).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: { id: { type: 'number' } },
+      required: ['id'],
+    },
   },
 ];
 
 // ── Server ─────────────────────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'uk-pc-price-mcp', version: '1.0.0' },
+  { name: 'uk-pc-price-mcp', version: '2.0.0' },
   { capabilities: { tools: {} } },
 );
 
@@ -272,158 +398,195 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   try {
     switch (name) {
-      // ── search_components ──────────────────────────────────────────────
+
+      // ── search_components ────────────────────────────────────────────────
       case 'search_components': {
         const { query, country, max_results, offers_per_product } = SearchSchema.parse(args);
         const { products, cacheSource, durationMs } = await searchWithRetry(
           query, country, max_results, offers_per_product,
         );
 
-        if (products.length === 0) {
-          return ok(`No products found for "${query}" in ${country.toUpperCase()}.`);
-        }
+        if (products.length === 0) return ok(`No products found for "${query}" in ${country.toUpperCase()}.`);
 
-        const lines: string[] = [
+        const lines = [
           `## Search: "${query}" (${country.toUpperCase()})`,
-          `*${products.length} product(s) — ${cacheSource} — ${(durationMs / 1000).toFixed(1)}s*\n`,
+          `*${products.length} product(s) · ${cacheSource} · ${(durationMs / 1000).toFixed(1)}s*\n`,
         ];
-
         for (const [i, p] of products.entries()) {
           lines.push(`### ${i + 1}. ${p.name}`);
-          if (p.url) lines.push(`URL: ${p.url}`);
+          if (p.url) lines.push(`<${p.url}>`);
           if (p.offers.length === 0) {
-            lines.push('  No offers available.');
+            lines.push('  No offers available.\n');
           } else {
-            lines.push(`  **${p.offers.length} offer(s):**`);
             for (const o of p.offers) {
-              const stock = o.inStock ? '✅ In stock' : '❌ Out of stock';
-              lines.push(`  - ${o.merchant}: **${formatCurrency(o.price, o.currency)}** — ${stock}`);
-              if (o.url) lines.push(`    ${o.url}`);
+              lines.push(
+                `  - **${fmt(o.price, o.currency)}** at ${o.merchant} — ${o.inStock ? '✅ In stock' : '❌ Out of stock'}`,
+              );
+            }
+            lines.push('');
+          }
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── search_uk_retailers ──────────────────────────────────────────────
+      case 'search_uk_retailers': {
+        const { query, retailers } = UkRetailersSchema.parse(args);
+        const searchResults = await searchAllUkRetailers(query, retailers);
+
+        const lines = [`## UK Retailer Search: "${query}"\n`];
+
+        for (const sr of searchResults) {
+          lines.push(`### ${sr.retailer} *(${sr.durationMs}ms)*`);
+          if (sr.error) {
+            lines.push(`⚠️ ${sr.error}`);
+          } else if (sr.results.length === 0) {
+            lines.push('No results found.');
+          } else {
+            for (const r of sr.results) {
+              const priceStr = r.price != null ? `**${fmt(r.price, r.currency)}**` : 'Price unknown';
+              const stock = r.inStock ? '✅' : '❌';
+              lines.push(`- ${stock} ${r.name} — ${priceStr}`);
+              if (r.url && r.url !== `https://www.${sr.retailer.toLowerCase()}.co.uk/search?q=${encodeURIComponent(query)}`) {
+                lines.push(`  <${r.url}>`);
+              }
+              if (r.scraperNote) lines.push(`  *${r.scraperNote}*`);
             }
           }
           lines.push('');
         }
 
+        lines.push('> *Scraped directly from retailer websites. Prices and availability may differ from their apps/checkout.*');
         return ok(lines.join('\n'));
       }
 
-      // ── track_component ────────────────────────────────────────────────
+      // ── track_component ──────────────────────────────────────────────────
       case 'track_component': {
         const { name: displayName, search_query, category, alert_price, notes, fetch_now, country } =
           TrackSchema.parse(args);
 
         const component = db.addTrackedComponent(displayName, category, search_query, alert_price, notes);
         const lines = [
-          `✅ **${displayName}** added to watchlist (ID: ${component.id})`,
-          `Category: ${category}`,
-          `Search query: "${search_query}"`,
+          `✅ **${displayName}** added to watchlist (ID: **${component.id}**)`,
+          `Category: ${category} · Query: "${search_query}"`,
         ];
-        if (alert_price != null) {
-          lines.push(`Alert threshold: ${formatCurrency(alert_price)}`);
-        }
+        if (alert_price != null) lines.push(`Alert threshold: ${fmt(alert_price)}`);
 
         if (fetch_now) {
-          lines.push('\n*Fetching current prices (may take up to 90s for uncached query)…*');
+          lines.push('\n*Fetching current prices (cold query may take up to 90s)…*');
           try {
             const { saved, note } = await refreshComponent(component, country);
-            lines.push(saved > 0 ? `Saved ${saved} price records. ${note}` : `No prices saved. ${note}`);
-          } catch (fetchErr) {
-            lines.push(`Warning: could not fetch initial prices — ${(fetchErr as Error).message}`);
-            lines.push('Run refresh_prices later to populate price history.');
+            lines.push(saved > 0 ? `✅ ${note}` : `⚠️ ${note}`);
+          } catch (e) {
+            lines.push(`⚠️ Could not fetch initial prices: ${(e as Error).message}`);
+            lines.push('Run `refresh_prices` later to populate price history.');
           }
         }
-
         return ok(lines.join('\n'));
       }
 
-      // ── untrack_component ──────────────────────────────────────────────
+      // ── untrack_component ────────────────────────────────────────────────
       case 'untrack_component': {
-        const { id } = UntrackSchema.parse(args);
-        const component = db.getTrackedComponentById(id);
-        if (!component) err(`No tracked component with ID ${id}`);
-
+        const { id } = IdSchema.parse(args);
+        const component = db.getTrackedComponentById(id) ?? notFound('tracked component', id);
         db.removeTrackedComponent(id);
-        return ok(`🗑️ Removed "${component.name}" (ID: ${id}) from watchlist. All price history deleted.`);
+        return ok(`🗑️ Removed **${component.name}** (ID: ${id}) and all its price history.`);
       }
 
-      // ── list_tracked ───────────────────────────────────────────────────
+      // ── list_tracked ─────────────────────────────────────────────────────
       case 'list_tracked': {
         const components = db.getTrackedComponents();
         if (components.length === 0) {
-          return ok(
-            'No components tracked yet.\n' +
-            'Use `track_component` to start watching prices.\n' +
-            'Use `search_components` to discover pricing first.',
-          );
+          return ok('No components tracked yet.\nUse `track_component` to start watching prices.');
         }
 
         const lines = [`## Tracked Components (${components.length})\n`];
-
         for (const c of components) {
           const latest = db.getLatestPricePerRetailer(c.id);
-          const bestPrice = latest[0];
-          const alertLine = c.alert_price != null
-            ? ` | Alert: ${formatCurrency(c.alert_price)}`
-            : '';
+          const best = latest[0];
+          const alertLine = c.alert_price != null ? ` · Alert: ${fmt(c.alert_price)}` : '';
           const checked = c.last_checked
-            ? new Date(c.last_checked).toLocaleString('en-GB')
+            ? new Date(c.last_checked + 'Z').toLocaleString('en-GB')
             : 'Never';
 
           lines.push(`### [${c.id}] ${c.name} *(${c.category})*`);
           lines.push(`Query: "${c.search_query}"${alertLine}`);
 
-          if (bestPrice) {
-            const stock = bestPrice.in_stock ? '✅' : '❌';
+          if (best) {
+            const triggerFlag =
+              c.alert_price != null && best.price <= c.alert_price ? ' 🔔' : '';
             lines.push(
-              `Best price: **${formatCurrency(bestPrice.price, bestPrice.currency)}** ` +
-              `at ${bestPrice.retailer} ${stock}`,
+              `Best price: **${fmt(best.price, best.currency)}** at ${best.retailer} ` +
+              `${best.in_stock ? '✅' : '❌'}${triggerFlag}`,
             );
-            if (latest.length > 1) {
-              lines.push(`+${latest.length - 1} more retailer(s) — use \`get_latest_prices\` for full list`);
-            }
+            if (latest.length > 1) lines.push(`+${latest.length - 1} more retailer(s)`);
           } else {
-            lines.push('No price data yet — run `refresh_prices` to fetch.');
-          }
-
-          if (c.alert_price != null && bestPrice) {
-            if (bestPrice.price <= c.alert_price) {
-              lines.push(`🔔 **ALERT: Current price is at or below target!**`);
-            }
+            lines.push('No price data yet — run `refresh_prices`.');
           }
 
           if (c.notes) lines.push(`Notes: ${c.notes}`);
           lines.push(`Last checked: ${checked}\n`);
         }
-
         return ok(lines.join('\n'));
       }
 
-      // ── set_price_alert ────────────────────────────────────────────────
+      // ── set_price_alert ──────────────────────────────────────────────────
       case 'set_price_alert': {
         const { id, alert_price } = SetAlertSchema.parse(args);
-        const component = db.getTrackedComponentById(id);
-        if (!component) err(`No tracked component with ID ${id}`);
-
+        const component = db.getTrackedComponentById(id) ?? notFound('tracked component', id);
         db.updateAlertPrice(id, alert_price);
-        const msg =
+        return ok(
           alert_price == null
-            ? `🔕 Price alert removed from "${component.name}"`
-            : `🔔 Price alert set for "${component.name}" at ${formatCurrency(alert_price)}`;
-        return ok(msg);
+            ? `🔕 Alert removed from **${component.name}**`
+            : `🔔 Alert set for **${component.name}** at ${fmt(alert_price)}`,
+        );
       }
 
-      // ── get_price_history ──────────────────────────────────────────────
+      // ── get_latest_prices ────────────────────────────────────────────────
+      case 'get_latest_prices': {
+        const { id } = IdSchema.parse(args);
+        const component = db.getTrackedComponentById(id) ?? notFound('tracked component', id);
+        const latest = db.getLatestPricePerRetailer(id);
+
+        if (latest.length === 0) {
+          return ok(`No price data for **${component.name}** yet.\nRun \`refresh_prices\` to fetch.`);
+        }
+
+        const lines = [
+          `## Latest Prices: ${component.name}`,
+          `*${latest.length} retailer(s) — sorted cheapest first*\n`,
+          '| # | Retailer | Price | In Stock | Updated |',
+          '|---|----------|-------|----------|---------|',
+        ];
+
+        for (const [i, r] of latest.entries()) {
+          const dt = new Date(r.recorded_at + 'Z').toLocaleString('en-GB', {
+            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+          });
+          const alert =
+            component.alert_price != null && r.price <= component.alert_price ? ' 🔔' : '';
+          lines.push(
+            `| ${i + 1} | ${r.retailer} | **${fmt(r.price, r.currency)}**${alert} | ` +
+            `${r.in_stock ? '✅' : '❌'} | ${dt} |`,
+          );
+        }
+
+        if (component.alert_price != null) {
+          lines.push(`\n*Alert threshold: ${fmt(component.alert_price)}*`);
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── get_price_history ────────────────────────────────────────────────
       case 'get_price_history': {
         const { id, days, show_trend } = HistorySchema.parse(args);
-        const component = db.getTrackedComponentById(id);
-        if (!component) err(`No tracked component with ID ${id}`);
+        const component = db.getTrackedComponentById(id) ?? notFound('tracked component', id);
 
         if (show_trend) {
           const trend = db.getDailyPriceTrend(id, days);
           if (trend.length === 0) {
-            return ok(`No price history for "${component.name}" in the last ${days} days.`);
+            return ok(`No price history for **${component.name}** in the last ${days} days.`);
           }
-
           const lines = [
             `## Price Trend: ${component.name} (last ${days} days)\n`,
             '| Date | Min | Avg | Max | Records |',
@@ -431,8 +594,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ];
           for (const row of trend) {
             lines.push(
-              `| ${row.date} | ${formatCurrency(row.min_price)} | ${formatCurrency(row.avg_price)} | ` +
-              `${formatCurrency(row.max_price)} | ${row.record_count} |`,
+              `| ${row.date} | ${fmt(row.min_price)} | ${fmt(row.avg_price)} | ` +
+              `${fmt(row.max_price)} | ${row.record_count} |`,
             );
           }
           return ok(lines.join('\n'));
@@ -440,7 +603,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         const records = db.getPriceHistory(id, days);
         if (records.length === 0) {
-          return ok(`No price history for "${component.name}" in the last ${days} days.`);
+          return ok(`No price history for **${component.name}** in the last ${days} days.`);
         }
 
         const lines = [
@@ -450,131 +613,144 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ];
         for (const r of records) {
           const dt = new Date(r.recorded_at + 'Z').toLocaleString('en-GB');
-          const stock = r.in_stock ? '✅' : '❌';
           lines.push(
-            `| ${dt} | ${r.retailer} | ${formatCurrency(r.price, r.currency)} | ${stock} | ${r.source} |`,
+            `| ${dt} | ${r.retailer} | ${fmt(r.price, r.currency)} | ` +
+            `${r.in_stock ? '✅' : '❌'} | ${r.source} |`,
           );
         }
-
         return ok(lines.join('\n'));
       }
 
-      // ── get_latest_prices ──────────────────────────────────────────────
-      case 'get_latest_prices': {
-        const { id } = LatestSchema.parse(args);
-        const component = db.getTrackedComponentById(id);
-        if (!component) err(`No tracked component with ID ${id}`);
+      // ── get_price_stats ──────────────────────────────────────────────────
+      case 'get_price_stats': {
+        const { id } = IdSchema.parse(args);
+        const component = db.getTrackedComponentById(id) ?? notFound('tracked component', id);
+        const stats = db.getPriceStats(id);
 
-        const latest = db.getLatestPricePerRetailer(id);
-        if (latest.length === 0) {
+        if (stats.total_records === 0) {
           return ok(
-            `No price data for "${component.name}" yet.\n` +
-            'Run `refresh_prices` to fetch current prices.',
+            `No price data for **${component.name}** yet.\n` +
+            'Run `refresh_prices` to start collecting price history.',
           );
         }
+
+        let changeStr = '';
+        if (stats.current_best != null && stats.prev_best_24h != null) {
+          const diff = stats.current_best - stats.prev_best_24h;
+          const pct = (diff / stats.prev_best_24h) * 100;
+          if (Math.abs(pct) >= 0.5) {
+            const arrow = diff < 0 ? '📉' : '📈';
+            changeStr = `${arrow} ${diff < 0 ? '-' : '+'}${fmt(Math.abs(diff), stats.currency)} ` +
+              `(${pct > 0 ? '+' : ''}${pct.toFixed(1)}%) vs previous check`;
+          } else {
+            changeStr = '↔️ Price unchanged vs previous check';
+          }
+        }
+
+        const oldest = stats.oldest_record
+          ? new Date(stats.oldest_record + 'Z').toLocaleDateString('en-GB')
+          : 'unknown';
 
         const lines = [
-          `## Latest Prices: ${component.name}\n`,
-          `*${latest.length} retailer(s) — sorted by price ascending*\n`,
-          '| # | Retailer | Price | In Stock | Last Updated |',
-          '|---|----------|-------|----------|--------------|',
+          `## Price Statistics: ${component.name}\n`,
+          `**Current best price:** ${stats.current_best != null ? fmt(stats.current_best, stats.currency) : 'No recent data (>48h)'}`,
+          changeStr,
+          '',
+          `| Metric | Value |`,
+          `|--------|-------|`,
+          `| All-time low | ${stats.all_time_low != null ? fmt(stats.all_time_low, stats.currency) : 'N/A'} |`,
+          `| All-time high | ${stats.all_time_high != null ? fmt(stats.all_time_high, stats.currency) : 'N/A'} |`,
+          `| 30-day average | ${stats.avg_30d != null ? fmt(stats.avg_30d, stats.currency) : 'N/A'} |`,
+          `| 7-day average | ${stats.avg_7d != null ? fmt(stats.avg_7d, stats.currency) : 'N/A'} |`,
+          `| Total records | ${stats.total_records} |`,
+          `| Tracking since | ${oldest} |`,
         ];
 
-        for (const [i, r] of latest.entries()) {
-          const dt = new Date(r.recorded_at + 'Z').toLocaleString('en-GB', {
-            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
-          });
-          const stock = r.in_stock ? '✅' : '❌';
-          const alert =
-            component.alert_price != null && r.price <= component.alert_price ? ' 🔔' : '';
-          lines.push(
-            `| ${i + 1} | ${r.retailer} | **${formatCurrency(r.price, r.currency)}**${alert} | ${stock} | ${dt} |`,
-          );
-        }
-
         if (component.alert_price != null) {
-          lines.push(`\n*Alert threshold: ${formatCurrency(component.alert_price)}*`);
+          lines.push(`| Alert threshold | ${fmt(component.alert_price)} |`);
+          if (stats.current_best != null) {
+            const gap = stats.current_best - component.alert_price;
+            lines.push(
+              `| Distance to alert | ${gap > 0 ? `${fmt(gap)} above` : `${fmt(Math.abs(gap))} BELOW TARGET 🔔`} |`,
+            );
+          }
         }
 
-        return ok(lines.join('\n'));
+        return ok(lines.filter(Boolean).join('\n'));
       }
 
-      // ── refresh_prices ─────────────────────────────────────────────────
+      // ── refresh_prices ───────────────────────────────────────────────────
       case 'refresh_prices': {
         const { id, country } = RefreshSchema.parse(args);
         const targets = id != null
-          ? (() => {
-              const c = db.getTrackedComponentById(id);
-              if (!c) err(`No tracked component with ID ${id}`);
-              return [c];
-            })()
+          ? [db.getTrackedComponentById(id) ?? notFound('tracked component', id)]
           : db.getTrackedComponents();
 
         if (targets.length === 0) {
           return ok('No tracked components to refresh. Use `track_component` to add some.');
         }
 
-        const results: string[] = [
-          `## Refreshing prices for ${targets.length} component(s)…\n`,
-        ];
+        const lines = [`## Refreshing prices for ${targets.length} component(s)…\n`];
 
         for (const component of targets) {
-          results.push(`### ${component.name}`);
+          const prevBest = db.getLatestPricePerRetailer(component.id)[0]?.price;
+          lines.push(`### ${component.name}`);
           try {
             const { saved, note } = await refreshComponent(component, country);
-            results.push(saved > 0 ? `✅ Saved ${saved} offer(s). ${note}` : `⚠️ ${note}`);
+            if (saved > 0) {
+              lines.push(`✅ ${note}`);
+              const newBest = db.getLatestPricePerRetailer(component.id)[0];
+              if (prevBest != null && newBest) {
+                const diff = newBest.price - prevBest;
+                if (Math.abs(diff) > 0.01) {
+                  const arrow = diff < 0 ? '📉' : '📈';
+                  lines.push(
+                    `${arrow} Price change: ${fmt(prevBest)} → **${fmt(newBest.price, newBest.currency)}** ` +
+                    `(${diff < 0 ? '' : '+'}${fmt(diff, newBest.currency)})`,
+                  );
+                }
+              }
+            } else {
+              lines.push(`⚠️ ${note}`);
+            }
           } catch (e) {
-            results.push(`❌ Error: ${(e as Error).message}`);
+            lines.push(`❌ Error: ${(e as Error).message}`);
           }
-          results.push('');
+          lines.push('');
         }
 
-        return ok(results.join('\n'));
+        return ok(lines.join('\n'));
       }
 
-      // ── check_price_alerts ─────────────────────────────────────────────
+      // ── check_price_alerts ───────────────────────────────────────────────
       case 'check_price_alerts': {
-        const all = db.getTrackedComponents();
-        const withAlerts = all.filter(c => c.alert_price != null);
-
+        const withAlerts = db.getTrackedComponents().filter(c => c.alert_price != null);
         if (withAlerts.length === 0) {
-          return ok(
-            'No price alerts configured.\n' +
-            'Use `set_price_alert` to set a target price on any tracked component.',
-          );
+          return ok('No price alerts set.\nUse `set_price_alert` to add a GBP target to any tracked component.');
         }
 
         const triggered = db.getComponentsBelowAlertPrice();
-
         const lines = [
           `## Price Alert Check`,
-          `*${withAlerts.length} component(s) with alerts — ${triggered.length} triggered*\n`,
+          `*${withAlerts.length} component(s) monitored · ${triggered.length} triggered*\n`,
         ];
 
         if (triggered.length === 0) {
-          lines.push('No alerts triggered — prices are still above your targets.');
-          lines.push('\n**Monitored components:**');
+          lines.push('No alerts triggered — all prices still above target.\n');
+          lines.push('**Monitored components:**');
           for (const c of withAlerts) {
-            const latest = db.getLatestPricePerRetailer(c.id);
-            const best = latest[0];
-            const current = best ? formatCurrency(best.price, best.currency) : 'No data';
-            lines.push(
-              `- **${c.name}**: Alert at ${formatCurrency(c.alert_price!)} | Current best: ${current}`,
-            );
+            const best = db.getLatestPricePerRetailer(c.id)[0];
+            const current = best ? fmt(best.price, best.currency) : 'No data';
+            const gap = best ? ` (${fmt(best.price - c.alert_price!)} above target)` : '';
+            lines.push(`- **${c.name}**: Target ${fmt(c.alert_price!)} · Current: ${current}${gap}`);
           }
         } else {
           lines.push('### 🔔 Alerts Triggered!\n');
           for (const t of triggered) {
             lines.push(`#### ${t.component.name}`);
-            lines.push(
-              `Current price: **${formatCurrency(t.currentBestPrice, t.currency)}** ` +
-              `at ${t.retailer}`,
-            );
-            lines.push(
-              `Alert threshold: ${formatCurrency(t.component.alert_price!)} ` +
-              `(${Math.abs(t.dropPercent)}% ${t.dropPercent >= 0 ? 'below' : 'above'} target)`,
-            );
-            if (t.url) lines.push(`URL: ${t.url}`);
+            lines.push(`Price: **${fmt(t.currentBestPrice, t.currency)}** at ${t.retailer}`);
+            lines.push(`Target: ${fmt(t.component.alert_price!)} — **${Math.abs(t.dropPercent)}% below target**`);
+            if (t.url) lines.push(`<${t.url}>`);
             lines.push('');
           }
         }
@@ -582,70 +758,204 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return ok(lines.join('\n'));
       }
 
-      // ── get_ebay_gpu_prices ────────────────────────────────────────────
+      // ── get_price_drops ──────────────────────────────────────────────────
+      case 'get_price_drops': {
+        const { min_drop_percent } = PriceDropSchema.parse(args);
+        const drops = db.getRecentPriceDrops(min_drop_percent);
+
+        if (drops.length === 0) {
+          return ok(
+            `No price drops ≥${min_drop_percent}% detected in the last 24h.\n` +
+            'Run `refresh_prices` first to get up-to-date data.',
+          );
+        }
+
+        const lines = [
+          `## Recent Price Drops (≥${min_drop_percent}% in last 24h)\n`,
+          `*${drops.length} component(s) dropped in price*\n`,
+        ];
+
+        for (const d of drops) {
+          lines.push(
+            `### 📉 ${d.component.name}`,
+            `${fmt(d.previousBest, d.currency)} → **${fmt(d.currentBest, d.currency)}** ` +
+            `at ${d.bestRetailer} — **-${fmt(d.dropAmount, d.currency)} (-${d.dropPercent.toFixed(1)}%)**`,
+          );
+          if (d.bestUrl) lines.push(`<${d.bestUrl}>`);
+          if (d.component.alert_price != null) {
+            const distToAlert = d.currentBest - d.component.alert_price;
+            lines.push(
+              distToAlert <= 0
+                ? `🔔 **At or below alert threshold (${fmt(d.component.alert_price)})**`
+                : `Alert target: ${fmt(d.component.alert_price)} — ${fmt(distToAlert)} away`,
+            );
+          }
+          lines.push('');
+        }
+
+        return ok(lines.join('\n'));
+      }
+
+      // ── get_ebay_gpu_prices ──────────────────────────────────────────────
       case 'get_ebay_gpu_prices': {
         const { query, country } = EbaySchema.parse(args);
         const slug = resolveGpuSlug(query);
-
         if (!slug) {
           return ok(
-            `Could not match "${query}" to a known GPU model.\n` +
-            'Use `list_supported_gpus` to see all supported models, or check the spelling.\n' +
-            'Supported brands: NVIDIA RTX/GTX, AMD RX, Intel Arc.',
+            `Could not match "${query}" to a known GPU.\n` +
+            'Use `list_supported_gpus` to see all supported models.',
           );
         }
 
         const data = await scrapeEbayGpuPrices(slug, country);
-
         const lines = [
           `## eBay ${country.toUpperCase()} Prices: ${data.displayName}`,
-          `*Source: pcprice.watch | eBay secondhand/resale market only*\n`,
+          `*Source: pcprice.watch — eBay secondhand/resale only*\n`,
         ];
 
         if (data.medianPrice != null) {
-          lines.push(`**Median price: ${formatCurrency(data.medianPrice, data.currency)}**`);
-          lines.push(`Active listings: ${data.activeListings}`);
+          lines.push(`**Median price: ${fmt(data.medianPrice, data.currency)}**`);
+          if (data.activeListings > 0) lines.push(`Active listings: ${data.activeListings}`);
         } else {
           lines.push('⚠️ Could not retrieve price data.');
         }
 
         if (data.scraperNote) lines.push(`\n*Note: ${data.scraperNote}*`);
-        lines.push(`\nSource URL: ${data.sourceUrl}`);
-        lines.push(`Scraped at: ${new Date(data.scrapedAt).toLocaleString('en-GB')}`);
-        lines.push('\n> eBay prices reflect **used/secondhand** market. For new retail prices, use `search_components`.');
-
+        lines.push(`\nSource: <${data.sourceUrl}>`);
+        lines.push(`Scraped: ${new Date(data.scrapedAt).toLocaleString('en-GB')}`);
+        lines.push('\n> eBay prices are **used/secondhand**. For new retail, use `search_components` or `search_uk_retailers`.');
         return ok(lines.join('\n'));
       }
 
-      // ── list_supported_gpus ────────────────────────────────────────────
+      // ── list_supported_gpus ──────────────────────────────────────────────
       case 'list_supported_gpus': {
         const gpus = listSupportedGpus();
-        const lines = [
-          `## Supported GPUs for eBay Price Lookup (${gpus.length} models)\n`,
-          '*Source: pcprice.watch — secondhand/resale eBay prices only*\n',
-        ];
-
         const sections: Record<string, string[]> = {};
         for (const gpu of gpus) {
-          const brand =
-            gpu.startsWith('RTX') || gpu.startsWith('GTX')
-              ? 'NVIDIA GeForce'
-              : gpu.startsWith('RX')
-              ? 'AMD Radeon'
-              : gpu.startsWith('ARC')
-              ? 'Intel Arc'
-              : 'Other';
-          sections[brand] = sections[brand] ?? [];
-          sections[brand].push(gpu);
+          const brand = gpu.startsWith('RTX') || gpu.startsWith('GTX')
+            ? 'NVIDIA GeForce' : gpu.startsWith('RX') ? 'AMD Radeon' : 'Intel Arc';
+          (sections[brand] ??= []).push(gpu);
         }
-
+        const lines = [`## Supported GPUs for eBay Lookup (${gpus.length} models)\n`];
         for (const [brand, models] of Object.entries(sections)) {
-          lines.push(`### ${brand}`);
-          lines.push(models.join(', '));
-          lines.push('');
+          lines.push(`### ${brand}\n${models.join(', ')}\n`);
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── create_build ─────────────────────────────────────────────────────
+      case 'create_build': {
+        const { name: buildName, description } = CreateBuildSchema.parse(args);
+        const build = db.createBuild(buildName, description);
+        return ok(
+          `🖥️ Build **"${build.name}"** created (ID: **${build.id}**)\n` +
+          `Use \`add_to_build\` to add tracked components.\n` +
+          `Use \`get_build\` to see cost breakdown.`,
+        );
+      }
+
+      // ── list_builds ───────────────────────────────────────────────────────
+      case 'list_builds': {
+        const builds = db.getBuilds();
+        if (builds.length === 0) {
+          return ok('No builds yet.\nUse `create_build` to start a new PC build.');
         }
 
+        const lines = [`## PC Builds (${builds.length})\n`];
+        for (const b of builds) {
+          const summary = db.getBuildSummary(b.id);
+          const itemCount = summary?.items.length ?? 0;
+          const totalStr =
+            summary && summary.totalCost > 0 ? fmt(summary.totalCost) : 'No price data';
+          const missingStr =
+            summary && summary.missingPrices > 0 ? ` (${summary.missingPrices} missing prices)` : '';
+
+          lines.push(`### [${b.id}] ${b.name}`);
+          if (b.description) lines.push(b.description);
+          lines.push(`${itemCount} component(s) · Total: **${totalStr}**${missingStr}`);
+          lines.push(`Created: ${new Date(b.created_at + 'Z').toLocaleDateString('en-GB')}\n`);
+        }
         return ok(lines.join('\n'));
+      }
+
+      // ── get_build ─────────────────────────────────────────────────────────
+      case 'get_build': {
+        const { id } = GetBuildSchema.parse(args);
+        const summary = db.getBuildSummary(id);
+        if (!summary) notFound('build', id);
+
+        const { build, items, bestPrices, totalCost, missingPrices } = summary!;
+
+        const lines = [
+          `## 🖥️ ${build.name}`,
+          build.description ? `*${build.description}*\n` : '',
+          `| # | Component | Category | Qty | Best Price | Retailer | Stock |`,
+          `|---|-----------|----------|-----|------------|----------|-------|`,
+        ];
+
+        for (const [i, item] of items.entries()) {
+          const p = bestPrices.get(item.component_id);
+          const priceCell = p
+            ? `${fmt(p.price, p.currency)}${item.quantity > 1 ? ` × ${item.quantity} = ${fmt(p.price * item.quantity, p.currency)}` : ''}`
+            : 'No data';
+          const retailerCell = p?.retailer ?? '—';
+          const stockCell = p ? '✅' : '—';
+
+          lines.push(
+            `| ${i + 1} | [${item.component_id}] ${item.component_name} | ${item.component_category} | ` +
+            `${item.quantity} | ${priceCell} | ${retailerCell} | ${stockCell} |`,
+          );
+        }
+
+        lines.push('');
+        lines.push(`**Total build cost: ${fmt(totalCost)}**`);
+        if (missingPrices > 0) {
+          lines.push(
+            `⚠️ ${missingPrices} component(s) have no price data — run \`refresh_prices\` to update.`,
+          );
+        }
+        lines.push(`\n*Run \`refresh_prices\` to get the latest prices for all components.*`);
+
+        return ok(lines.filter(l => l !== '').join('\n'));
+      }
+
+      // ── add_to_build ──────────────────────────────────────────────────────
+      case 'add_to_build': {
+        const { build_id, component_id, quantity, notes } = AddBuildItemSchema.parse(args);
+        const build = db.getBuildById(build_id) ?? notFound('build', build_id);
+        const component = db.getTrackedComponentById(component_id) ?? notFound('tracked component', component_id);
+
+        db.addBuildItem(build_id, component_id, quantity, notes);
+        return ok(
+          `✅ Added **${component.name}** (×${quantity}) to build **"${build.name}"**.\n` +
+          `Use \`get_build\` with id ${build_id} to see the updated cost breakdown.`,
+        );
+      }
+
+      // ── remove_from_build ─────────────────────────────────────────────────
+      case 'remove_from_build': {
+        const { build_id, component_id } = RemoveBuildItemSchema.parse(args);
+        const build = db.getBuildById(build_id) ?? notFound('build', build_id);
+        const component = db.getTrackedComponentById(component_id);
+
+        const removed = db.removeBuildItem(build_id, component_id);
+        if (!removed) {
+          return ok(`Component ID ${component_id} was not in build **"${build.name}"**.`);
+        }
+        return ok(
+          `🗑️ Removed **${component?.name ?? `Component ${component_id}`}** from build **"${build.name}"**.`,
+        );
+      }
+
+      // ── delete_build ──────────────────────────────────────────────────────
+      case 'delete_build': {
+        const { id } = GetBuildSchema.parse(args);
+        const build = db.getBuildById(id) ?? notFound('build', id);
+        db.deleteBuild(id);
+        return ok(
+          `🗑️ Build **"${build.name}"** deleted.\n` +
+          'All tracked components in the build are still in your watchlist.',
+        );
       }
 
       default:
