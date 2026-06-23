@@ -34,6 +34,10 @@ import { bingSearchPrices, bingFindRetailers } from './sources/bing-shopping.js'
 import { validatePrices, getPriceValidationReport } from './services/price-validator.js';
 import { scrapeWithBrowser, SUPPORTED_PLAYWRIGHT_RETAILERS, type BrowserScrapeResult } from './sources/playwright-scraper.js';
 import {
+  searchDataset, browseDataset, fetchDataset, DATASET_SLUGS, formatDatasetComponent,
+  CATEGORY_TO_DATASET_SLUG, type DatasetSlug,
+} from './sources/pcpartpicker-dataset.js';
+import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
   exportBuildCsv, exportBuildJson, exportTrackedComponentsCsv,
 } from './export.js';
@@ -333,6 +337,19 @@ const BrowserScrapeSchema = z.object({
   query: z.string().min(1),
   retailers: z.array(z.enum(['currys', 'ao', 'johnlewis', 'very'])).optional(),
   save_to_component_id: z.number().int().positive().optional(),
+});
+
+const DatasetSearchSchema = z.object({
+  query: z.string().min(1),
+  part_type: z.enum(DATASET_SLUGS),
+  priced_only: z.boolean().default(false),
+  limit: z.number().int().min(1).max(100).default(25),
+});
+
+const DatasetBrowseSchema = z.object({
+  part_type: z.enum(DATASET_SLUGS),
+  priced_only: z.boolean().default(false),
+  limit: z.number().int().min(1).max(100).default(20),
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1433,6 +1450,60 @@ const TOOLS = [
         },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'pcpartpicker_specs',
+    description:
+      'Search the PCPartPicker component specs database (66,000+ parts, updated July 2025) for a specific part type. ' +
+      'Returns full technical specifications — cores, clocks, VRAM, socket, form factor, TDP, etc. — ' +
+      'plus a USD reference price from PCPartPicker. Covers modern components: Ryzen 9000, Core Ultra, RTX 4000/5000, RX 7000/9000 series. ' +
+      '25 part types: cpu, video-card, motherboard, memory, internal-hard-drive, power-supply, case, cpu-cooler, ' +
+      'case-fan, monitor, keyboard, mouse, headphones, speakers, webcam, ups, and more.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Component name or keywords, e.g. "RTX 4090", "Ryzen 9800X3D", "DDR5 32GB"',
+        },
+        part_type: {
+          type: 'string',
+          enum: [...DATASET_SLUGS],
+          description: 'PCPartPicker part category slug',
+        },
+        priced_only: {
+          type: 'boolean',
+          default: false,
+          description: 'Only return components with a USD reference price listed',
+        },
+        limit: { type: 'number', default: 25, description: 'Max results (1–100)' },
+      },
+      required: ['query', 'part_type'],
+    },
+  },
+  {
+    name: 'pcpartpicker_browse',
+    description:
+      'Browse all components of a given type from the PCPartPicker specs database, sorted cheapest first. ' +
+      'Useful for exploring what\'s available without a specific model in mind — e.g. list all ITX cases, ' +
+      'all 1440p monitors, or the cheapest NVMe SSDs. Returns full specs for each result.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        part_type: {
+          type: 'string',
+          enum: [...DATASET_SLUGS],
+          description: 'PCPartPicker part category slug',
+        },
+        priced_only: {
+          type: 'boolean',
+          default: false,
+          description: 'Only return components with a USD reference price listed',
+        },
+        limit: { type: 'number', default: 20, description: 'Max results (1–100)' },
+      },
+      required: ['part_type'],
     },
   },
 ];
@@ -3439,6 +3510,50 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           lines.push(`\nUse \`save_to_component_id\` to persist these prices to a tracked component.`);
         }
 
+        return ok(lines.join('\n'));
+      }
+
+      // ── pcpartpicker_specs ───────────────────────────────────────────────
+      case 'pcpartpicker_specs': {
+        const { query, part_type, priced_only, limit } = DatasetSearchSchema.parse(args);
+        const results = await searchDataset(query, part_type as DatasetSlug, priced_only, limit);
+        if (results.length === 0) {
+          return ok(
+            `No ${part_type} components matched "${query}" in the PCPartPicker specs database` +
+            (priced_only ? ' with a USD price listed' : '') + '.',
+          );
+        }
+        const lines = [
+          `## PCPartPicker Specs: "${query}" (${part_type})`,
+          `*${results.length} result(s) · specs from docyx/pc-part-dataset · prices are USD reference only*\n`,
+        ];
+        for (const [i, c] of results.entries()) {
+          lines.push(formatDatasetComponent(c, i));
+          lines.push('');
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── pcpartpicker_browse ──────────────────────────────────────────────
+      case 'pcpartpicker_browse': {
+        const { part_type, priced_only, limit } = DatasetBrowseSchema.parse(args);
+        const { results, total, totalPriced } = await browseDataset(
+          part_type as DatasetSlug, priced_only, limit,
+        );
+        if (results.length === 0) {
+          return ok(
+            `No ${part_type} components found in the PCPartPicker specs database` +
+            (priced_only ? ' with a USD price listed' : '') + '.',
+          );
+        }
+        const lines = [
+          `## PCPartPicker Browse: ${part_type}`,
+          `*${total} total · ${totalPriced} priced · showing ${results.length} · sorted cheapest first · USD reference prices*\n`,
+        ];
+        for (const [i, c] of results.entries()) {
+          lines.push(formatDatasetComponent(c, i));
+          lines.push('');
+        }
         return ok(lines.join('\n'));
       }
 
