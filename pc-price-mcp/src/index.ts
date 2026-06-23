@@ -23,6 +23,12 @@ import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js'
 import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
 import { ebayBrowseSearch, ebayBrowseGetItem, type EbayCondition } from './sources/ebay-browse.js';
 import { notifyAll, sendDiscord, sendSlack } from './notifications.js';
+import { findBenchmark, findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
+import { checkCompatibility } from './services/compatibility.js';
+import { calculateDealScore, getDealScoresForAll } from './services/deal-scorer.js';
+import { buildVsBuy, budgetBuilder, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
+import { findComponentReviews } from './sources/youtube-reviews.js';
+import { searchBuildapc, getUkDeals, getBuildRecommendations } from './sources/reddit.js';
 import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
   exportBuildCsv, exportBuildJson, exportTrackedComponentsCsv,
@@ -220,6 +226,75 @@ const ComparePrebuiltsSchema = z.object({
 const SetPrebuiltAlertSchema = z.object({
   id: z.number().int().positive(),
   alert_price: z.number().positive().nullable(),
+});
+
+const BenchmarkLookupSchema = z.object({
+  query: z.string().min(1),
+  type: z.enum(['cpu', 'gpu', 'auto']).default('auto'),
+});
+
+const BenchmarkCompareSchema = z.object({
+  component_a: z.string().min(1),
+  component_b: z.string().min(1),
+  type: z.enum(['cpu', 'gpu', 'auto']).default('auto'),
+});
+
+const BenchmarkPerPoundSchema = z.object({
+  budget_max: z.number().positive(),
+  budget_min: z.number().positive().default(0),
+  type: z.enum(['cpu', 'gpu']),
+  top_n: z.number().int().min(1).max(20).default(10),
+});
+
+const CompatibilitySchema = z.object({
+  cpu: z.string().optional(),
+  motherboard: z.string().optional(),
+  ram: z.string().optional(),
+  gpu: z.string().optional(),
+  psu: z.string().optional(),
+  case: z.string().optional(),
+  cooler: z.string().optional(),
+  storage: z.string().optional(),
+});
+
+const DealScoreSchema = z.object({
+  component_id: z.number().int().positive().optional(),
+});
+
+const BuildVsBuySchema = z.object({
+  cpu: z.string().optional(),
+  gpu: z.string().optional(),
+  ram_gb: z.number().int().positive().optional(),
+  storage_gb: z.number().int().positive().optional(),
+});
+
+const BudgetBuilderSchema = z.object({
+  budget: z.number().positive(),
+  use_case: z.enum(['gaming_1080p', 'gaming_1440p', 'gaming_4k', 'workstation', 'streaming', 'general']).default('gaming_1440p'),
+});
+
+const UpgradeAdvisorSchema = z.object({
+  current_cpu: z.string().min(1),
+  current_gpu: z.string().min(1),
+  budget: z.number().positive(),
+  use_case: z.enum(['gaming_1080p', 'gaming_1440p', 'gaming_4k', 'workstation', 'streaming', 'general']).default('gaming_1440p'),
+});
+
+const FindReviewsSchema = z.object({
+  component: z.string().min(1),
+  max_results: z.number().int().min(1).max(15).default(8),
+  trusted_only: z.boolean().default(false),
+});
+
+const RedditSearchSchema = z.object({
+  query: z.string().min(1),
+  sort_by: z.enum(['relevance', 'top', 'new']).default('relevance'),
+  max_results: z.number().int().min(1).max(25).default(10),
+});
+
+const RedditBuildRecsSchema = z.object({
+  budget: z.number().positive(),
+  use_case: z.string().default('gaming'),
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1002,6 +1077,202 @@ const TOOLS = [
         itemId: { type: 'string', description: 'eBay item ID (the number from the listing URL)' },
       },
       required: ['itemId'],
+    },
+  },
+
+  // ── Intelligence tools ─────────────────────────────────────────────────
+  {
+    name: 'benchmark_lookup',
+    description:
+      'Look up PassMark benchmark score, TDP, architecture, and tier for a CPU or GPU. ' +
+      'Enables performance comparisons and value analysis. Data is from the bundled benchmark database (updated quarterly).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Component name, e.g. "RTX 4070 Super" or "Ryzen 5 7600X"' },
+        type: { type: 'string', enum: ['cpu', 'gpu', 'auto'], default: 'auto' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'benchmark_compare',
+    description:
+      'Compare two CPUs or GPUs head-to-head using PassMark scores. ' +
+      'Returns performance delta, tier difference, and upgrade justification.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        component_a: { type: 'string', description: 'First component name' },
+        component_b: { type: 'string', description: 'Second component name' },
+        type: { type: 'string', enum: ['cpu', 'gpu', 'auto'], default: 'auto' },
+      },
+      required: ['component_a', 'component_b'],
+    },
+  },
+  {
+    name: 'benchmark_per_pound',
+    description:
+      'Find the best-value CPUs or GPUs in a given price range, ranked by PassMark score per pound. ' +
+      'Uses benchmark database only — does not check live prices.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        budget_max: { type: 'number', description: 'Maximum price in GBP' },
+        budget_min: { type: 'number', description: 'Minimum price in GBP (default 0)', default: 0 },
+        type: { type: 'string', enum: ['cpu', 'gpu'] },
+        top_n: { type: 'number', default: 10 },
+      },
+      required: ['budget_max', 'type'],
+    },
+  },
+  {
+    name: 'check_compatibility',
+    description:
+      'Check a set of PC components for compatibility issues: CPU ↔ motherboard socket, ' +
+      'DDR4/DDR5 memory standard, PSU wattage sufficiency, and case form factor. ' +
+      'No API key needed — uses static compatibility rules.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        cpu:         { type: 'string', description: 'CPU name or model, e.g. "Ryzen 5 7600X"' },
+        motherboard: { type: 'string', description: 'Motherboard name, e.g. "ASUS ROG Strix B650E-F"' },
+        ram:         { type: 'string', description: 'RAM kit, e.g. "Corsair Vengeance 32GB DDR5-6000"' },
+        gpu:         { type: 'string', description: 'GPU, e.g. "RTX 4070 Super"' },
+        psu:         { type: 'string', description: 'PSU, e.g. "Corsair RM850x 850W"' },
+        case:        { type: 'string', description: 'Case, e.g. "Fractal Meshify 2 Compact ATX"' },
+        cooler:      { type: 'string', description: 'CPU cooler (optional)' },
+        storage:     { type: 'string', description: 'Storage (optional)' },
+      },
+    },
+  },
+  {
+    name: 'get_deal_score',
+    description:
+      'Calculate a deal score (0–100) for a tracked component based on its price history. ' +
+      '100 = at all-time low, 0 = at all-time high. ' +
+      'If no component_id given, returns scores for all tracked components sorted best-deal-first.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        component_id: { type: 'number', description: 'Optional — specific component to score. Omit to score all.' },
+      },
+    },
+  },
+  {
+    name: 'build_vs_buy',
+    description:
+      'Compare building a PC from components versus buying a pre-built system. ' +
+      'Looks up your tracked components and pre-built systems for pricing. ' +
+      'Returns: build total, cheapest matching pre-built, savings estimate, and verdict.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        cpu:        { type: 'string', description: 'Target CPU model, e.g. "Ryzen 5 7600X"' },
+        gpu:        { type: 'string', description: 'Target GPU model, e.g. "RTX 4070 Super"' },
+        ram_gb:     { type: 'number', description: 'Target RAM in GB (e.g. 32)' },
+        storage_gb: { type: 'number', description: 'Target SSD in GB (e.g. 1000)' },
+      },
+    },
+  },
+  {
+    name: 'budget_builder',
+    description:
+      'Design an optimal PC build for a given budget and use case. ' +
+      'Returns a component allocation breakdown with suggested products and search queries ' +
+      'at each budget tier. Use cases: gaming_1080p, gaming_1440p, gaming_4k, workstation, streaming, general.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        budget:   { type: 'number', description: 'Total budget in GBP' },
+        use_case: {
+          type: 'string',
+          enum: ['gaming_1080p', 'gaming_1440p', 'gaming_4k', 'workstation', 'streaming', 'general'],
+          default: 'gaming_1440p',
+        },
+      },
+      required: ['budget'],
+    },
+  },
+  {
+    name: 'upgrade_advisor',
+    description:
+      'Recommend the best component upgrades for an existing PC given current specs and a budget. ' +
+      'Identifies the bottleneck (CPU vs GPU), ranks candidates by performance gain per £, ' +
+      'and flags whether a new platform (socket) is required.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        current_cpu: { type: 'string', description: 'Your current CPU, e.g. "Ryzen 5 3600"' },
+        current_gpu: { type: 'string', description: 'Your current GPU, e.g. "RTX 2070"' },
+        budget:      { type: 'number', description: 'Upgrade budget in GBP' },
+        use_case:    {
+          type: 'string',
+          enum: ['gaming_1080p', 'gaming_1440p', 'gaming_4k', 'workstation', 'streaming', 'general'],
+          default: 'gaming_1440p',
+        },
+      },
+      required: ['current_cpu', 'current_gpu', 'budget'],
+    },
+  },
+  {
+    name: 'find_reviews',
+    description:
+      'Find YouTube review videos for a PC component. Results are sorted with trusted hardware ' +
+      'channels first (Gamers Nexus, Hardware Unboxed, Linus Tech Tips, Digital Foundry, etc.). ' +
+      'Requires YOUTUBE_API_KEY.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        component:    { type: 'string', description: 'Component name, e.g. "RTX 4070 Super"' },
+        max_results:  { type: 'number', default: 8 },
+        trusted_only: { type: 'boolean', default: false, description: 'Only return videos from known trusted channels' },
+      },
+      required: ['component'],
+    },
+  },
+  {
+    name: 'reddit_recommendations',
+    description:
+      'Search r/buildapc on Reddit for community recommendations and build advice. ' +
+      'Great for real-world opinions on compatibility, value, and alternatives. ' +
+      'Requires REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:       { type: 'string', description: 'Search query, e.g. "RTX 4070 vs RX 7800 XT"' },
+        sort_by:     { type: 'string', enum: ['relevance', 'top', 'new'], default: 'relevance' },
+        max_results: { type: 'number', default: 10 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'reddit_uk_deals',
+    description:
+      'Get the latest UK-tagged deals from r/buildapcsales. Filters for posts mentioning UK retailers ' +
+      '(Scan, Overclockers, Ebuyer, Amazon UK, CCL, etc.). ' +
+      'Requires REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        max_results: { type: 'number', default: 15 },
+      },
+    },
+  },
+  {
+    name: 'reddit_build_advice',
+    description:
+      'Search r/buildapc for community-recommended builds within a budget and use case. ' +
+      'Returns relevant posts sorted by Reddit score (upvotes). ' +
+      'Requires REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        budget:   { type: 'number', description: 'Budget in GBP' },
+        use_case: { type: 'string', default: 'gaming', description: 'Use case, e.g. "gaming", "workstation", "streaming"' },
+      },
+      required: ['budget'],
     },
   },
 ];
@@ -2480,6 +2751,309 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ];
 
         return ok(lines.filter(Boolean).join('\n'));
+      }
+
+      // ── benchmark_lookup ──────────────────────────────────────────────────
+      case 'benchmark_lookup': {
+        const { query, type } = BenchmarkLookupSchema.parse(args);
+        const result = findBenchmark(query, type);
+        if (!result) {
+          return ok(`No benchmark data found for "${query}". Try a more specific name like "RTX 4070 Super" or "Ryzen 5 7600X".`);
+        }
+        const isCpu = 'socket' in result;
+        const lines = [
+          `## ${result.name}`,
+          `**Type:** ${isCpu ? 'CPU' : 'GPU'}`,
+          `**Tier:** ${result.tier}`,
+          `**Brand:** ${result.brand}`,
+          isCpu ? `**Socket:** ${(result as any).socket}` : `**Architecture:** ${(result as any).architecture}`,
+          isCpu ? `**Cores/Threads:** ${(result as any).cores}C / ${(result as any).threads}T` : `**VRAM:** ${(result as any).vram}GB ${(result as any).memType}`,
+          `**TDP:** ${result.tdp}W`,
+          '',
+          `**PassMark Score:** ${result.score.toLocaleString()} ${isCpu ? '(multi-thread)' : '(G3D Mark)'}`,
+          isCpu ? `**Single-thread:** ${(result as any).singleScore.toLocaleString()}` : '',
+        ];
+        return ok(lines.filter(Boolean).join('\n'));
+      }
+
+      // ── benchmark_compare ─────────────────────────────────────────────────
+      case 'benchmark_compare': {
+        const { component_a, component_b, type } = BenchmarkCompareSchema.parse(args);
+        const a = findBenchmark(component_a, type);
+        const b = findBenchmark(component_b, type);
+        if (!a) return ok(`Could not find benchmark data for "${component_a}".`);
+        if (!b) return ok(`Could not find benchmark data for "${component_b}".`);
+        const winner = a.score >= b.score ? a : b;
+        const loser  = a.score >= b.score ? b : a;
+        const diffPct = Math.round((winner.score - loser.score) / loser.score * 100);
+        const lines = [
+          `## Benchmark Comparison`,
+          '',
+          `| | ${a.name} | ${b.name} |`,
+          `|---|---|---|`,
+          `| PassMark | ${a.score.toLocaleString()} | ${b.score.toLocaleString()} |`,
+          `| TDP | ${a.tdp}W | ${b.tdp}W |`,
+          'socket' in a ? `| Socket | ${(a as any).socket} | ${(b as any).socket} |` : `| VRAM | ${(a as any).vram}GB | ${(b as any).vram}GB |`,
+          `| Tier | ${a.tier} | ${b.tier} |`,
+          '',
+          `**Winner:** ${winner.name} is **${diffPct}% faster** (${winner.score.toLocaleString()} vs ${loser.score.toLocaleString()})`,
+          diffPct < 10 ? '\n> The performance difference is under 10% — likely imperceptible in real-world use.' : '',
+          diffPct > 30 ? `\n> A ${diffPct}% gap is significant — the ${winner.name} is a meaningful step up.` : '',
+        ];
+        return ok(lines.filter(Boolean).join('\n'));
+      }
+
+      // ── benchmark_per_pound ───────────────────────────────────────────────
+      case 'benchmark_per_pound': {
+        const { budget_max, budget_min, type, top_n } = BenchmarkPerPoundSchema.parse(args);
+        const data = type === 'gpu' ? GPU_BENCHMARKS : CPU_BENCHMARKS;
+        const TIER_PRICES: Record<string, number> = {
+          budget: 80,  entry: 130, mid: 220, 'mid-high': 340, high: 520, ultra: 850,
+        };
+        const filtered = data
+          .map(c => {
+            const estPrice = TIER_PRICES[c.tier] ?? 300;
+            return { ...c, estPrice, scorePerPound: Math.round(c.score / estPrice) };
+          })
+          .filter(c => c.estPrice >= budget_min && c.estPrice <= budget_max)
+          .sort((a, b) => b.scorePerPound - a.scorePerPound)
+          .slice(0, top_n);
+
+        if (!filtered.length) return ok(`No ${type.toUpperCase()} data found in the £${budget_min}–£${budget_max} range.`);
+
+        const header = `## Best Value ${type.toUpperCase()}s — £${budget_min}–£${budget_max}`;
+        const table = [
+          `| # | Name | PassMark | Est. Price | Score/£ | Tier |`,
+          `|---|---|---|---|---|---|`,
+          ...filtered.map((c, i) =>
+            `| ${i + 1} | ${c.name} | ${c.score.toLocaleString()} | ~£${c.estPrice} | ${c.scorePerPound} | ${c.tier} |`,
+          ),
+        ];
+        return ok([header, '', ...table, '', '*Prices are tier-based estimates. Use search_components for live pricing.*'].join('\n'));
+      }
+
+      // ── check_compatibility ───────────────────────────────────────────────
+      case 'check_compatibility': {
+        const { cpu, motherboard, ram, gpu, psu, case: pcCase, cooler, storage } = CompatibilitySchema.parse(args);
+        const result = checkCompatibility({ cpu, motherboard, ram, gpu, psu, case: pcCase, cooler, storage });
+        const lines = [
+          `## Compatibility Check`,
+          `**Result:** ${result.isCompatible ? '✓ Compatible' : '✗ Issues Found'}`,
+          `**Summary:** ${result.summary}`,
+          result.estimatedPsuWatts ? `**Estimated power draw:** ~${result.estimatedPsuWatts}W` : '',
+        ];
+        if (result.issues.length > 0) {
+          lines.push('', '### Errors (must fix)');
+          for (const iss of result.issues) {
+            lines.push(`- **${iss.type}:** ${iss.message}`);
+          }
+        }
+        if (result.warnings.length > 0) {
+          lines.push('', '### Warnings (review recommended)');
+          for (const w of result.warnings) {
+            lines.push(`- **${w.type}:** ${w.message}`);
+          }
+        }
+        return ok(lines.filter(l => l !== undefined).join('\n'));
+      }
+
+      // ── get_deal_score ────────────────────────────────────────────────────
+      case 'get_deal_score': {
+        const { component_id } = DealScoreSchema.parse(args);
+        if (component_id) {
+          const d = calculateDealScore(component_id);
+          if (d.score === null) return ok(`Insufficient price history for component ${component_id}. Run refresh_prices to gather more data.`);
+          const lines = [
+            `## Deal Score: ${d.componentName}`,
+            `**Score:** ${d.score}/100 — ${d.label}`,
+            `**Current best price:** ${d.currentBestPrice != null ? fmt(d.currentBestPrice) : 'Unknown'}`,
+            `**All-time low:** ${d.allTimeLow != null ? fmt(d.allTimeLow) : 'Unknown'}`,
+            `**30-day average:** ${d.avg30d != null ? fmt(d.avg30d) : 'Unknown'}`,
+            d.vsAvg30dPercent != null ? `**vs 30-day avg:** ${d.vsAvg30dPercent > 0 ? `-${d.vsAvg30dPercent}%` : `+${Math.abs(d.vsAvg30dPercent)}%`}` : '',
+            `**Data points:** ${d.dataPoints}`,
+            '',
+            `**Recommendation:** ${d.recommendation}`,
+          ];
+          return ok(lines.filter(Boolean).join('\n'));
+        }
+        const scores = getDealScoresForAll();
+        if (!scores.length) return ok('No components have enough price history yet. Track some components and run refresh_prices first.');
+        const lines = [
+          '## Deal Scores — All Tracked Components',
+          '',
+          '| # | Component | Score | Label | Current Price | vs ATL |',
+          '|---|---|---|---|---|---|',
+          ...scores.map((d, i) =>
+            `| ${i + 1} | ${d.componentName} | ${d.score}/100 | ${d.label} | ${d.currentBestPrice != null ? fmt(d.currentBestPrice) : '—'} | +${d.vsAllTimeLowPercent ?? '?'}% |`,
+          ),
+        ];
+        return ok(lines.join('\n'));
+      }
+
+      // ── build_vs_buy ──────────────────────────────────────────────────────
+      case 'build_vs_buy': {
+        const { cpu, gpu, ram_gb, storage_gb } = BuildVsBuySchema.parse(args);
+        const result = buildVsBuy({ cpu, gpu, ramGb: ram_gb, storageGb: storage_gb });
+        const lines = [
+          '## Build vs Buy Analysis',
+          '',
+          result.buildComponents.length > 0 ? '### Build components' : '',
+          ...result.buildComponents.map(c =>
+            `- **${c.category.toUpperCase()}** ${c.name}: ${c.price != null ? fmt(c.price) : 'price unknown'} ${c.retailer ? `(${c.retailer})` : ''}`,
+          ),
+          result.buildCost != null ? `\n**Total build cost: ${fmt(result.buildCost)}**` : '',
+          '',
+          result.cheapestPrebuilt
+            ? `### Cheapest matching pre-built\n- **${result.cheapestPrebuilt.name}** — ${fmt(result.cheapestPrebuilt.price)} (${result.cheapestPrebuilt.retailer})${result.cheapestPrebuilt.url ? `\n  [View listing](${result.cheapestPrebuilt.url})` : ''}`
+            : '### Pre-built comparison\nNo matching pre-built systems tracked.',
+          '',
+          `**Verdict:** ${result.verdict === 'build' ? '🔧 Build — cheaper and more flexible' : result.verdict === 'buy' ? '🛒 Buy — pre-built is better value' : result.verdict === 'similar' ? '⚖️ Similar cost — choose based on preference' : '⚠️ Insufficient data'}`,
+          result.savingsIfBuild != null ? `**Savings by building:** £${Math.abs(result.savingsIfBuild)}${result.savingsIfBuild < 0 ? ' (pre-built is cheaper)' : ''}` : '',
+          '',
+          ...result.notes.map(n => `> ${n}`),
+        ];
+        return ok(lines.filter(l => l !== undefined).join('\n'));
+      }
+
+      // ── budget_builder ────────────────────────────────────────────────────
+      case 'budget_builder': {
+        const { budget, use_case } = BudgetBuilderSchema.parse(args);
+        const result = budgetBuilder(budget, use_case as UseCase);
+        const lines = [
+          `## Budget Builder — ${result.useCaseLabel} — £${budget.toLocaleString()}`,
+          '',
+          '| Component | Budget | % | Suggestion | Tier |',
+          '|---|---|---|---|---|',
+          ...result.allocations.map(a =>
+            `| ${a.label} | £${a.budgetPounds} | ${a.allocationPercent}% | ${a.suggestion} | ${a.tier} |`,
+          ),
+          '',
+          `**Total allocated:** £${result.totalAllocated.toLocaleString()} of £${budget.toLocaleString()}`,
+          '',
+          '### Notes',
+          ...result.notes.map(n => `- ${n}`),
+          '',
+          '### Next steps',
+          ...result.allocations.map(a =>
+            `- **${a.label}:** search for "${a.searchQuery}"`,
+          ),
+        ];
+        return ok(lines.join('\n'));
+      }
+
+      // ── upgrade_advisor ───────────────────────────────────────────────────
+      case 'upgrade_advisor': {
+        const { current_cpu, current_gpu, budget, use_case } = UpgradeAdvisorSchema.parse(args);
+        const result = upgradeAdvisor({ currentCpu: current_cpu, currentGpu: current_gpu, budget, useCase: use_case as UseCase });
+        const lines = [
+          `## Upgrade Advisor`,
+          `**Current setup:** ${result.currentCpu} + ${result.currentGpu}`,
+          `**Budget:** £${budget.toLocaleString()} | **Use case:** ${result.useCase}`,
+          '',
+          `**Bottleneck:** ${result.bottleneck.toUpperCase()}`,
+          `> ${result.bottleneckReason}`,
+          '',
+        ];
+        if (result.recommendations.length === 0) {
+          lines.push('No upgrades found within this budget that provide significant gains.');
+        } else {
+          lines.push('### Recommended upgrades (best value first)');
+          for (const [i, rec] of result.recommendations.entries()) {
+            lines.push(
+              `\n#### ${i + 1}. ${rec.component.toUpperCase()}: ${rec.suggestion}`,
+              `**Reason:** ${rec.reason}`,
+              rec.gainPercent != null ? `**Performance gain:** +${rec.gainPercent}%` : '',
+              `**Estimated cost:** ~£${rec.estimatedCostPounds}`,
+              rec.valueScore != null ? `**Value score:** ${rec.valueScore} pts/£100 spent` : '',
+              `**Search for:** "${rec.searchQuery}"`,
+            );
+          }
+        }
+        if (result.notes.length > 0) {
+          lines.push('', '### Notes', ...result.notes.map(n => `- ${n}`));
+        }
+        return ok(lines.filter(Boolean).join('\n'));
+      }
+
+      // ── find_reviews ──────────────────────────────────────────────────────
+      case 'find_reviews': {
+        const { component, max_results, trusted_only } = FindReviewsSchema.parse(args);
+        const result = await findComponentReviews(component, max_results, trusted_only);
+        if (result.error) return ok(`Review search failed: ${result.error}`);
+        if (!result.videos.length) return ok(`No YouTube reviews found for "${component}".`);
+        const lines = [
+          `## YouTube Reviews — ${component}`,
+          `*${result.videos.length} videos found. Trusted channels shown first.*`,
+          '',
+          ...result.videos.map((v, i) => [
+            `### ${i + 1}. ${v.title}`,
+            `**Channel:** ${v.channelName}${v.isTrustedChannel ? ' ✓' : ''} | **Published:** ${v.publishedAt.split('T')[0]}${v.viewCount ? ` | **Views:** ${parseInt(v.viewCount).toLocaleString()}` : ''}`,
+            `[Watch on YouTube](${v.url})`,
+          ].join('\n')),
+        ];
+        return ok(lines.join('\n\n'));
+      }
+
+      // ── reddit_recommendations ────────────────────────────────────────────
+      case 'reddit_recommendations': {
+        const { query, sort_by, max_results } = RedditSearchSchema.parse(args);
+        const result = await searchBuildapc(query, sort_by, max_results);
+        if (result.error) return ok(`Reddit search failed: ${result.error}`);
+        if (!result.posts.length) return ok(`No r/buildapc posts found for "${query}".`);
+        const lines = [
+          `## r/buildapc — "${query}"`,
+          `*${result.posts.length} posts, sorted by ${sort_by}*`,
+          '',
+          ...result.posts.map((p, i) =>
+            `### ${i + 1}. ${p.title}\n` +
+            `↑ ${p.score.toLocaleString()} | 💬 ${p.numComments} comments | ${p.createdDate}` +
+            (p.flair ? ` | [${p.flair}]` : '') +
+            `\n[Read on Reddit](${p.permalink})` +
+            (p.selftext ? `\n> ${p.selftext.replace(/\n/g, ' ').slice(0, 200)}…` : ''),
+          ),
+        ];
+        return ok(lines.join('\n\n'));
+      }
+
+      // ── reddit_uk_deals ───────────────────────────────────────────────────
+      case 'reddit_uk_deals': {
+        const { max_results } = z.object({ max_results: z.number().int().default(15) }).parse(args);
+        const result = await getUkDeals(max_results);
+        if (result.error) return ok(`Reddit deals fetch failed: ${result.error}`);
+        if (!result.posts.length) return ok('No UK deals found on r/buildapcsales this week.');
+        const lines = [
+          `## r/buildapcsales — UK Deals (Past 7 Days)`,
+          `*${result.posts.length} UK-tagged deals*`,
+          '',
+          ...result.posts.map((p, i) =>
+            `### ${i + 1}. ${p.title}\n` +
+            `↑ ${p.score.toLocaleString()} | 💬 ${p.numComments} | ${p.createdDate}` +
+            (p.flair ? ` | [${p.flair}]` : '') +
+            `\n[Reddit thread](${p.permalink})` +
+            (p.url !== p.permalink ? `  |  [Deal link](${p.url})` : ''),
+          ),
+        ];
+        return ok(lines.join('\n\n'));
+      }
+
+      // ── reddit_build_advice ───────────────────────────────────────────────
+      case 'reddit_build_advice': {
+        const { budget, use_case } = RedditBuildRecsSchema.parse(args);
+        const result = await getBuildRecommendations(budget, use_case);
+        if (result.error) return ok(`Reddit search failed: ${result.error}`);
+        if (!result.posts.length) return ok(`No relevant r/buildapc posts found for £${budget} ${use_case} build.`);
+        const lines = [
+          `## r/buildapc — Community Advice for £${budget.toLocaleString()} ${use_case} Build`,
+          `*${result.posts.length} relevant posts*`,
+          '',
+          ...result.posts.map((p, i) =>
+            `### ${i + 1}. ${p.title}\n` +
+            `↑ ${p.score.toLocaleString()} | 💬 ${p.numComments} | ${p.createdDate}\n` +
+            `[Read on Reddit](${p.permalink})` +
+            (p.selftext ? `\n> ${p.selftext.replace(/\n/g, ' ').slice(0, 300)}…` : ''),
+          ),
+        ];
+        return ok(lines.join('\n\n'));
       }
 
       default:
