@@ -42,6 +42,22 @@ export interface StockChange {
   was_in_stock: number; is_in_stock: number;
   price: number | null; recorded_at: string; component_name: string;
 }
+export interface PrebuiltSystem {
+  id: number; name: string; brand: string | null;
+  cpu: string | null; gpu: string | null; ram: string | null;
+  storage: string | null; os: string | null; form_factor: string | null;
+  category: string; search_query: string; alert_price: number | null;
+  notes: string | null; created_at: string; last_checked: string | null;
+}
+export interface PrebuiltPriceRecord {
+  id: number; system_id: number; source: string; price: number;
+  currency: string; retailer: string; url: string | null;
+  in_stock: number; recorded_at: string;
+}
+export interface PrebuiltPriceSnapshot {
+  source: string; price: number; currency: string;
+  retailer: string; url: string | null; inStock: boolean;
+}
 
 let _db: Database.Database | null = null;
 
@@ -131,6 +147,41 @@ function initSchema(db: Database.Database): void {
       ON price_records(component_id, retailer, source);
     CREATE INDEX IF NOT EXISTS idx_stock_history_component
       ON stock_history(component_id, recorded_at DESC);
+
+    CREATE TABLE IF NOT EXISTS prebuilt_systems (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      name         TEXT    NOT NULL,
+      brand        TEXT,
+      cpu          TEXT,
+      gpu          TEXT,
+      ram          TEXT,
+      storage      TEXT,
+      os           TEXT,
+      form_factor  TEXT,
+      category     TEXT    NOT NULL DEFAULT 'gaming',
+      search_query TEXT    NOT NULL,
+      alert_price  REAL,
+      notes        TEXT,
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      last_checked TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS prebuilt_price_records (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      system_id   INTEGER NOT NULL REFERENCES prebuilt_systems(id) ON DELETE CASCADE,
+      source      TEXT    NOT NULL,
+      price       REAL    NOT NULL,
+      currency    TEXT    NOT NULL DEFAULT 'GBP',
+      retailer    TEXT    NOT NULL,
+      url         TEXT,
+      in_stock    INTEGER NOT NULL DEFAULT 1,
+      recorded_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_prebuilt_price_system_time
+      ON prebuilt_price_records(system_id, recorded_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_prebuilt_price_system_retailer
+      ON prebuilt_price_records(system_id, retailer, source);
   `);
 }
 
@@ -458,4 +509,131 @@ export function getBuildSummary(buildId: number): BuildSummary | null {
     } else { missingPrices++; }
   }
   return { build, items, bestPrices, totalCost, currency: 'GBP', missingPrices };
+}
+
+// ── Prebuilt systems ───────────────────────────────────────────────────────
+
+export function addPrebuiltSystem(
+  name: string, category: string, searchQuery: string,
+  opts?: {
+    brand?: string | null; cpu?: string | null; gpu?: string | null; ram?: string | null;
+    storage?: string | null; os?: string | null; formFactor?: string | null;
+    alertPrice?: number | null; notes?: string | null;
+  },
+): PrebuiltSystem {
+  return getDb().prepare(`
+    INSERT INTO prebuilt_systems (name, brand, cpu, gpu, ram, storage, os, form_factor, category, search_query, alert_price, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *
+  `).get(
+    name,
+    opts?.brand ?? null, opts?.cpu ?? null, opts?.gpu ?? null,
+    opts?.ram ?? null, opts?.storage ?? null, opts?.os ?? null, opts?.formFactor ?? null,
+    category, searchQuery, opts?.alertPrice ?? null, opts?.notes ?? null,
+  ) as PrebuiltSystem;
+}
+
+export function getPrebuiltSystems(): PrebuiltSystem[] {
+  return getDb().prepare('SELECT * FROM prebuilt_systems ORDER BY name ASC').all() as PrebuiltSystem[];
+}
+
+export function getPrebuiltSystemById(id: number): PrebuiltSystem | undefined {
+  return getDb().prepare('SELECT * FROM prebuilt_systems WHERE id = ?').get(id) as PrebuiltSystem | undefined;
+}
+
+export function removePrebuiltSystem(id: number): boolean {
+  return getDb().prepare('DELETE FROM prebuilt_systems WHERE id = ?').run(id).changes > 0;
+}
+
+export function updatePrebuiltAlertPrice(id: number, alertPrice: number | null): boolean {
+  return getDb().prepare('UPDATE prebuilt_systems SET alert_price = ? WHERE id = ?').run(alertPrice, id).changes > 0;
+}
+
+export function markPrebuiltLastChecked(id: number): void {
+  getDb().prepare("UPDATE prebuilt_systems SET last_checked = datetime('now') WHERE id = ?").run(id);
+}
+
+export function savePrebuiltPriceSnapshots(systemId: number, snapshots: PrebuiltPriceSnapshot[]): void {
+  const db = getDb();
+  const insert = db.prepare(`
+    INSERT INTO prebuilt_price_records (system_id, source, price, currency, retailer, url, in_stock)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  db.transaction((snaps: PrebuiltPriceSnapshot[]) => {
+    for (const s of snaps) {
+      insert.run(systemId, s.source, s.price, s.currency, s.retailer, s.url ?? null, s.inStock ? 1 : 0);
+    }
+  })(snapshots);
+}
+
+export function getPrebuiltPriceHistory(systemId: number, days = 30): PrebuiltPriceRecord[] {
+  return getDb().prepare(`
+    SELECT * FROM prebuilt_price_records
+    WHERE system_id = ? AND recorded_at >= datetime('now', ? || ' days')
+    ORDER BY recorded_at DESC LIMIT 1000
+  `).all(systemId, `-${days}`) as PrebuiltPriceRecord[];
+}
+
+export function getLatestPrebuiltPricePerRetailer(systemId: number): PrebuiltPriceRecord[] {
+  return getDb().prepare(`
+    SELECT p.* FROM prebuilt_price_records p
+    INNER JOIN (
+      SELECT retailer, source, MAX(recorded_at) AS max_date
+      FROM prebuilt_price_records WHERE system_id = ? GROUP BY retailer, source
+    ) latest ON p.retailer = latest.retailer AND p.source = latest.source AND p.recorded_at = latest.max_date
+    WHERE p.system_id = ? ORDER BY p.price ASC
+  `).all(systemId, systemId) as PrebuiltPriceRecord[];
+}
+
+export interface PrebuiltPriceStats {
+  system_id: number; all_time_low: number | null; all_time_high: number | null;
+  avg_30d: number | null; current_best: number | null; total_records: number; currency: string;
+}
+
+export function getPrebuiltPriceStats(systemId: number): PrebuiltPriceStats {
+  const stats = getDb().prepare(`
+    SELECT MIN(price) AS all_time_low, MAX(price) AS all_time_high,
+      ROUND(AVG(CASE WHEN recorded_at >= datetime('now', '-30 days') THEN price END), 2) AS avg_30d,
+      COUNT(*) AS total_records, MAX(currency) AS currency
+    FROM prebuilt_price_records WHERE system_id = ?
+  `).get(systemId) as any;
+
+  const currentRow = getDb().prepare(`
+    SELECT MIN(price) AS price FROM prebuilt_price_records
+    WHERE system_id = ? AND recorded_at >= datetime('now', '-48 hours')
+  `).get(systemId) as any;
+
+  return {
+    system_id: systemId,
+    all_time_low: stats?.all_time_low ?? null,
+    all_time_high: stats?.all_time_high ?? null,
+    avg_30d: stats?.avg_30d ?? null,
+    current_best: currentRow?.price ?? null,
+    total_records: stats?.total_records ?? 0,
+    currency: stats?.currency ?? 'GBP',
+  };
+}
+
+export function getPrebuiltDailyPriceTrend(systemId: number, days = 30): PriceTrend[] {
+  return getDb().prepare(`
+    SELECT date(recorded_at) AS date, MIN(price) AS min_price, MAX(price) AS max_price,
+           ROUND(AVG(price), 2) AS avg_price, COUNT(*) AS record_count
+    FROM prebuilt_price_records
+    WHERE system_id = ? AND recorded_at >= datetime('now', ? || ' days')
+    GROUP BY date(recorded_at) ORDER BY date ASC
+  `).all(systemId, `-${days}`) as PriceTrend[];
+}
+
+export function getPrebuiltsBelowAlertPrice(): {
+  system: PrebuiltSystem; currentBestPrice: number; currency: string; retailer: string; url: string | null;
+}[] {
+  const results: { system: PrebuiltSystem; currentBestPrice: number; currency: string; retailer: string; url: string | null }[] = [];
+  for (const s of getPrebuiltSystems().filter(s => s.alert_price != null)) {
+    const latest = getLatestPrebuiltPricePerRetailer(s.id);
+    if (latest.length === 0) continue;
+    const best = latest[0];
+    if (best.price <= s.alert_price!) {
+      results.push({ system: s, currentBestPrice: best.price, currency: best.currency, retailer: best.retailer, url: best.url });
+    }
+  }
+  return results;
 }

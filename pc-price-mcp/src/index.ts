@@ -15,6 +15,7 @@ import {
   scrapeEbayComponentPrices, resolveComponentSlug, listSupportedComponents,
 } from './sources/pcprice.js';
 import { searchAllUkRetailers, ALL_RETAILER_IDS } from './sources/uk-retailers.js';
+import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS } from './sources/prebuilt-retailers.js';
 import { getAmazonPriceHistory } from './sources/camelcamelcamel.js';
 import { importPCPartPickerList } from './sources/pcpartpicker.js';
 import { notifyAll, sendDiscord, sendSlack } from './notifications.js';
@@ -35,6 +36,12 @@ const SearchSchema = z.object({
 });
 
 const ALL_RETAILER_ENUM = ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit'] as const;
+
+const ALL_PREBUILT_ENUM = [
+  'currys', 'argos', 'johnlewis', 'ao', 'very',
+  'ebuyer', 'scan', 'overclockers', 'box', 'novatech',
+  'ccl', 'chillblast', 'dell', 'hp', 'amazon',
+] as const;
 
 const UkRetailersSchema = z.object({
   query: z.string().min(1),
@@ -162,6 +169,48 @@ const VatModeSchema = z.object({ mode: z.enum(['inc_vat', 'ex_vat']) });
 
 const StockChangesSchema = z.object({
   hours: z.number().int().min(1).max(168).default(24),
+});
+
+const SearchPrebuiltSchema = z.object({
+  query: z.string().min(1),
+  retailers: z.array(z.enum(ALL_PREBUILT_ENUM)).optional(),
+});
+
+const TrackPrebuiltSchema = z.object({
+  name: z.string().min(1),
+  search_query: z.string().min(1),
+  category: z.enum(['gaming', 'workstation', 'office', 'home', 'mini', 'aio', 'other']).default('gaming'),
+  brand: z.string().optional(),
+  cpu: z.string().optional(),
+  gpu: z.string().optional(),
+  ram: z.string().optional(),
+  storage: z.string().optional(),
+  os: z.string().optional(),
+  form_factor: z.string().optional(),
+  alert_price: z.number().positive().optional(),
+  notes: z.string().optional(),
+  fetch_now: z.boolean().default(true),
+});
+
+const PrebuiltIdSchema = z.object({ id: z.number().int().positive() });
+
+const RefreshPrebuiltSchema = z.object({
+  id: z.number().int().positive(),
+  retailers: z.array(z.enum(ALL_PREBUILT_ENUM)).optional(),
+});
+
+const PrebuiltHistorySchema = z.object({
+  id: z.number().int().positive(),
+  days: z.number().int().min(1).max(365).default(30),
+});
+
+const ComparePrebuiltsSchema = z.object({
+  ids: z.array(z.number().int().positive()).min(2).max(5),
+});
+
+const SetPrebuiltAlertSchema = z.object({
+  id: z.number().int().positive(),
+  alert_price: z.number().positive().nullable(),
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -672,6 +721,112 @@ const TOOLS = [
   {
     name: 'delete_build',
     description: 'Delete a build (does not delete the tracked components inside it).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: { id: { type: 'number' } },
+      required: ['id'],
+    },
+  },
+
+  // ── Pre-built PC systems ──────────────────────────────────────────────────
+  {
+    name: 'search_prebuilt_pcs',
+    description:
+      'Search for pre-built desktop PC systems across up to 15 major UK retailers: ' +
+      'Currys, Argos, John Lewis, AO.com, Very, Ebuyer, Scan, Overclockers, Box, Novatech, CCL, Chillblast, Dell UK, HP UK, Amazon UK. ' +
+      'Extracts specs (CPU, GPU, RAM, storage, OS) from product names automatically. ' +
+      'Results are NOT saved — use track_prebuilt_pc to persist and monitor.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Search term, e.g. "gaming desktop RTX 4070" or "Intel i5 desktop PC"' },
+        retailers: {
+          type: 'array',
+          items: { type: 'string', enum: [...ALL_PREBUILT_ENUM] },
+          description: 'Which retailers to search (default: all 15)',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'track_prebuilt_pc',
+    description: 'Add a pre-built PC system to the watchlist for ongoing price monitoring. Optionally provide specs for easier identification.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name: { type: 'string', description: 'Display name, e.g. "Scan Spectrum RTX 4070 Gaming PC"' },
+        search_query: { type: 'string', description: 'Query string used for price lookups' },
+        category: { type: 'string', enum: ['gaming', 'workstation', 'office', 'home', 'mini', 'aio', 'other'], default: 'gaming' },
+        brand: { type: 'string' }, cpu: { type: 'string' }, gpu: { type: 'string' },
+        ram: { type: 'string' }, storage: { type: 'string' }, os: { type: 'string' },
+        form_factor: { type: 'string', description: 'Tower, Mini PC, All-in-One, etc.' },
+        alert_price: { type: 'number', description: 'Alert threshold in GBP' },
+        notes: { type: 'string' },
+        fetch_now: { type: 'boolean', default: true, description: 'Fetch current prices immediately' },
+      },
+      required: ['name', 'search_query'],
+    },
+  },
+  {
+    name: 'list_tracked_prebuilts',
+    description: 'List all tracked pre-built PC systems with their best current price.',
+    inputSchema: { type: 'object' as const, properties: {} },
+  },
+  {
+    name: 'refresh_prebuilt_prices',
+    description: 'Refresh prices for a tracked pre-built PC system across all 15 retailers.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'number', description: 'Prebuilt system ID from list_tracked_prebuilts' },
+        retailers: {
+          type: 'array',
+          items: { type: 'string', enum: [...ALL_PREBUILT_ENUM] },
+          description: 'Which retailers to query (default: all 15)',
+        },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'get_prebuilt_price_history',
+    description: 'Get price history and daily trend for a tracked pre-built PC system.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'number' },
+        days: { type: 'number', default: 30 },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'compare_prebuilt_systems',
+    description: 'Compare 2–5 tracked pre-built PC systems side by side — specs, best price, retailers.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        ids: { type: 'array', items: { type: 'number' }, description: 'Prebuilt system IDs to compare (2–5)' },
+      },
+      required: ['ids'],
+    },
+  },
+  {
+    name: 'set_prebuilt_alert',
+    description: 'Set or remove a price alert for a tracked pre-built PC system.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'number' },
+        alert_price: { type: ['number', 'null'], description: 'GBP threshold, or null to remove' },
+      },
+      required: ['id', 'alert_price'],
+    },
+  },
+  {
+    name: 'remove_tracked_prebuilt',
+    description: 'Remove a pre-built PC system from the watchlist and delete all stored price history.',
     inputSchema: {
       type: 'object' as const,
       properties: { id: { type: 'number' } },
@@ -1750,6 +1905,234 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           `🗑️ Build **"${build.name}"** deleted.\n` +
           'All tracked components in the build are still in your watchlist.',
         );
+      }
+
+      // ── search_prebuilt_pcs ───────────────────────────────────────────────
+      case 'search_prebuilt_pcs': {
+        const { query, retailers } = SearchPrebuiltSchema.parse(args);
+        const retailerList = retailers ?? [...ALL_PREBUILT_RETAILER_IDS];
+        const results = await searchAllPrebuiltRetailers(query, retailerList);
+        const lines = [`## Pre-Built PC Search: "${query}"\n`];
+        lines.push(`Searched ${retailerList.length} retailer(s) · ${new Date().toLocaleString('en-GB')}\n`);
+
+        for (const r of results) {
+          if (r.error && r.results.length === 0) {
+            lines.push(`### ${r.retailer} — ⚠️ ${r.error}`);
+            continue;
+          }
+          lines.push(`### ${r.retailer} (${r.results.length} result(s)) · ${r.durationMs}ms`);
+          for (const p of r.results) {
+            const priceStr = p.price != null ? fmt(p.price, p.currency) : 'Price N/A';
+            const stockStr = p.inStock ? '✅ In Stock' : '❌ Out of Stock';
+            lines.push(`- **${p.name}** — **${priceStr}** · ${stockStr}`);
+            const specs = [p.cpu, p.gpu, p.ram, p.storage, p.os, p.formFactor].filter(Boolean).join(' · ');
+            if (specs) lines.push(`  *${specs}*`);
+            if (p.url) lines.push(`  ${p.url}`);
+          }
+          lines.push('');
+        }
+
+        const allResults = results.flatMap(r => r.results.map(p => ({ ...p, _retailer: r.retailer })));
+        const best = allResults.filter(p => p.price != null).sort((a, b) => a.price! - b.price!)[0];
+        if (best) lines.push(`\n**Best price found: ${fmt(best.price!, best.currency)} at ${best._retailer}**`);
+
+        return ok(lines.join('\n'));
+      }
+
+      // ── track_prebuilt_pc ─────────────────────────────────────────────────
+      case 'track_prebuilt_pc': {
+        const { name: sysName, search_query, category, brand, cpu, gpu, ram, storage, os, form_factor, alert_price, notes, fetch_now } = TrackPrebuiltSchema.parse(args);
+        const system = db.addPrebuiltSystem(sysName, category, search_query, {
+          brand, cpu, gpu, ram, storage, os, formFactor: form_factor,
+          alertPrice: alert_price, notes,
+        });
+
+        const lines = [
+          `✅ Now tracking **"${system.name}"** (ID: **${system.id}**)\n`,
+          `Category: ${system.category}${system.cpu ? ` · CPU: ${system.cpu}` : ''}${system.gpu ? ` · GPU: ${system.gpu}` : ''}`,
+        ];
+
+        if (fetch_now) {
+          lines.push('\n⏳ Fetching current prices across 15 retailers…');
+          const results = await searchAllPrebuiltRetailers(search_query);
+          const snapshots: db.PrebuiltPriceSnapshot[] = [];
+          for (const r of results) {
+            for (const p of r.results) {
+              if (p.price && p.price > 0) {
+                snapshots.push({ source: r.retailer, price: p.price, currency: p.currency, retailer: r.retailer, url: p.url, inStock: p.inStock });
+              }
+            }
+          }
+          if (snapshots.length > 0) {
+            db.savePrebuiltPriceSnapshots(system.id, snapshots);
+            db.markPrebuiltLastChecked(system.id);
+            const best = snapshots.sort((a, b) => a.price - b.price)[0];
+            lines.push(`✅ Saved ${snapshots.length} price records. Best: **${fmt(best.price, best.currency)} at ${best.retailer}**`);
+          } else {
+            lines.push('⚠️ No prices found yet — try `refresh_prebuilt_prices` later.');
+          }
+        }
+
+        if (alert_price) lines.push(`\n🔔 Alert set at ${fmtRaw(alert_price)}`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── list_tracked_prebuilts ────────────────────────────────────────────
+      case 'list_tracked_prebuilts': {
+        const systems = db.getPrebuiltSystems();
+        if (systems.length === 0) {
+          return ok('No pre-built PC systems tracked yet.\nUse `search_prebuilt_pcs` to find systems, then `track_prebuilt_pc` to monitor them.');
+        }
+
+        const lines = [`## Tracked Pre-Built PCs (${systems.length})\n`];
+        lines.push('| ID | Name | Category | Best Price | Retailer | Alert | Checked |');
+        lines.push('|----|------|----------|------------|----------|-------|---------|');
+
+        for (const s of systems) {
+          const latest = db.getLatestPrebuiltPricePerRetailer(s.id);
+          const best = latest[0];
+          const priceStr = best ? fmt(best.price, best.currency) : '—';
+          const retailerStr = best?.retailer ?? '—';
+          const alertStr = s.alert_price ? fmtRaw(s.alert_price) : '—';
+          const checkedStr = s.last_checked ? new Date(s.last_checked + 'Z').toLocaleDateString('en-GB') : 'Never';
+          lines.push(`| ${s.id} | ${s.name} | ${s.category} | **${priceStr}** | ${retailerStr} | ${alertStr} | ${checkedStr} |`);
+        }
+
+        return ok(lines.join('\n'));
+      }
+
+      // ── refresh_prebuilt_prices ───────────────────────────────────────────
+      case 'refresh_prebuilt_prices': {
+        const { id, retailers } = RefreshPrebuiltSchema.parse(args);
+        const system = db.getPrebuiltSystemById(id) ?? notFound('prebuilt system', id);
+        const retailerList = retailers ?? [...ALL_PREBUILT_RETAILER_IDS];
+        const results = await searchAllPrebuiltRetailers(system.search_query, retailerList);
+        const snapshots: db.PrebuiltPriceSnapshot[] = [];
+
+        for (const r of results) {
+          for (const p of r.results) {
+            if (p.price && p.price > 0) {
+              snapshots.push({ source: r.retailer, price: p.price, currency: p.currency, retailer: r.retailer, url: p.url, inStock: p.inStock });
+            }
+          }
+        }
+
+        if (snapshots.length > 0) {
+          db.savePrebuiltPriceSnapshots(id, snapshots);
+          db.markPrebuiltLastChecked(id);
+        }
+
+        const latest = db.getLatestPrebuiltPricePerRetailer(id);
+        const best = latest[0];
+        const lines = [
+          `## Prices refreshed — **"${system.name}"**\n`,
+          `Queried ${retailerList.length} retailer(s) · Saved ${snapshots.length} price records\n`,
+        ];
+
+        if (best) {
+          const alertNote = system.alert_price && best.price <= system.alert_price ? ' 🔔 **BELOW ALERT PRICE!**' : '';
+          lines.push(`**Best: ${fmt(best.price, best.currency)} at ${best.retailer}**${alertNote}`);
+        }
+
+        if (latest.length > 1) {
+          lines.push('\n| Retailer | Price | In Stock |');
+          lines.push('|----------|-------|----------|');
+          for (const p of latest.slice(0, 10)) {
+            lines.push(`| ${p.retailer} | ${fmt(p.price, p.currency)} | ${p.in_stock ? '✅' : '❌'} |`);
+          }
+        }
+
+        return ok(lines.join('\n'));
+      }
+
+      // ── get_prebuilt_price_history ────────────────────────────────────────
+      case 'get_prebuilt_price_history': {
+        const { id, days } = PrebuiltHistorySchema.parse(args);
+        const system = db.getPrebuiltSystemById(id) ?? notFound('prebuilt system', id);
+        const stats = db.getPrebuiltPriceStats(id);
+        const trend = db.getPrebuiltDailyPriceTrend(id, days);
+
+        const lines = [`## Price History — **"${system.name}"** (${days}d)\n`];
+        if (stats.all_time_low != null) {
+          lines.push(`All-time low: **${fmt(stats.all_time_low, stats.currency)}** · High: ${fmt(stats.all_time_high!, stats.currency)}`);
+          lines.push(`30-day avg: ${stats.avg_30d != null ? fmt(stats.avg_30d, stats.currency) : '—'} · Current best: ${stats.current_best != null ? fmt(stats.current_best, stats.currency) : '—'}`);
+          lines.push(`Total price records: ${stats.total_records}\n`);
+        } else {
+          lines.push('No price data yet — run `refresh_prebuilt_prices` first.\n');
+        }
+
+        if (trend.length > 0) {
+          lines.push('| Date | Min | Avg | Max |');
+          lines.push('|------|-----|-----|-----|');
+          for (const t of trend.slice(-14)) {
+            lines.push(`| ${t.date} | ${fmt(t.min_price, stats.currency)} | ${fmt(t.avg_price, stats.currency)} | ${fmt(t.max_price, stats.currency)} |`);
+          }
+        }
+
+        return ok(lines.join('\n'));
+      }
+
+      // ── compare_prebuilt_systems ──────────────────────────────────────────
+      case 'compare_prebuilt_systems': {
+        const { ids } = ComparePrebuiltsSchema.parse(args);
+        const systems = ids.map(id => db.getPrebuiltSystemById(id) ?? notFound('prebuilt system', id));
+        const lines = [`## Pre-Built PC Comparison (${systems.length} systems)\n`];
+
+        const specFields: Array<{ key: keyof db.PrebuiltSystem; label: string }> = [
+          { key: 'category', label: 'Category' },
+          { key: 'brand', label: 'Brand' },
+          { key: 'cpu', label: 'CPU' },
+          { key: 'gpu', label: 'GPU' },
+          { key: 'ram', label: 'RAM' },
+          { key: 'storage', label: 'Storage' },
+          { key: 'os', label: 'OS' },
+          { key: 'form_factor', label: 'Form Factor' },
+        ];
+
+        lines.push(`| Spec | ${systems.map(s => s.name).join(' | ')} |`);
+        lines.push(`|------|${systems.map(() => '------').join('|')}|`);
+
+        for (const { key, label } of specFields) {
+          const vals = systems.map(s => String(s[key] ?? '—'));
+          if (vals.some(v => v !== '—')) {
+            lines.push(`| ${label} | ${vals.join(' | ')} |`);
+          }
+        }
+
+        lines.push('\n**Current Best Prices:**\n');
+        lines.push(`| System | Best Price | Retailer | In Stock |`);
+        lines.push(`|--------|------------|----------|----------|`);
+
+        for (const s of systems) {
+          const latest = db.getLatestPrebuiltPricePerRetailer(s.id);
+          const best = latest[0];
+          const priceStr = best ? fmt(best.price, best.currency) : '—';
+          const retailerStr = best?.retailer ?? '—';
+          const stockStr = best ? (best.in_stock ? '✅' : '❌') : '—';
+          lines.push(`| [${s.id}] ${s.name} | **${priceStr}** | ${retailerStr} | ${stockStr} |`);
+        }
+
+        return ok(lines.join('\n'));
+      }
+
+      // ── set_prebuilt_alert ────────────────────────────────────────────────
+      case 'set_prebuilt_alert': {
+        const { id, alert_price } = SetPrebuiltAlertSchema.parse(args);
+        const system = db.getPrebuiltSystemById(id) ?? notFound('prebuilt system', id);
+        db.updatePrebuiltAlertPrice(id, alert_price);
+        return ok(
+          alert_price != null
+            ? `🔔 Alert set at **${fmtRaw(alert_price)}** for **"${system.name}"**.\nYou'll be notified when the price drops below this threshold.`
+            : `🔕 Alert removed for **"${system.name}"**.`,
+        );
+      }
+
+      // ── remove_tracked_prebuilt ───────────────────────────────────────────
+      case 'remove_tracked_prebuilt': {
+        const { id } = PrebuiltIdSchema.parse(args);
+        const system = db.getPrebuiltSystemById(id) ?? notFound('prebuilt system', id);
+        db.removePrebuiltSystem(id);
+        return ok(`🗑️ **"${system.name}"** removed from prebuilt watchlist.\nAll price history for this system has been deleted.`);
       }
 
       default:

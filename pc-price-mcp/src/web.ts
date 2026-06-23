@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
 import { searchAllUkRetailers, ALL_RETAILER_IDS } from './sources/uk-retailers.js';
+import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
 import { getSchedulerStatus, restartScheduler, stopScheduler } from './scheduler.js';
 import { notifyAll } from './notifications.js';
 import {
@@ -285,6 +286,101 @@ export function startWebServer(port: number): void {
   app.delete('/api/waitlist/:componentId', h(async (req, res) => {
     db.removeFromWaitlist(parseInt(param(req.params.componentId)));
     res.json({ ok: true });
+  }));
+
+  // ── Prebuilt systems ──────────────────────────────────────────────────────
+
+  app.get('/api/prebuilts', h(async (_req, res) => {
+    const systems = db.getPrebuiltSystems();
+    const result = systems.map(s => {
+      const latest = db.getLatestPrebuiltPricePerRetailer(s.id);
+      const best = latest[0] ?? null;
+      return { ...s, best_price: best?.price ?? null, best_retailer: best?.retailer ?? null, best_in_stock: best?.in_stock ?? null, best_url: best?.url ?? null };
+    });
+    res.json(result);
+  }));
+
+  app.post('/api/prebuilts', h(async (req, res) => {
+    const { name, search_query, category = 'gaming', brand, cpu, gpu, ram, storage, os, form_factor, alert_price, notes } = req.body;
+    if (!name || !search_query) { res.status(400).json({ error: 'name and search_query are required' }); return; }
+    const system = db.addPrebuiltSystem(name, category, search_query, {
+      brand: brand ?? null, cpu: cpu ?? null, gpu: gpu ?? null,
+      ram: ram ?? null, storage: storage ?? null, os: os ?? null, formFactor: form_factor ?? null,
+      alertPrice: alert_price ? Number(alert_price) : null, notes: notes ?? null,
+    });
+    res.json(system);
+  }));
+
+  app.get('/api/prebuilts/:id', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const system = db.getPrebuiltSystemById(id);
+    if (!system) { res.status(404).json({ error: 'System not found' }); return; }
+    const latest = db.getLatestPrebuiltPricePerRetailer(id);
+    res.json({ ...system, latest });
+  }));
+
+  app.delete('/api/prebuilts/:id', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const removed = db.removePrebuiltSystem(id);
+    res.json({ removed });
+  }));
+
+  app.patch('/api/prebuilts/:id/alert', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const { alert_price } = req.body;
+    db.updatePrebuiltAlertPrice(id, alert_price != null ? Number(alert_price) : null);
+    res.json({ ok: true });
+  }));
+
+  app.post('/api/prebuilts/:id/refresh', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const system = db.getPrebuiltSystemById(id);
+    if (!system) { res.status(404).json({ error: 'System not found' }); return; }
+    const rawRetailers = req.body?.retailers as string[] | undefined;
+    const retailers = (rawRetailers ?? ALL_PREBUILT_RETAILER_IDS) as PrebuiltRetailerId[];
+    const searchResults = await searchAllPrebuiltRetailers(system.search_query, retailers);
+    const snapshots: db.PrebuiltPriceSnapshot[] = [];
+    for (const r of searchResults) {
+      for (const p of r.results) {
+        if (p.price && p.price > 0) {
+          snapshots.push({ source: r.retailer, price: p.price, currency: p.currency, retailer: r.retailer, url: p.url, inStock: p.inStock });
+        }
+      }
+    }
+    if (snapshots.length > 0) { db.savePrebuiltPriceSnapshots(id, snapshots); db.markPrebuiltLastChecked(id); }
+    const latest = db.getLatestPrebuiltPricePerRetailer(id);
+    res.json({ saved: snapshots.length, retailers: searchResults.length, latest });
+  }));
+
+  app.get('/api/prebuilts/:id/history', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const days = parseInt(req.query.days as string) || 30;
+    const history = db.getPrebuiltPriceHistory(id, days);
+    const trend = db.getPrebuiltDailyPriceTrend(id, days);
+    res.json({ history, trend });
+  }));
+
+  app.get('/api/prebuilts/:id/stats', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    res.json(db.getPrebuiltPriceStats(id));
+  }));
+
+  app.get('/api/prebuilts/:id/latest', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    res.json(db.getLatestPrebuiltPricePerRetailer(id));
+  }));
+
+  app.get('/api/search/prebuilts', h(async (req, res) => {
+    const query = req.query.q as string;
+    if (!query) { res.status(400).json({ error: 'q is required' }); return; }
+    const rawRetailers = req.query.retailers as string;
+    const retailers = (rawRetailers ? rawRetailers.split(',') : [...ALL_PREBUILT_RETAILER_IDS]) as PrebuiltRetailerId[];
+    const results = await searchAllPrebuiltRetailers(query, retailers);
+    res.json(results);
+  }));
+
+  app.get('/api/prebuilts/alerts', h(async (_req, res) => {
+    res.json(db.getPrebuiltsBelowAlertPrice());
   }));
 
   // ── Export ────────────────────────────────────────────────────────────────
