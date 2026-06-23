@@ -12,6 +12,7 @@ import { searchAllUkRetailers, ALL_RETAILER_IDS } from './sources/uk-retailers.j
 import { keepaSearch, keepaGetByAsin, keepaGetUsedPrices } from './sources/keepa.js';
 import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js';
 import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
+import { ebayBrowseSearch, ebayBrowseGetItem, type EbayCondition } from './sources/ebay-browse.js';
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
 import { getSchedulerStatus, restartScheduler, stopScheduler } from './scheduler.js';
 import { notifyAll } from './notifications.js';
@@ -434,6 +435,20 @@ export function startWebServer(port: number): void {
     const { asins } = req.query as Record<string, string>;
     if (!asins) { res.status(400).json({ error: 'asins is required (comma-separated)' }); return; }
     res.json(await paapiGetItems(asins.split(',').map(s => s.trim()).slice(0, 10)));
+  }));
+
+  // ── eBay Browse API ───────────────────────────────────────────────────────
+
+  app.get('/api/ebay/search', h(async (req, res) => {
+    const { q, condition = 'any', max = '20' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    res.json(await ebayBrowseSearch(q, condition as EbayCondition, Math.min(parseInt(max) || 20, 200)));
+  }));
+
+  app.get('/api/ebay/item/:itemId', h(async (req, res) => {
+    const item = await ebayBrowseGetItem(param(req.params.itemId));
+    if (!item) { res.status(404).json({ error: 'Item not found' }); return; }
+    res.json(item);
   }));
 
   // ── Health check ──────────────────────────────────────────────────────────

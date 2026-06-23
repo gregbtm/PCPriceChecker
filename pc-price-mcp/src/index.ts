@@ -21,6 +21,7 @@ import { importPCPartPickerList } from './sources/pcpartpicker.js';
 import { keepaSearch, keepaGetByAsin, keepaGetMultiple } from './sources/keepa.js';
 import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js';
 import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
+import { ebayBrowseSearch, ebayBrowseGetItem, type EbayCondition } from './sources/ebay-browse.js';
 import { notifyAll, sendDiscord, sendSlack } from './notifications.js';
 import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
@@ -249,6 +250,16 @@ const PaapiSearchSchema = z.object({
 
 const PaapiGetItemsSchema = z.object({
   asins: z.array(z.string()).min(1).max(10),
+});
+
+const EbayBrowseSearchSchema = z.object({
+  query:      z.string().min(1),
+  condition:  z.enum(['any', 'new', 'used', 'refurbished']).default('any'),
+  maxResults: z.number().int().min(1).max(200).default(20),
+});
+
+const EbayBrowseGetItemSchema = z.object({
+  itemId: z.string().min(1),
 });
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
@@ -961,6 +972,36 @@ const TOOLS = [
         asins: { type: 'array', items: { type: 'string' }, description: 'List of ASINs (max 10)' },
       },
       required: ['asins'],
+    },
+  },
+
+  // ── eBay Browse API ───────────────────────────────────────────────────────
+  {
+    name: 'ebay_search',
+    description:
+      'Search live eBay UK listings via the official Browse API. Returns new, used, and refurbished PC components ' +
+      'with price, seller rating, free-shipping flag, and direct listing links. ' +
+      'Condition filter: "new" | "used" | "refurbished" | "any" (default). ' +
+      'Requires EBAY_CLIENT_ID and EBAY_CLIENT_SECRET — free at developer.ebay.com.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:      { type: 'string', description: 'Search term, e.g. "RTX 4080" or "Ryzen 7 7800X3D"' },
+        condition:  { type: 'string', enum: ['any', 'new', 'used', 'refurbished'], default: 'any' },
+        maxResults: { type: 'number', description: 'Max listings to return (default 20, max 200)', default: 20 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'ebay_get_item',
+    description: 'Get full details for a specific eBay listing by item ID. Returns description, seller info, shipping, returns policy, and all images.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        itemId: { type: 'string', description: 'eBay item ID (the number from the listing URL)' },
+      },
+      required: ['itemId'],
     },
   },
 ];
@@ -2385,6 +2426,60 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           lines.push(`[View on Amazon](${p.url})\n`);
         }
         return ok(lines.join('\n'));
+      }
+
+      // ── eBay Browse API ────────────────────────────────────────────────────
+
+      case 'ebay_search': {
+        const { query, condition, maxResults } = EbayBrowseSearchSchema.parse(args);
+        const result = await ebayBrowseSearch(query, condition as EbayCondition, maxResults);
+        if (result.error) return ok(`eBay error: ${result.error}`);
+        if (result.listings.length === 0) return ok(`No eBay UK listings found for "${query}"${condition !== 'any' ? ` (condition: ${condition})` : ''}.`);
+
+        const totalStr = result.total != null ? ` of ~${result.total.toLocaleString()}` : '';
+        const lines = [
+          `## eBay UK: "${query}"${condition !== 'any' ? ` — ${condition}` : ''} (${result.listings.length}${totalStr} listings)\n`,
+          '| Title | Price | Condition | Shipping | Seller | |',
+          '|-------|-------|-----------|----------|--------|---|',
+        ];
+
+        for (const l of result.listings) {
+          const priceStr  = l.price != null ? fmtRaw(l.price, l.currency) : 'See listing';
+          const shipStr   = l.freeShipping ? '**Free**' : '—';
+          const sellerStr = l.feedbackPct != null ? `${l.seller} (${l.feedbackPct.toFixed(0)}%)` : l.seller;
+          const condShort = l.condition.replace('Seller refurbished', 'Refurb').replace('Manufacturer refurbished', 'Mfr refurb');
+          lines.push(`| ${l.title.slice(0, 60)}${l.title.length > 60 ? '…' : ''} | **${priceStr}** | ${condShort} | ${shipStr} | ${sellerStr} | [View](${l.url}) |`);
+        }
+
+        lines.push(`\n*Scraped: ${new Date(result.scrapedAt).toLocaleString('en-GB')} · ${result.durationMs}ms*`);
+        lines.push('> eBay prices include private seller listings. Always check seller feedback before buying.');
+        return ok(lines.join('\n'));
+      }
+
+      case 'ebay_get_item': {
+        const { itemId } = EbayBrowseGetItemSchema.parse(args);
+        const item = await ebayBrowseGetItem(itemId);
+        if (!item) return ok(`eBay item ${itemId} not found or no longer available.`);
+
+        const price    = (item.price as Record<string, unknown> | null);
+        const seller   = (item.seller as Record<string, unknown> | null);
+        const shipping = ((item.shippingOptions as Record<string, unknown>[] | null) ?? [])[0];
+        const returns  = (item.returnTerms as Record<string, unknown> | null);
+
+        const lines = [
+          `## ${String(item.title ?? 'eBay Listing')}`,
+          `**Item ID:** ${itemId}`,
+          price?.value != null ? `**Price:** ${fmtRaw(parseFloat(String(price.value)), String(price.currency ?? 'GBP'))}` : '',
+          `**Condition:** ${String(item.condition ?? 'Unknown')}`,
+          `**Status:** ${item.itemEndDate ? `Ends ${new Date(String(item.itemEndDate)).toLocaleString('en-GB')}` : 'Fixed price'}`,
+          seller ? `**Seller:** ${String(seller.username ?? '?')}${seller.feedbackPercentage != null ? ` (${seller.feedbackPercentage}% positive)` : ''}` : '',
+          shipping ? `**Shipping:** ${String(shipping.shippingCostType ?? '')} — ${String((shipping.shippingCost as Record<string, unknown> | null)?.value ?? '')} ${String((shipping.shippingCost as Record<string, unknown> | null)?.currency ?? '')}` : '',
+          returns ? `**Returns:** ${String(returns.returnsAccepted ? 'Accepted' : 'Not accepted')}${returns.returnPeriod ? ` — ${String(returns.returnPeriod)}` : ''}` : '',
+          item.description ? `\n**Description:**\n${String(item.description).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 500)}` : '',
+          `\n[View on eBay](${String(item.itemWebUrl ?? `https://www.ebay.co.uk/itm/${itemId}`)})`,
+        ];
+
+        return ok(lines.filter(Boolean).join('\n'));
       }
 
       default:

@@ -44,6 +44,8 @@ services:
       AMAZON_ACCESS_KEY:    ${AMAZON_ACCESS_KEY:-}
       AMAZON_SECRET_KEY:    ${AMAZON_SECRET_KEY:-}
       AMAZON_ASSOCIATE_TAG: ${AMAZON_ASSOCIATE_TAG:-}
+      EBAY_CLIENT_ID:       ${EBAY_CLIENT_ID:-}
+      EBAY_CLIENT_SECRET:   ${EBAY_CLIENT_SECRET:-}
       TZ: ${TZ:-Europe/London}
 
     volumes:
