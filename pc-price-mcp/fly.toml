@@ -19,7 +19,11 @@
 #     AMAZON_SECRET_KEY=xxx \
 #     AMAZON_ASSOCIATE_TAG=xxx-21 \
 #     EBAY_CLIENT_ID=xxx \
-#     EBAY_CLIENT_SECRET=xxx
+#     EBAY_CLIENT_SECRET=xxx \
+#     BING_API_KEY=xxx \
+#     YOUTUBE_API_KEY=xxx \
+#     REDDIT_CLIENT_ID=xxx \
+#     REDDIT_CLIENT_SECRET=xxx
 #   fly volumes create pc_price_data --size 1    # 1 GB persistent disk
 #   fly deploy
 #

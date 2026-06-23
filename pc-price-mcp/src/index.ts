@@ -29,6 +29,8 @@ import { calculateDealScore, getDealScoresForAll } from './services/deal-scorer.
 import { buildVsBuy, budgetBuilder, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
 import { findComponentReviews } from './sources/youtube-reviews.js';
 import { searchBuildapc, getUkDeals, getBuildRecommendations } from './sources/reddit.js';
+import { searchHukd, getHukdHotDeals, searchHukdForComponent } from './sources/hotukdeals.js';
+import { bingSearchPrices, bingFindRetailers } from './sources/bing-shopping.js';
 import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
   exportBuildCsv, exportBuildJson, exportTrackedComponentsCsv,
@@ -295,6 +297,26 @@ const RedditSearchSchema = z.object({
 const RedditBuildRecsSchema = z.object({
   budget: z.number().positive(),
   use_case: z.string().default('gaming'),
+});
+
+const HukdSearchSchema = z.object({
+  query: z.string().min(1),
+  max_results: z.number().int().min(1).max(50).default(20),
+});
+
+const HukdHotDealsSchema = z.object({
+  category: z.enum(['computing', 'all']).default('computing'),
+  max_results: z.number().int().min(1).max(50).default(20),
+});
+
+const BingSearchSchema = z.object({
+  query: z.string().min(1),
+  max_results: z.number().int().min(1).max(20).default(10),
+  uk_retailers_only: z.boolean().default(true),
+});
+
+const BingFindRetailersSchema = z.object({
+  query: z.string().min(1),
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1273,6 +1295,71 @@ const TOOLS = [
         use_case: { type: 'string', default: 'gaming', description: 'Use case, e.g. "gaming", "workstation", "streaming"' },
       },
       required: ['budget'],
+    },
+  },
+
+  // ── HotUKDeals ─────────────────────────────────────────────────────────
+  {
+    name: 'hotukdeals_search',
+    description:
+      'Search HotUKDeals (UK\'s largest deal community) for PC component deals. ' +
+      'Surfaces flash sales, voucher codes, and time-limited offers that don\'t appear on retailer APIs. ' +
+      'No API key required. Results include price, merchant, and deal description.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Component or keyword, e.g. "RTX 4070" or "Fractal case"' },
+        max_results: { type: 'number', default: 20 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'hotukdeals_hot',
+    description:
+      'Get the latest hot deals from HotUKDeals computing category. ' +
+      'Shows trending deals ordered by recency. No API key required.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        category: { type: 'string', enum: ['computing', 'all'], default: 'computing' },
+        max_results: { type: 'number', default: 20 },
+      },
+    },
+  },
+
+  // ── Bing Shopping ──────────────────────────────────────────────────────
+  {
+    name: 'bing_search_prices',
+    description:
+      'Search Bing for UK retailer prices — catches shops not covered by PricesAPI, AWIN, or the direct scrapers. ' +
+      'Extracts prices from search snippets. Requires BING_API_KEY (Azure Cognitive Services → Bing Search v7). ' +
+      'Free tier: 1,000 calls/month.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Component to search, e.g. "Ryzen 5 7600X"' },
+        max_results: { type: 'number', default: 10 },
+        uk_retailers_only: {
+          type: 'boolean',
+          default: true,
+          description: 'Limit to known UK retailers (Scan, Overclockers, Ebuyer, etc.). False = broader UK search.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'bing_find_retailers',
+    description:
+      'Broader Bing search to discover any UK retailer selling a component — not limited to the known retailer list. ' +
+      'Only returns results where a price was found in the snippet. Requires BING_API_KEY.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Component name, e.g. "be quiet Pure Rock 2 cooler"' },
+      },
+      required: ['query'],
     },
   },
 ];
@@ -2751,6 +2838,96 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ];
 
         return ok(lines.filter(Boolean).join('\n'));
+      }
+
+      // ── hotukdeals_search ─────────────────────────────────────────────────
+      case 'hotukdeals_search': {
+        const { query, max_results } = HukdSearchSchema.parse(args);
+        const result = await searchHukd(query, max_results);
+        if (result.error) return ok(`HotUKDeals search failed: ${result.error}`);
+        if (!result.deals.length) return ok(`No HotUKDeals found for "${query}".`);
+        const lines = [
+          `## HotUKDeals — "${query}" (${result.deals.length} deals)`,
+          '',
+          ...result.deals.map((d, i) => {
+            const priceLine = d.price != null ? ` — ${fmt(d.price)}` : '';
+            const merchantLine = d.merchant ? ` @ ${d.merchant}` : '';
+            return [
+              `### ${i + 1}. ${d.title}`,
+              `${priceLine || merchantLine ? `**${d.price != null ? fmt(d.price) : ''}${merchantLine}**` : ''}`,
+              d.description ? `> ${d.description.slice(0, 200)}` : '',
+              `📅 ${d.publishedAt.split('T')[0]}${d.category ? ` | [${d.category}]` : ''}`,
+              `[View Deal](${d.url})`,
+            ].filter(Boolean).join('\n');
+          }),
+        ];
+        return ok(lines.join('\n\n'));
+      }
+
+      // ── hotukdeals_hot ────────────────────────────────────────────────────
+      case 'hotukdeals_hot': {
+        const { category, max_results } = HukdHotDealsSchema.parse(args);
+        const result = await getHukdHotDeals(category, max_results);
+        if (result.error) return ok(`HotUKDeals fetch failed: ${result.error}`);
+        if (!result.deals.length) return ok('No hot deals found right now.');
+        const lines = [
+          `## HotUKDeals — Hot ${category === 'all' ? 'All' : 'Computing'} Deals`,
+          '',
+          ...result.deals.map((d, i) => {
+            return [
+              `### ${i + 1}. ${d.title}`,
+              d.price != null ? `**${fmt(d.price)}**${d.merchant ? ` @ ${d.merchant}` : ''}` : (d.merchant ? `@ ${d.merchant}` : ''),
+              d.description ? `> ${d.description.slice(0, 150)}` : '',
+              `📅 ${d.publishedAt.split('T')[0]}  [View Deal](${d.url})`,
+            ].filter(Boolean).join('\n');
+          }),
+        ];
+        return ok(lines.join('\n\n'));
+      }
+
+      // ── bing_search_prices ────────────────────────────────────────────────
+      case 'bing_search_prices': {
+        const { query, max_results, uk_retailers_only } = BingSearchSchema.parse(args);
+        const result = await bingSearchPrices(query, max_results, uk_retailers_only);
+        if (result.error) return ok(`Bing price search failed: ${result.error}`);
+        if (!result.results.length) return ok(`No Bing price results found for "${query}".`);
+        const withPrice = result.results.filter(r => r.price !== null);
+        const noPrice   = result.results.filter(r => r.price === null);
+        const lines = [
+          `## Bing Price Search — ${query}`,
+          `*${result.results.length} results — ${withPrice.length} with prices extracted*`,
+          '',
+          withPrice.length > 0 ? '### Results with prices' : '',
+          ...withPrice.map((r, i) =>
+            `**${i + 1}. ${fmt(r.price!)}** — [${r.siteName}](${r.url})\n> ${r.snippet.slice(0, 180)}`,
+          ),
+          noPrice.length > 0 ? '\n### Additional results (no price in snippet)' : '',
+          ...noPrice.map((r, i) =>
+            `${i + 1}. [${r.name.slice(0, 80)}](${r.url}) — ${r.siteName}`,
+          ),
+        ];
+        return ok(lines.filter(Boolean).join('\n\n'));
+      }
+
+      // ── bing_find_retailers ───────────────────────────────────────────────
+      case 'bing_find_retailers': {
+        const { query } = BingFindRetailersSchema.parse(args);
+        const result = await bingFindRetailers(query);
+        if (result.error) return ok(`Bing retailer search failed: ${result.error}`);
+        if (!result.results.length) return ok(`No UK retailers with prices found for "${query}" via Bing.`);
+        const lines = [
+          `## Bing — UK Retailers for "${query}"`,
+          `*${result.results.length} retailers found with prices in snippets*`,
+          '',
+          '| # | Retailer | Price | In Stock |',
+          '|---|---|---|---|',
+          ...result.results.map((r, i) =>
+            `| ${i + 1} | [${r.siteName}](${r.url}) | ${r.price != null ? fmt(r.price) : '—'} | ${r.inStock === true ? 'Yes' : r.inStock === false ? 'No' : '?'} |`,
+          ),
+          '',
+          '*Prices extracted from Bing snippets — verify on retailer site before purchasing.*',
+        ];
+        return ok(lines.join('\n'));
       }
 
       // ── benchmark_lookup ──────────────────────────────────────────────────
