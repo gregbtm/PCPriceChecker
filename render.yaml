@@ -1,0 +1,30 @@
+# Render.com deployment config for the pc-price-mcp web dashboard.
+# Connect this repo in the Render dashboard (https://render.com) and it
+# will auto-deploy on every push to the configured branch.
+#
+# REQUIRED: set PRICES_API_KEY in the Render environment dashboard.
+# OPTIONAL: add a $1/month persistent disk (mountPath: /var/data) so the
+#           SQLite database survives redeploys. Without it, price history
+#           resets on each deploy.
+
+services:
+  - type: web
+    name: pc-price-mcp
+    runtime: node
+    rootDir: pc-price-mcp
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/web-standalone.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /var/data/pc-prices.db
+      - key: PRICES_API_KEY
+        sync: false       # Set this manually in the Render dashboard
+      - key: WEB_PORT
+        value: "10000"    # Render routes external traffic to internal port 10000
+    disk:
+      name: pc-prices-data
+      mountPath: /var/data
+      sizeGB: 1

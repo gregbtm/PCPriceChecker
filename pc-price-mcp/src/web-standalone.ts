@@ -12,5 +12,5 @@ import { startWebServer } from './web.js';
 
 startScheduler();
 
-const port = parseInt(process.env.WEB_PORT ?? '3000');
+const port = parseInt(process.env.WEB_PORT ?? process.env.PORT ?? '3000');
 startWebServer(port);

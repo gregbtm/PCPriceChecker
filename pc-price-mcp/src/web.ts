@@ -383,6 +383,12 @@ export function startWebServer(port: number): void {
     res.json(db.getPrebuiltsBelowAlertPrice());
   }));
 
+  // ── Health check ──────────────────────────────────────────────────────────
+
+  app.get('/api/health', (_req, res) => {
+    res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString() });
+  });
+
   // ── Export ────────────────────────────────────────────────────────────────
 
   app.get('/api/export', h(async (req, res) => {
