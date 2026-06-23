@@ -39,12 +39,14 @@ export interface PrebuiltSearchResult {
 export type PrebuiltRetailerId =
   | 'currys' | 'argos' | 'johnlewis' | 'ao' | 'very'
   | 'ebuyer' | 'scan' | 'overclockers' | 'box' | 'novatech'
-  | 'ccl' | 'chillblast' | 'dell' | 'hp' | 'amazon';
+  | 'ccl' | 'chillblast' | 'dell' | 'hp' | 'amazon'
+  | 'pallicomp' | 'costco' | 'cyberpower' | 'pcspecialist' | 'lenovo';
 
 export const ALL_PREBUILT_RETAILER_IDS: PrebuiltRetailerId[] = [
   'currys', 'argos', 'johnlewis', 'ao', 'very',
   'ebuyer', 'scan', 'overclockers', 'box', 'novatech',
   'ccl', 'chillblast', 'dell', 'hp', 'amazon',
+  'pallicomp', 'costco', 'cyberpower', 'pcspecialist', 'lenovo',
 ];
 
 const BROWSER_HEADERS = {
@@ -519,6 +521,162 @@ export async function cclPrebuiltSearch(query: string): Promise<PrebuiltSearchRe
     `https://www.ccl.co.uk/search?q=${encodeURIComponent(query)}`, 'ccl.co.uk');
 }
 
+export async function pallicompPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  return scrapePrebuiltRetailer('Pallicomp',
+    `https://www.pallicomp.co.uk/search?q=${encodeURIComponent(query)}`,
+    'pallicomp.co.uk',
+    (html, url) => {
+      const results = extractJsonLd(html, 'Pallicomp', url);
+      if (results.length > 0) return results;
+      const items: PrebuiltResult[] = [];
+      for (const [, block] of html.matchAll(/<(?:article|div|li)[^>]*class="[^"]*(?:product[-_]?(?:item|card|tile))[^"]*"[^>]*>([\s\S]*?)(?=<\/(?:article|div|li)>)/gi)) {
+        const nameM = block.match(/class="[^"]*(?:product[-_]?(?:name|title)|title)[^"]*"[^>]*>([\s\S]*?)<\//i);
+        const price = extractGbpPrice(block);
+        const linkM = block.match(/href="([^"]+)"/i);
+        if (!nameM || !price) continue;
+        const name = stripHtml(nameM[1]);
+        if (name.length < 3) continue;
+        items.push({
+          retailer: 'Pallicomp', name, price, currency: 'GBP',
+          inStock: !block.toLowerCase().includes('out of stock'),
+          url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://www.pallicomp.co.uk${linkM[1]}`) : url,
+          brand: 'Pallicomp',
+          ...extractSpecs(name),
+        });
+      }
+      return items;
+    },
+  );
+}
+
+export async function costcoPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  return scrapePrebuiltRetailer('Costco UK',
+    `https://www.costco.co.uk/search?q=${encodeURIComponent(query)}`,
+    'costco.co.uk',
+    (html, url) => {
+      const results = extractJsonLd(html, 'Costco UK', url);
+      if (results.length > 0) return results;
+      const items: PrebuiltResult[] = [];
+      for (const [, block] of html.matchAll(/<div[^>]*class="[^"]*(?:product|item)[-_]?(?:info|card|tile)?[^"]*"[^>]*>([\s\S]*?)(?=<\/div>)/gi)) {
+        const nameM = block.match(/<(?:h[23]|a|span)[^>]*class="[^"]*(?:description|name|title)[^"]*"[^>]*>([\s\S]*?)<\/(?:h[23]|a|span)>/i);
+        const price = extractGbpPrice(block);
+        const linkM = block.match(/href="([^"]+)"/i);
+        if (!nameM || !price) continue;
+        const name = stripHtml(nameM[1]);
+        if (name.length < 3) continue;
+        items.push({
+          retailer: 'Costco UK', name, price, currency: 'GBP',
+          inStock: !block.toLowerCase().includes('out of stock'),
+          url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://www.costco.co.uk${linkM[1]}`) : url,
+          ...extractSpecs(name),
+        });
+      }
+      return items;
+    },
+  );
+}
+
+export async function cyberpowerPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  return scrapePrebuiltRetailer('CyberPower PC',
+    `https://www.cyberpowerpc.co.uk/category/gaming-pcs/?query=${encodeURIComponent(query)}`,
+    'cyberpowerpc.co.uk',
+    (html, url) => {
+      const results = extractJsonLd(html, 'CyberPower PC', url);
+      if (results.length > 0) return results;
+      const items: PrebuiltResult[] = [];
+      for (const [, block] of html.matchAll(/<(?:article|div)[^>]*class="[^"]*(?:product[-_]?(?:item|card|tile|box))[^"]*"[^>]*>([\s\S]*?)(?=<\/(?:article|div)>)/gi)) {
+        const nameM = block.match(/class="[^"]*(?:product[-_]?(?:name|title)|title)[^"]*"[^>]*>([\s\S]*?)<\//i);
+        const price = extractGbpPrice(block);
+        const linkM = block.match(/href="([^"]+)"/i);
+        if (!nameM || !price) continue;
+        const name = stripHtml(nameM[1]);
+        if (name.length < 3) continue;
+        items.push({
+          retailer: 'CyberPower PC', name, price, currency: 'GBP',
+          inStock: !block.toLowerCase().includes('out of stock'),
+          url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://www.cyberpowerpc.co.uk${linkM[1]}`) : url,
+          brand: 'CyberPower',
+          ...extractSpecs(name),
+        });
+      }
+      return items;
+    },
+  );
+}
+
+export async function pcspecialistPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  return scrapePrebuiltRetailer('PC Specialist',
+    `https://www.pcspecialist.co.uk/search/?q=${encodeURIComponent(query)}`,
+    'pcspecialist.co.uk',
+    (html, url) => {
+      const results = extractJsonLd(html, 'PC Specialist', url);
+      if (results.length > 0) return results;
+      const items: PrebuiltResult[] = [];
+      for (const [, block] of html.matchAll(/<(?:article|div|li)[^>]*class="[^"]*(?:product[-_]?(?:item|card|tile)|range[-_]?(?:item|card))[^"]*"[^>]*>([\s\S]*?)(?=<\/(?:article|div|li)>)/gi)) {
+        const nameM = block.match(/class="[^"]*(?:product[-_]?(?:name|title)|range[-_]?name|title)[^"]*"[^>]*>([\s\S]*?)<\//i);
+        const price = extractGbpPrice(block);
+        const linkM = block.match(/href="([^"]+)"/i);
+        if (!nameM || !price) continue;
+        const name = stripHtml(nameM[1]);
+        if (name.length < 3) continue;
+        items.push({
+          retailer: 'PC Specialist', name, price, currency: 'GBP',
+          inStock: !block.toLowerCase().includes('out of stock'),
+          url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://www.pcspecialist.co.uk${linkM[1]}`) : url,
+          brand: 'PC Specialist',
+          ...extractSpecs(name),
+        });
+      }
+      return items;
+    },
+  );
+}
+
+export async function lenovoPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  const t0 = Date.now();
+  const apiUrl = `https://www.lenovo.com/gb/en/api/2.0/page/search?q=${encodeURIComponent(query)}&filters=category%3ADESKTOPS&pageSize=20&pageNumber=1`;
+  const data = await fetchJson(apiUrl) as Record<string, unknown> | null;
+
+  if (data) {
+    const products = findDeepArray(data);
+    if (products.length > 0) {
+      const results: PrebuiltResult[] = products.slice(0, MAX_RESULTS).map((p) => {
+        const name = String(p.name ?? p.title ?? 'Unknown');
+        const rawPrice = p.price ?? (p.priceRange as Record<string, unknown> | null)?.min;
+        const rawUrl = p.url ?? p.link;
+        return {
+          retailer: 'Lenovo UK', name,
+          price: rawPrice != null ? Number(rawPrice) : null,
+          currency: 'GBP',
+          inStock: p.inStock !== false,
+          url: rawUrl ? (String(rawUrl).startsWith('http') ? String(rawUrl) : `https://www.lenovo.com${rawUrl}`) : `https://www.lenovo.com/gb/en/d/desktops`,
+          sku: p.sku != null ? String(p.sku) : undefined,
+          brand: 'Lenovo',
+          ...extractSpecs(name),
+        };
+      });
+      return { retailer: 'Lenovo UK', results, scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0 };
+    }
+  }
+
+  return scrapePrebuiltRetailer('Lenovo UK',
+    `https://www.lenovo.com/gb/en/search?q=${encodeURIComponent(query)}&category=DESKTOPS`,
+    'lenovo.com',
+    (html, url) => {
+      const results = extractJsonLd(html, 'Lenovo UK', url);
+      if (results.length > 0) return results;
+      const prices = [...html.matchAll(/£\s*([\d,]+(?:\.\d{2})?)/g)]
+        .map(m => parseFloat(m[1].replace(/,/g, ''))).filter(p => p > 100 && p < 20_000);
+      if (prices.length === 0) return [];
+      return [{
+        retailer: 'Lenovo UK', name: 'Lenovo Desktop PCs — visit site for models',
+        price: Math.min(...prices), currency: 'GBP', inStock: true, url,
+        scraperNote: 'Lenovo product listing — visit site for individual specs', brand: 'Lenovo',
+      }];
+    },
+  );
+}
+
 export async function amazonPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
   const t0 = Date.now();
   try {
@@ -570,6 +728,11 @@ const PREBUILT_FNS: Record<PrebuiltRetailerId, (q: string) => Promise<PrebuiltSe
   dell: dellPrebuiltSearch,
   hp: hpPrebuiltSearch,
   amazon: amazonPrebuiltSearch,
+  pallicomp: pallicompPrebuiltSearch,
+  costco: costcoPrebuiltSearch,
+  cyberpower: cyberpowerPrebuiltSearch,
+  pcspecialist: pcspecialistPrebuiltSearch,
+  lenovo: lenovoPrebuiltSearch,
 };
 
 export async function searchAllPrebuiltRetailers(

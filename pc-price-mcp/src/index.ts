@@ -41,6 +41,7 @@ const ALL_PREBUILT_ENUM = [
   'currys', 'argos', 'johnlewis', 'ao', 'very',
   'ebuyer', 'scan', 'overclockers', 'box', 'novatech',
   'ccl', 'chillblast', 'dell', 'hp', 'amazon',
+  'pallicomp', 'costco', 'cyberpower', 'pcspecialist', 'lenovo',
 ] as const;
 
 const UkRetailersSchema = z.object({
