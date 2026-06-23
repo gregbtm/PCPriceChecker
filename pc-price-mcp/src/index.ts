@@ -31,6 +31,8 @@ import { findComponentReviews } from './sources/youtube-reviews.js';
 import { searchBuildapc, getUkDeals, getBuildRecommendations } from './sources/reddit.js';
 import { searchHukd, getHukdHotDeals, searchHukdForComponent } from './sources/hotukdeals.js';
 import { bingSearchPrices, bingFindRetailers } from './sources/bing-shopping.js';
+import { validatePrices, getPriceValidationReport } from './services/price-validator.js';
+import { scrapeWithBrowser, SUPPORTED_PLAYWRIGHT_RETAILERS, type BrowserScrapeResult } from './sources/playwright-scraper.js';
 import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
   exportBuildCsv, exportBuildJson, exportTrackedComponentsCsv,
@@ -319,6 +321,20 @@ const BingFindRetailersSchema = z.object({
   query: z.string().min(1),
 });
 
+const ValidatePricesSchema = z.object({
+  component_id: z.number().int().positive(),
+});
+
+const PriceConfidenceSchema = z.object({
+  component_id: z.number().int().positive(),
+});
+
+const BrowserScrapeSchema = z.object({
+  query: z.string().min(1),
+  retailers: z.array(z.enum(['currys', 'ao', 'johnlewis', 'very'])).optional(),
+  save_to_component_id: z.number().int().positive().optional(),
+});
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const KeepaSearchSchema = z.object({
@@ -406,7 +422,9 @@ async function refreshComponent(
   }
 
   if (snapshots.length > 0) {
-    db.savePriceSnapshots(component.id, snapshots);
+    // Run Modified Z-score validation before persisting — marks outliers in DB
+    const validated = validatePrices(snapshots);
+    db.savePriceSnapshots(component.id, validated);
     db.markLastChecked(component.id);
   }
 
@@ -1358,6 +1376,61 @@ const TOOLS = [
       type: 'object' as const,
       properties: {
         query: { type: 'string', description: 'Component name, e.g. "be quiet Pure Rock 2 cooler"' },
+      },
+      required: ['query'],
+    },
+  },
+
+  // ── Price validation & ensemble scoring ────────────────────────────────
+  {
+    name: 'validate_prices',
+    description:
+      'Run Modified Z-score outlier detection on the latest prices for a tracked component. ' +
+      'Flags prices that are statistical outliers (e.g. data errors, bundle prices, VAT mistakes) using ' +
+      'Median Absolute Deviation — more robust than standard Z-score because a single outlier cannot inflate the variance. ' +
+      'Outlier records are excluded from deal scores, all-time-low stats, and comparisons.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        component_id: { type: 'number', description: 'Component ID from list_tracked_components' },
+      },
+      required: ['component_id'],
+    },
+  },
+  {
+    name: 'price_confidence_report',
+    description:
+      'Get an ensemble validation report for a tracked component — consensus price (median of non-outlier sources), ' +
+      'per-source confidence scores (0–1), and how far each retailer deviates from the consensus. ' +
+      'Useful for identifying which sources are most trustworthy for a given component.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        component_id: { type: 'number', description: 'Component ID from list_tracked_components' },
+      },
+      required: ['component_id'],
+    },
+  },
+  {
+    name: 'scrape_with_browser',
+    description:
+      'Use a headless Chromium browser (via Playwright) to scrape JS-rendered pages on Currys, AO, John Lewis, and Very — ' +
+      'retailers that block or serve incomplete data to plain HTTP fetch requests. ' +
+      'Playwright must be enabled at build time (ENABLE_PLAYWRIGHT=true) or PLAYWRIGHT_CHROMIUM_PATH must point to a Chromium binary. ' +
+      'Results can be optionally saved to a tracked component.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Component or product to search for' },
+        retailers: {
+          type: 'array',
+          items: { type: 'string', enum: ['currys', 'ao', 'johnlewis', 'very'] },
+          description: 'Which retailers to scrape (default: all four)',
+        },
+        save_to_component_id: {
+          type: 'number',
+          description: 'Optional — save scraped prices to this tracked component ID',
+        },
       },
       required: ['query'],
     },
@@ -3231,6 +3304,142 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           ),
         ];
         return ok(lines.join('\n\n'));
+      }
+
+      // ── validate_prices ───────────────────────────────────────────────────
+      case 'validate_prices': {
+        const { component_id } = ValidatePricesSchema.parse(args);
+        const component = db.getTrackedComponentById(component_id) ?? notFound('tracked component', component_id);
+        // Get all latest prices (including any already-marked outliers) for analysis
+        const records = db.getLatestPricePerRetailer(component_id, false);
+        if (records.length === 0) {
+          return ok(`No price data for **"${component.name}"**. Run \`refresh_prices\` to fetch current prices.`);
+        }
+        const snapshots: db.PriceSnapshot[] = records.map(r => ({
+          source: r.source, price: r.price, currency: r.currency,
+          retailer: r.retailer, url: r.url, inStock: r.in_stock === 1,
+        }));
+        const validated = validatePrices(snapshots);
+        const outliers = validated.filter(v => v.isOutlier);
+        const valid = validated.filter(v => !v.isOutlier);
+
+        const lines = [
+          `## Price Validation — **${component.name}**`,
+          `*Modified Z-score (MAD-based) · threshold |Z| > 3.5*\n`,
+          `**${valid.length} valid** prices · **${outliers.length} outlier${outliers.length !== 1 ? 's' : ''}** detected out of ${validated.length} sources\n`,
+          '| Retailer | Price | Z-score | Status |',
+          '|---|---|---|---|',
+          ...validated
+            .sort((a, b) => a.price - b.price)
+            .map(v =>
+              `| ${v.retailer} | ${fmtRaw(v.price)} | ${v.zScore.toFixed(2)} | ${v.isOutlier ? '⚠️ Outlier' : '✅ Valid'} |`,
+            ),
+        ];
+
+        if (outliers.length > 0) {
+          lines.push('\n> Outlier prices are excluded from deal scores, stats, and comparisons.');
+          lines.push('> They may represent bundles, VAT errors, or data feed mistakes.');
+        } else {
+          lines.push('\n> All prices are within the normal range — no outliers detected.');
+        }
+
+        const prices = valid.map(v => v.price);
+        if (prices.length > 0) {
+          const sorted = [...prices].sort((a, b) => a - b);
+          const med = sorted.length % 2 === 0
+            ? (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+            : sorted[Math.floor(sorted.length / 2)];
+          lines.push(`\n**Consensus price (median of valid):** ${fmtRaw(med)}`);
+        }
+
+        return ok(lines.join('\n'));
+      }
+
+      // ── price_confidence_report ───────────────────────────────────────────
+      case 'price_confidence_report': {
+        const { component_id } = PriceConfidenceSchema.parse(args);
+        const component = db.getTrackedComponentById(component_id) ?? notFound('tracked component', component_id);
+        const records = db.getLatestPricePerRetailer(component_id, false);
+        if (records.length === 0) {
+          return ok(`No price data for **"${component.name}"**. Run \`refresh_prices\` first.`);
+        }
+        const snapshots: db.PriceSnapshot[] = records.map(r => ({
+          source: r.source, price: r.price, currency: r.currency,
+          retailer: r.retailer, url: r.url, inStock: r.in_stock === 1,
+        }));
+        const report = getPriceValidationReport(snapshots);
+
+        const lines = [
+          `## Price Confidence Report — **${component.name}**`,
+          '',
+          `**Consensus price:** ${report.consensusPrice != null ? fmtRaw(report.consensusPrice) : 'N/A'} *(median of ${report.validCount} non-outlier sources)*`,
+          `**Raw median:** ${report.medianAllPrice != null ? fmtRaw(report.medianAllPrice) : 'N/A'} *(all ${report.totalCount} sources)*`,
+          `**Outliers excluded:** ${report.outlierCount}`,
+          '',
+          '| Retailer | Price | Confidence | Status |',
+          '|---|---|---|---|',
+          ...report.sourceSummary
+            .sort((a, b) => b.confidence - a.confidence)
+            .map(s => {
+              const confBar = '█'.repeat(Math.round(s.confidence * 5)) + '░'.repeat(5 - Math.round(s.confidence * 5));
+              return `| ${s.retailer} | ${fmtRaw(s.price)} | ${confBar} ${(s.confidence * 100).toFixed(0)}% | ${s.isOutlier ? '⚠️ Outlier' : '✅ Valid'} |`;
+            }),
+          '',
+          '> Confidence = how close the price is to the consensus median.',
+          '> 100% = exactly at consensus, 0% = 50%+ deviation from consensus.',
+        ];
+
+        return ok(lines.join('\n'));
+      }
+
+      // ── scrape_with_browser ───────────────────────────────────────────────
+      case 'scrape_with_browser': {
+        const { query, retailers, save_to_component_id } = BrowserScrapeSchema.parse(args);
+        const targetRetailers = retailers ?? [...SUPPORTED_PLAYWRIGHT_RETAILERS];
+
+        const results: BrowserScrapeResult[] = await scrapeWithBrowser(query, targetRetailers);
+
+        const lines = [
+          `## Browser Scrape — "${query}"`,
+          `*Playwright/Chromium · ${targetRetailers.join(', ')}*\n`,
+        ];
+
+        let totalSaved = 0;
+        const allSnaps: db.PriceSnapshot[] = [];
+
+        for (const r of results) {
+          if (r.error && r.results.length === 0) {
+            lines.push(`### ${r.retailer} — ⚠️ ${r.error} *(${r.durationMs}ms)*`);
+            continue;
+          }
+          lines.push(`### ${r.retailer} — ${r.results.length} result(s) *(${r.durationMs}ms)*`);
+          for (const p of r.results) {
+            lines.push(`- **${fmtRaw(p.price, p.currency)}** · ${p.inStock ? '✅ In Stock' : '❌ Out of Stock'}${p.url ? `\n  ${p.url}` : ''}`);
+            allSnaps.push(p);
+          }
+          lines.push('');
+        }
+
+        if (save_to_component_id != null && allSnaps.length > 0) {
+          const component = db.getTrackedComponentById(save_to_component_id);
+          if (!component) {
+            lines.push(`\n⚠️ Component ID ${save_to_component_id} not found — prices not saved.`);
+          } else {
+            const validated = validatePrices(allSnaps);
+            db.savePriceSnapshots(save_to_component_id, validated);
+            db.markLastChecked(save_to_component_id);
+            totalSaved = allSnaps.length;
+            lines.push(`\n✅ Saved ${totalSaved} price record(s) to **"${component.name}"** (ID: ${save_to_component_id})`);
+          }
+        } else if (allSnaps.length > 0) {
+          const best = allSnaps.filter(s => s.price > 0).sort((a, b) => a.price - b.price)[0];
+          if (best) {
+            lines.push(`\n**Best price found: ${fmtRaw(best.price, best.currency)} at ${best.retailer}**`);
+          }
+          lines.push(`\nUse \`save_to_component_id\` to persist these prices to a tracked component.`);
+        }
+
+        return ok(lines.join('\n'));
       }
 
       default:

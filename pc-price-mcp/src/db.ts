@@ -16,10 +16,17 @@ export interface PriceRecord {
   id: number; component_id: number; source: string; price: number;
   currency: string; retailer: string; url: string | null;
   in_stock: number; recorded_at: string;
+  is_outlier: number;   // 0 | 1
+  confidence: number | null;
+  z_score: number | null;
 }
 export interface PriceSnapshot {
   source: string; price: number; currency: string;
   retailer: string; url: string | null; inStock: boolean;
+  // Optional validation fields — populated when validatePrices() is called before saving
+  isOutlier?: boolean;
+  confidence?: number;
+  zScore?: number;
 }
 export interface Build {
   id: number; name: string; description: string | null;
@@ -69,6 +76,7 @@ export function getDb(): Database.Database {
     _db.pragma('journal_mode = WAL');
     _db.pragma('foreign_keys = ON');
     initSchema(_db);
+    runMigrations(_db);
   }
   return _db;
 }
@@ -185,6 +193,19 @@ function initSchema(db: Database.Database): void {
   `);
 }
 
+function runMigrations(db: Database.Database): void {
+  const cols = (db.prepare('PRAGMA table_info(price_records)').all() as Array<{ name: string }>).map(c => c.name);
+  if (!cols.includes('is_outlier')) {
+    db.exec('ALTER TABLE price_records ADD COLUMN is_outlier INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!cols.includes('confidence')) {
+    db.exec('ALTER TABLE price_records ADD COLUMN confidence REAL DEFAULT 1.0');
+  }
+  if (!cols.includes('z_score')) {
+    db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
+  }
+}
+
 // ── Config ─────────────────────────────────────────────────────────────────
 
 export function getConfig(key: string): string | null {
@@ -245,12 +266,17 @@ export function markLastChecked(id: number): void {
 export function savePriceSnapshots(componentId: number, snapshots: PriceSnapshot[]): void {
   const db = getDb();
   const insert = db.prepare(`
-    INSERT INTO price_records (component_id, source, price, currency, retailer, url, in_stock)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO price_records (component_id, source, price, currency, retailer, url, in_stock, is_outlier, confidence, z_score)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   db.transaction((snaps: PriceSnapshot[]) => {
     for (const s of snaps) {
-      insert.run(componentId, s.source, s.price, s.currency, s.retailer, s.url ?? null, s.inStock ? 1 : 0);
+      insert.run(
+        componentId, s.source, s.price, s.currency, s.retailer, s.url ?? null, s.inStock ? 1 : 0,
+        s.isOutlier ? 1 : 0,
+        s.confidence ?? 1.0,
+        s.zScore ?? null,
+      );
     }
   })(snapshots);
 }
@@ -263,14 +289,15 @@ export function getPriceHistory(componentId: number, days = 30): PriceRecord[] {
   `).all(componentId, `-${days}`) as PriceRecord[];
 }
 
-export function getLatestPricePerRetailer(componentId: number): PriceRecord[] {
+export function getLatestPricePerRetailer(componentId: number, excludeOutliers = true): PriceRecord[] {
+  const filter = excludeOutliers ? 'AND is_outlier = 0' : '';
   return getDb().prepare(`
     SELECT p.* FROM price_records p
     INNER JOIN (
       SELECT retailer, source, MAX(recorded_at) AS max_date
-      FROM price_records WHERE component_id = ? GROUP BY retailer, source
+      FROM price_records WHERE component_id = ? ${filter} GROUP BY retailer, source
     ) latest ON p.retailer = latest.retailer AND p.source = latest.source AND p.recorded_at = latest.max_date
-    WHERE p.component_id = ? ORDER BY p.price ASC
+    WHERE p.component_id = ? ${filter} ORDER BY p.price ASC
   `).all(componentId, componentId) as PriceRecord[];
 }
 
@@ -305,17 +332,18 @@ export function getPriceStats(componentId: number): PriceStats {
       ROUND(AVG(CASE WHEN recorded_at >= datetime('now', '-30 days') THEN price END), 2) AS avg_30d,
       ROUND(AVG(CASE WHEN recorded_at >= datetime('now', '-7 days')  THEN price END), 2) AS avg_7d,
       COUNT(*) AS total_records, MIN(recorded_at) AS oldest_record, MAX(currency) AS currency
-    FROM price_records WHERE component_id = ?
+    FROM price_records WHERE component_id = ? AND is_outlier = 0
   `).get(componentId) as any;
 
   const currentRow = db.prepare(`
     SELECT MIN(price) AS price FROM price_records
-    WHERE component_id = ? AND recorded_at >= datetime('now', '-48 hours')
+    WHERE component_id = ? AND is_outlier = 0 AND recorded_at >= datetime('now', '-48 hours')
   `).get(componentId) as any;
 
   const prevRow = db.prepare(`
     SELECT MIN(price) AS price FROM price_records
-    WHERE component_id = ? AND recorded_at >= datetime('now', '-96 hours')
+    WHERE component_id = ? AND is_outlier = 0
+      AND recorded_at >= datetime('now', '-96 hours')
       AND recorded_at < datetime('now', '-24 hours')
   `).get(componentId) as any;
 

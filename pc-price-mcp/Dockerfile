@@ -1,11 +1,16 @@
 # ── Build stage ───────────────────────────────────────────────────────────────
 FROM node:22-alpine AS builder
 
+# Set ENABLE_PLAYWRIGHT=true to include Chromium + playwright-core in the image.
+# Default: false — keeps the image small (~250 MB vs ~450 MB).
+ARG ENABLE_PLAYWRIGHT=false
+
 # better-sqlite3 native bindings require build tools (musl/Alpine only)
 RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 COPY package*.json ./
+# Install all deps including optional (playwright-core types needed for tsc)
 RUN npm ci --ignore-scripts
 COPY tsconfig.json ./
 COPY src/ ./src/
@@ -14,6 +19,8 @@ RUN npm run build
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM node:22-alpine AS runner
 
+ARG ENABLE_PLAYWRIGHT=false
+
 WORKDIR /app
 
 # Reuse the pre-compiled node_modules from builder (no build tools needed here)
@@ -21,6 +28,16 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY public/ ./public/
 COPY package.json ./
+
+# Optional: install system Chromium for Playwright-based scraping of JS-heavy
+# retailers (Currys, AO, John Lewis, Very). Adds ~200 MB to the image.
+# Enable with: docker build --build-arg ENABLE_PLAYWRIGHT=true
+RUN if [ "$ENABLE_PLAYWRIGHT" = "true" ]; then \
+      apk add --no-cache chromium && \
+      ln -sf /usr/bin/chromium-browser /usr/bin/chromium; \
+    fi
+
+ENV PLAYWRIGHT_CHROMIUM_PATH=/usr/bin/chromium-browser
 
 # /data is the persistent volume mount point for SQLite
 RUN mkdir -p /data
