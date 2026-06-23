@@ -20,10 +20,22 @@ services:
         value: production
       - key: DB_PATH
         value: /var/data/pc-prices.db
-      - key: PRICES_API_KEY
-        sync: false       # Set this manually in the Render dashboard
       - key: WEB_PORT
         value: "10000"    # Render routes external traffic to internal port 10000
+      - key: PRICES_API_KEY
+        sync: false
+      - key: KEEPA_API_KEY
+        sync: false
+      - key: AWIN_PUBLISHER_ID
+        sync: false
+      - key: AWIN_API_KEY
+        sync: false
+      - key: AMAZON_ACCESS_KEY
+        sync: false
+      - key: AMAZON_SECRET_KEY
+        sync: false
+      - key: AMAZON_ASSOCIATE_TAG
+        sync: false
     disk:
       name: pc-prices-data
       mountPath: /var/data

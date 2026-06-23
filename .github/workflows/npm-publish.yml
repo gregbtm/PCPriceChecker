@@ -1,0 +1,40 @@
+name: Publish to npm
+
+# Triggered by pushing a version tag: git tag v1.0.0 && git push --tags
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    name: npm publish
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pc-price-mcp
+
+    permissions:
+      contents: read
+      id-token: write   # enables npm provenance attestation
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+          cache-dependency-path: pc-price-mcp/package-lock.json
+
+      - name: Install (skip prepare hook)
+        run: npm ci --ignore-scripts
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish
+        run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

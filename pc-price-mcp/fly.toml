@@ -1,0 +1,70 @@
+# ============================================================================
+# PC Price MCP — Fly.io deployment config
+# ============================================================================
+#
+# HOW TO DEPLOY
+# ─────────────
+# Prerequisites: flyctl installed (https://fly.io/docs/hands-on/install-flyctl/)
+#
+# First deploy:
+#   cd pc-price-mcp
+#   fly auth login
+#   fly launch --no-deploy          # accepts this fly.toml, skips first deploy
+#   fly secrets set \
+#     PRICES_API_KEY=xxx \
+#     KEEPA_API_KEY=xxx \
+#     AWIN_PUBLISHER_ID=xxx \
+#     AWIN_API_KEY=xxx \
+#     AMAZON_ACCESS_KEY=xxx \
+#     AMAZON_SECRET_KEY=xxx \
+#     AMAZON_ASSOCIATE_TAG=xxx-21
+#   fly volumes create pc_price_data --size 1    # 1 GB persistent disk
+#   fly deploy
+#
+# Subsequent deploys (from this directory):
+#   fly deploy
+#
+# lhr = London Heathrow — closest to UK retailer APIs.
+# ============================================================================
+
+app            = "pc-price-mcp"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  DB_PATH  = "/data/pc-prices.db"
+  TZ       = "Europe/London"
+
+[http_service]
+  internal_port       = 3000
+  force_https         = true
+  auto_stop_machines  = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type       = "requests"
+    soft_limit = 100
+    hard_limit = 200
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[mounts]]
+  source      = "pc_price_data"
+  destination = "/data"
+
+[checks]
+  [checks.health]
+    grace_period = "20s"
+    interval     = "30s"
+    method       = "GET"
+    path         = "/api/health"
+    port         = 3000
+    timeout      = "10s"
+    type         = "http"

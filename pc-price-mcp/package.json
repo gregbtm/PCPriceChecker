@@ -5,10 +5,19 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "uk-pc-price-mcp": "dist/index.js"
+    "uk-pc-price-mcp": "dist/index.js",
+    "uk-pc-price-mcp-web": "dist/web-standalone.js"
+  },
+  "files": [
+    "dist",
+    "public"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc",
+    "postbuild": "chmod +x dist/index.js dist/web-standalone.js",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
     "web": "node dist/web-standalone.js",

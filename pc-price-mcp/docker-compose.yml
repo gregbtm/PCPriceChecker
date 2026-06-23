@@ -1,0 +1,47 @@
+# ============================================================================
+# PC Price MCP — Standalone Docker Compose
+# ============================================================================
+#
+# HOW TO RUN
+# ──────────
+# 1. Copy .env.example to .env and fill in your API keys
+# 2. docker compose up -d
+# 3. Open http://localhost:3000
+#
+# To build the image locally instead of pulling from GHCR, comment out the
+# `image:` line and uncomment `build:`.
+# ============================================================================
+
+services:
+  pc-price-mcp:
+    image: ghcr.io/gregbtm/pc-price-mcp:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: pc-price-mcp
+    restart: unless-stopped
+
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+
+    env_file:
+      - .env           # copy .env.example → .env and fill in keys
+
+    environment:
+      NODE_ENV: production
+      DB_PATH: /data/pc-prices.db
+      TZ: ${TZ:-Europe/London}
+
+    volumes:
+      - pc_price_data:/data
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  pc_price_data:
+    driver: local

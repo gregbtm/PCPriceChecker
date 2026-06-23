@@ -36,8 +36,14 @@ services:
       NODE_ENV: production
       # SQLite database lives on the named volume — survives container restarts
       DB_PATH: /data/pc-prices.db
-      # Set PRICES_API_KEY in the Portainer stack environment panel
-      PRICES_API_KEY: ${PRICES_API_KEY}
+      # API keys — set all of these in the Portainer stack environment panel
+      PRICES_API_KEY:       ${PRICES_API_KEY}
+      KEEPA_API_KEY:        ${KEEPA_API_KEY:-}
+      AWIN_PUBLISHER_ID:    ${AWIN_PUBLISHER_ID:-}
+      AWIN_API_KEY:         ${AWIN_API_KEY:-}
+      AMAZON_ACCESS_KEY:    ${AMAZON_ACCESS_KEY:-}
+      AMAZON_SECRET_KEY:    ${AMAZON_SECRET_KEY:-}
+      AMAZON_ASSOCIATE_TAG: ${AMAZON_ASSOCIATE_TAG:-}
       TZ: ${TZ:-Europe/London}
 
     volumes:
