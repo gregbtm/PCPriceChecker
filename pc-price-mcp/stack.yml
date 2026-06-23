@@ -1,0 +1,100 @@
+# ============================================================================
+# PC Price MCP — Portainer Stack
+# ============================================================================
+#
+# HOW TO DEPLOY
+# ─────────────
+# 1. In Portainer: Stacks → Add stack → Git repository
+#    Repository URL : https://github.com/gregbtm/gregbtm
+#    Branch         : claude/uk-pc-component-mcp-h39nb7   (or main after merge)
+#    Compose path   : pc-price-mcp/stack.yml
+#
+# 2. In the "Environment variables" panel below the editor, add:
+#    PRICES_API_KEY   → your PricesAPI.io key
+#    HOST_PORT        → port to expose on the NAS (default 3000)
+#    TZ               → your timezone, e.g. Europe/London
+#
+# 3. Click Deploy.
+#
+# The image is auto-built and pushed to GHCR by GitHub Actions on every push.
+# Enable "Auto update" in Portainer (or include the Watchtower service below)
+# to pull new images automatically.
+# ============================================================================
+
+services:
+
+  # ── Web dashboard + scheduler ──────────────────────────────────────────────
+  pc-price-mcp:
+    image: ghcr.io/gregbtm/pc-price-mcp:latest
+    container_name: pc-price-mcp
+    restart: unless-stopped
+
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+
+    environment:
+      NODE_ENV: production
+      # SQLite database lives on the named volume — survives container restarts
+      DB_PATH: /data/pc-prices.db
+      # Set PRICES_API_KEY in the Portainer stack environment panel
+      PRICES_API_KEY: ${PRICES_API_KEY}
+      TZ: ${TZ:-Europe/London}
+
+    volumes:
+      - pc_price_data:/data
+
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+    labels:
+      # Watchtower — auto-pull new images from GHCR
+      - "com.centurylinklabs.watchtower.enable=true"
+      # Uncomment if you use Traefik as a reverse proxy on your NAS:
+      # - "traefik.enable=true"
+      # - "traefik.http.routers.pcprice.rule=Host(`pcprice.yourdomain.com`)"
+      # - "traefik.http.routers.pcprice.entrypoints=websecure"
+      # - "traefik.http.routers.pcprice.tls=true"
+      # - "traefik.http.services.pcprice.loadbalancer.server.port=3000"
+
+    networks:
+      - pc_price_net
+
+  # ── Watchtower — auto-update the pc-price-mcp container ───────────────────
+  # Checks GHCR every 5 minutes for a new :latest image and does a zero-
+  # downtime rolling update. Remove this service if you prefer manual updates.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: pc-price-mcp-watchtower
+    restart: unless-stopped
+
+    environment:
+      WATCHTOWER_POLL_INTERVAL: "300"          # seconds between checks
+      WATCHTOWER_CLEANUP: "true"               # remove old images after update
+      WATCHTOWER_LABEL_ENABLE: "true"          # only watch labelled containers
+      WATCHTOWER_NOTIFICATIONS_LEVEL: "info"
+      TZ: ${TZ:-Europe/London}
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    networks:
+      - pc_price_net
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+volumes:
+  pc_price_data:
+    driver: local
+    # To use a specific path on your NAS instead of a Docker-managed volume:
+    # driver_opts:
+    #   type: none
+    #   o: bind
+    #   device: /volume1/docker/pc-price-mcp/data
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  pc_price_net:
+    driver: bridge
