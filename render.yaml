@@ -22,6 +22,8 @@ services:
         value: /var/data/pc-prices.db
       - key: WEB_PORT
         value: "10000"    # Render routes external traffic to internal port 10000
+      - key: SCHEDULER_INTERVAL_MINUTES
+        value: "60"       # auto-start price refresh scheduler on boot
       - key: PRICES_API_KEY
         sync: false
       - key: KEEPA_API_KEY

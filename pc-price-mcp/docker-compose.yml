@@ -8,11 +8,19 @@
 # 2. docker compose up -d
 # 3. Open http://localhost:3000
 #
+# WHAT STARTS AUTOMATICALLY
+# ─────────────────────────
+# • Web dashboard + REST API  (port 3000)
+# • Background price refresh scheduler (set SCHEDULER_INTERVAL_MINUTES below)
+# • Watchtower — pulls new images from GHCR every 5 minutes, zero-downtime
+#
 # To build the image locally instead of pulling from GHCR, comment out the
 # `image:` line and uncomment `build:`.
 # ============================================================================
 
 services:
+
+  # ── Web dashboard + scheduler ─────────────────────────────────────────────
   pc-price-mcp:
     image: ghcr.io/gregbtm/pc-price-mcp:latest
     # build:
@@ -31,6 +39,9 @@ services:
       NODE_ENV: production
       DB_PATH: /data/pc-prices.db
       TZ: ${TZ:-Europe/London}
+      # Auto-start the price refresh scheduler on first boot.
+      # Remove or set to 0 to configure the interval via the web UI instead.
+      SCHEDULER_INTERVAL_MINUTES: ${SCHEDULER_INTERVAL_MINUTES:-60}
 
     volumes:
       - pc_price_data:/data
@@ -42,6 +53,44 @@ services:
       retries: 3
       start_period: 20s
 
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+    networks:
+      - pc_price_net
+
+  # ── Watchtower — auto-update from GHCR ───────────────────────────────────
+  # Checks for a new image every 5 minutes and does a zero-downtime rolling
+  # update. Remove this service if you prefer to pull updates manually.
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: pc-price-mcp-watchtower
+    restart: unless-stopped
+
+    environment:
+      WATCHTOWER_POLL_INTERVAL: "300"     # seconds between checks
+      WATCHTOWER_CLEANUP: "true"          # remove old images after update
+      WATCHTOWER_LABEL_ENABLE: "true"     # only watch labelled containers
+      WATCHTOWER_NOTIFICATIONS_LEVEL: "info"
+      TZ: ${TZ:-Europe/London}
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    networks:
+      - pc_price_net
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   pc_price_data:
     driver: local
+    # To pin the database to a specific host path instead of a Docker volume:
+    # driver_opts:
+    #   type: none
+    #   o: bind
+    #   device: /path/on/your/machine/pc-price-mcp/data
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  pc_price_net:
+    driver: bridge

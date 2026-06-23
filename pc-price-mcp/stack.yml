@@ -46,6 +46,8 @@ services:
       AMAZON_ASSOCIATE_TAG: ${AMAZON_ASSOCIATE_TAG:-}
       EBAY_CLIENT_ID:       ${EBAY_CLIENT_ID:-}
       EBAY_CLIENT_SECRET:   ${EBAY_CLIENT_SECRET:-}
+      # Auto-start the price refresh scheduler on first boot (minutes). Default: 60.
+      SCHEDULER_INTERVAL_MINUTES: ${SCHEDULER_INTERVAL_MINUTES:-60}
       TZ: ${TZ:-Europe/London}
 
     volumes:

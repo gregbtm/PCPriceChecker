@@ -28,7 +28,20 @@ export function getSchedulerStatus() {
 }
 
 export function startScheduler(): boolean {
-  const intervalStr = db.getConfig('auto_refresh_interval_minutes');
+  let intervalStr = db.getConfig('auto_refresh_interval_minutes');
+
+  // Bootstrap from env var on first run (no DB config yet)
+  if (!intervalStr) {
+    const envVal = process.env.SCHEDULER_INTERVAL_MINUTES?.trim();
+    if (envVal) {
+      const parsed = parseInt(envVal, 10);
+      if (!isNaN(parsed) && parsed >= 1) {
+        db.setConfig('auto_refresh_interval_minutes', String(parsed));
+        intervalStr = String(parsed);
+      }
+    }
+  }
+
   if (!intervalStr) return false;
 
   const intervalMs = Number(intervalStr) * 60_000;

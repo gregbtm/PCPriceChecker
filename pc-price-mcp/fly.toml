@@ -17,7 +17,9 @@
 #     AWIN_API_KEY=xxx \
 #     AMAZON_ACCESS_KEY=xxx \
 #     AMAZON_SECRET_KEY=xxx \
-#     AMAZON_ASSOCIATE_TAG=xxx-21
+#     AMAZON_ASSOCIATE_TAG=xxx-21 \
+#     EBAY_CLIENT_ID=xxx \
+#     EBAY_CLIENT_SECRET=xxx
 #   fly volumes create pc_price_data --size 1    # 1 GB persistent disk
 #   fly deploy
 #
@@ -34,9 +36,10 @@ primary_region = "lhr"
   dockerfile = "Dockerfile"
 
 [env]
-  NODE_ENV = "production"
-  DB_PATH  = "/data/pc-prices.db"
-  TZ       = "Europe/London"
+  NODE_ENV                   = "production"
+  DB_PATH                    = "/data/pc-prices.db"
+  TZ                         = "Europe/London"
+  SCHEDULER_INTERVAL_MINUTES = "60"
 
 [http_service]
   internal_port       = 3000
