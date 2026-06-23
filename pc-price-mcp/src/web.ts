@@ -9,6 +9,9 @@ import { fileURLToPath } from 'url';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
 import { searchAllUkRetailers, ALL_RETAILER_IDS } from './sources/uk-retailers.js';
+import { keepaSearch, keepaGetByAsin, keepaGetUsedPrices } from './sources/keepa.js';
+import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js';
+import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
 import { getSchedulerStatus, restartScheduler, stopScheduler } from './scheduler.js';
 import { notifyAll } from './notifications.js';
@@ -381,6 +384,56 @@ export function startWebServer(port: number): void {
 
   app.get('/api/prebuilts/alerts', h(async (_req, res) => {
     res.json(db.getPrebuiltsBelowAlertPrice());
+  }));
+
+  // ── Keepa ─────────────────────────────────────────────────────────────────
+
+  app.get('/api/keepa/search', h(async (req, res) => {
+    const { q, limit = '5' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    res.json(await keepaSearch(q, Math.min(parseInt(limit) || 5, 20)));
+  }));
+
+  app.get('/api/keepa/product/:asin', h(async (req, res) => {
+    const product = await keepaGetByAsin(param(req.params.asin));
+    if (!product) { res.status(404).json({ error: 'Product not found' }); return; }
+    res.json(product);
+  }));
+
+  app.get('/api/keepa/product/:asin/used', h(async (req, res) => {
+    res.json(await keepaGetUsedPrices(param(req.params.asin)));
+  }));
+
+  // ── AWIN ──────────────────────────────────────────────────────────────────
+
+  app.get('/api/awin/search', h(async (req, res) => {
+    const { q, max = '20' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    res.json(await awinSearch(q, Math.min(parseInt(max) || 20, 100)));
+  }));
+
+  app.get('/api/awin/merchants', h(async (_req, res) => {
+    res.json(await awinGetMerchants());
+  }));
+
+  app.get('/api/awin/feed/:merchantId', h(async (req, res) => {
+    const { q, max = '20' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    res.json(await awinFeedSearch(param(req.params.merchantId), q, parseInt(max) || 20));
+  }));
+
+  // ── Amazon PAAPI ──────────────────────────────────────────────────────────
+
+  app.get('/api/amazon/search', h(async (req, res) => {
+    const { q, index = 'Electronics', max = '10' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    res.json(await paapiSearch(q, index, Math.min(parseInt(max) || 10, 10)));
+  }));
+
+  app.get('/api/amazon/items', h(async (req, res) => {
+    const { asins } = req.query as Record<string, string>;
+    if (!asins) { res.status(400).json({ error: 'asins is required (comma-separated)' }); return; }
+    res.json(await paapiGetItems(asins.split(',').map(s => s.trim()).slice(0, 10)));
   }));
 
   // ── Health check ──────────────────────────────────────────────────────────

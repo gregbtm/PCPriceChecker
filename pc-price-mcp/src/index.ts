@@ -18,6 +18,9 @@ import { searchAllUkRetailers, ALL_RETAILER_IDS } from './sources/uk-retailers.j
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS } from './sources/prebuilt-retailers.js';
 import { getAmazonPriceHistory } from './sources/camelcamelcamel.js';
 import { importPCPartPickerList } from './sources/pcpartpicker.js';
+import { keepaSearch, keepaGetByAsin, keepaGetMultiple } from './sources/keepa.js';
+import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js';
+import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
 import { notifyAll, sendDiscord, sendSlack } from './notifications.js';
 import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
@@ -219,6 +222,34 @@ const SetPrebuiltAlertSchema = z.object({
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+const KeepaSearchSchema = z.object({
+  query: z.string(),
+  limit: z.number().int().min(1).max(20).default(5),
+});
+
+const KeepaAsinSchema = z.object({ asin: z.string().min(1) });
+
+const AwinSearchSchema = z.object({
+  query:      z.string(),
+  maxResults: z.number().int().min(1).max(100).default(20),
+});
+
+const AwinFeedSchema = z.object({
+  merchantId: z.string().min(1),
+  query:      z.string(),
+  maxResults: z.number().int().min(1).max(100).default(20),
+});
+
+const PaapiSearchSchema = z.object({
+  query:       z.string(),
+  searchIndex: z.string().default('Electronics'),
+  maxResults:  z.number().int().min(1).max(10).default(10),
+});
+
+const PaapiGetItemsSchema = z.object({
+  asins: z.array(z.string()).min(1).max(10),
+});
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   GBP: '£', USD: '$', EUR: '€', AUD: 'A$', CAD: 'C$', JPY: '¥',
@@ -836,6 +867,100 @@ const TOOLS = [
       type: 'object' as const,
       properties: { id: { type: 'number' } },
       required: ['id'],
+    },
+  },
+
+  // ── Keepa ─────────────────────────────────────────────────────────────────
+  {
+    name: 'keepa_search',
+    description: 'Search Amazon UK via the Keepa API. Returns current prices, all-time low/high, 30/90/180-day averages, and full price history for each product. Requires KEEPA_API_KEY.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:  { type: 'string', description: 'Search term (e.g. "RTX 4080", "Ryzen 5 7600X")' },
+        limit:  { type: 'number', description: 'Max results (default 5, max 20)', default: 5 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'keepa_get_product',
+    description: 'Get full Amazon UK product details and price history by ASIN via Keepa. Includes all-time low/high, 30/90/180-day averages, and up to 365 days of price history.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        asin: { type: 'string', description: 'Amazon ASIN (e.g. B09P3VZV9C)' },
+      },
+      required: ['asin'],
+    },
+  },
+  {
+    name: 'keepa_get_used_prices',
+    description: 'Get used/second-hand price history for an Amazon UK product via Keepa.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        asin: { type: 'string' },
+      },
+      required: ['asin'],
+    },
+  },
+
+  // ── AWIN ──────────────────────────────────────────────────────────────────
+  {
+    name: 'awin_search',
+    description: 'Search UK retailer products via AWIN (Affiliate Window). Covers Scan, Overclockers, Ebuyer, CCL, Currys, Amazon UK, Novatech and 300+ other UK merchants. Requires AWIN_PUBLISHER_ID and AWIN_API_KEY.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:      { type: 'string', description: 'Product search query' },
+        maxResults: { type: 'number', description: 'Max results (default 20, max 100)', default: 20 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'awin_merchants',
+    description: 'List all UK merchants you are joined to in AWIN. Use this to find merchant IDs for awin_feed_search.',
+    inputSchema: { type: 'object' as const, properties: {} },
+  },
+  {
+    name: 'awin_feed_search',
+    description: 'Search a specific AWIN merchant\'s product feed by keyword. Useful for retailers that don\'t appear in the main ProductServe search.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        merchantId: { type: 'string', description: 'AWIN merchant/programme ID (from awin_merchants)' },
+        query:      { type: 'string', description: 'Product search query' },
+        maxResults: { type: 'number', default: 20 },
+      },
+      required: ['merchantId', 'query'],
+    },
+  },
+
+  // ── Amazon PAAPI ──────────────────────────────────────────────────────────
+  {
+    name: 'amazon_search',
+    description: 'Search Amazon UK via the official Product Advertising API v5. Returns live prices, Prime eligibility, stock status, and product images. Requires AMAZON_ACCESS_KEY, AMAZON_SECRET_KEY, and AMAZON_ASSOCIATE_TAG.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:       { type: 'string', description: 'Search keywords' },
+        searchIndex: { type: 'string', description: 'Amazon category (default: Electronics)', default: 'Electronics' },
+        maxResults:  { type: 'number', description: 'Max results (1–10)', default: 10 },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'amazon_get_items',
+    description: 'Get Amazon UK product details for specific ASINs via PAAPI. Returns live price, stock, and product info.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        asins: { type: 'array', items: { type: 'string' }, description: 'List of ASINs (max 10)' },
+      },
+      required: ['asins'],
     },
   },
 ];
@@ -2138,6 +2263,128 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const system = db.getPrebuiltSystemById(id) ?? notFound('prebuilt system', id);
         db.removePrebuiltSystem(id);
         return ok(`🗑️ **"${system.name}"** removed from prebuilt watchlist.\nAll price history for this system has been deleted.`);
+      }
+
+      // ── Keepa ──────────────────────────────────────────────────────────────
+
+      case 'keepa_search': {
+        const { query, limit } = KeepaSearchSchema.parse(args);
+        const result = await keepaSearch(query, limit);
+        if (result.error) return ok(`Keepa error: ${result.error}`);
+        if (result.products.length === 0) return ok(`No Amazon UK results found for "${query}" via Keepa.`);
+        const lines = [`## Keepa: "${query}" — Amazon UK (${result.products.length} results)\n`];
+        for (const p of result.products) {
+          lines.push(`### ${p.title}`);
+          lines.push(`ASIN: \`${p.asin}\` | ${p.brand ? `Brand: ${p.brand} | ` : ''}${p.inStock ? 'In Stock' : 'Out of Stock'}`);
+          lines.push(`**Current:** ${p.currentPrice != null ? fmtRaw(p.currentPrice) : 'N/A'} | **All-time low:** ${p.allTimeLow != null ? fmtRaw(p.allTimeLow) : 'N/A'} | **ATH:** ${p.allTimeHigh != null ? fmtRaw(p.allTimeHigh) : 'N/A'}`);
+          lines.push(`Avg 30d: ${p.avg30d != null ? fmtRaw(p.avg30d) : 'N/A'} | Avg 90d: ${p.avg90d != null ? fmtRaw(p.avg90d) : 'N/A'} | Avg 180d: ${p.avg180d != null ? fmtRaw(p.avg180d) : 'N/A'}`);
+          if (p.priceHistory.length > 0) {
+            const recent = p.priceHistory.slice(-5);
+            lines.push(`Recent prices: ${recent.map(h => `${h.date} → ${fmtRaw(h.price)}`).join(', ')}`);
+          }
+          lines.push(`[View on Amazon](${p.url})\n`);
+        }
+        if (result.tokensLeft != null) lines.push(`\n*Keepa tokens remaining: ${result.tokensLeft}*`);
+        return ok(lines.join('\n'));
+      }
+
+      case 'keepa_get_product': {
+        const { asin } = KeepaAsinSchema.parse(args);
+        const p = await keepaGetByAsin(asin);
+        if (!p) return ok(`No product found for ASIN ${asin} on Amazon UK via Keepa.`);
+        const lines = [`## ${p.title}`, `ASIN: \`${p.asin}\`${p.brand ? ` | Brand: ${p.brand}` : ''} | ${p.inStock ? 'In Stock' : 'Out of Stock'}`];
+        lines.push(`\n**Prices**`);
+        lines.push(`Current: ${p.currentPrice != null ? fmtRaw(p.currentPrice) : 'N/A'} | All-time low: ${p.allTimeLow != null ? fmtRaw(p.allTimeLow) : 'N/A'} | All-time high: ${p.allTimeHigh != null ? fmtRaw(p.allTimeHigh) : 'N/A'}`);
+        lines.push(`30d avg: ${p.avg30d != null ? fmtRaw(p.avg30d) : 'N/A'} | 90d avg: ${p.avg90d != null ? fmtRaw(p.avg90d) : 'N/A'} | 180d avg: ${p.avg180d != null ? fmtRaw(p.avg180d) : 'N/A'}`);
+        lines.push(`\n**Price history (last 30 entries)**`);
+        for (const h of p.priceHistory.slice(-30)) lines.push(`${h.date}: ${fmtRaw(h.price)}`);
+        lines.push(`\n[View on Amazon](${p.url})`);
+        return ok(lines.join('\n'));
+      }
+
+      case 'keepa_get_used_prices': {
+        const { asin } = KeepaAsinSchema.parse(args);
+        const { keepaGetUsedPrices } = await import('./sources/keepa.js');
+        const history = await keepaGetUsedPrices(asin);
+        if (history.length === 0) return ok(`No used price history for ASIN ${asin}.`);
+        const lines = [`## Used price history for \`${asin}\` (last 365 days)\n`];
+        for (const h of history) lines.push(`${h.date}: ${fmtRaw(h.price)}`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── AWIN ───────────────────────────────────────────────────────────────
+
+      case 'awin_search': {
+        const { query, maxResults } = AwinSearchSchema.parse(args);
+        const result = await awinSearch(query, maxResults);
+        if (result.error) return ok(`AWIN error: ${result.error}`);
+        if (result.products.length === 0) return ok(`No AWIN results for "${query}". Check AWIN credentials or try a different query.`);
+        const lines = [`## AWIN: "${query}" — ${result.products.length} results across UK retailers\n`];
+        for (const p of result.products) {
+          lines.push(`**${p.name}** — ${p.merchant}`);
+          lines.push(`${p.price != null ? fmtRaw(p.price) : 'Price N/A'}${p.rrp ? ` (RRP ${fmtRaw(p.rrp)})` : ''} | ${p.inStock ? 'In Stock' : 'Out of Stock'}`);
+          if (p.brand) lines.push(`Brand: ${p.brand}`);
+          if (p.ean)   lines.push(`EAN: ${p.ean}`);
+          if (p.url)   lines.push(`[View product](${p.url})`);
+          lines.push('');
+        }
+        return ok(lines.join('\n'));
+      }
+
+      case 'awin_merchants': {
+        const merchants = await awinGetMerchants();
+        if (merchants.length === 0) return ok('No joined UK merchants found. Join programmes at awin.com/gb/publishers.');
+        const lines = [`## AWIN Joined UK Merchants (${merchants.length})\n`];
+        for (const m of merchants) lines.push(`**${m.name}** — ID: \`${m.id}\`${m.url ? ` — ${m.url}` : ''}`);
+        return ok(lines.join('\n'));
+      }
+
+      case 'awin_feed_search': {
+        const { merchantId, query, maxResults } = AwinFeedSchema.parse(args);
+        const result = await awinFeedSearch(merchantId, query, maxResults);
+        if (result.error) return ok(`AWIN feed error: ${result.error}`);
+        if (result.products.length === 0) return ok(`No results for "${query}" in merchant ${merchantId}.`);
+        const lines = [`## AWIN Feed: "${query}" — ${result.products[0]?.merchant ?? merchantId} (${result.products.length} results)\n`];
+        for (const p of result.products) {
+          lines.push(`**${p.name}** | ${p.price != null ? fmtRaw(p.price) : 'N/A'} | ${p.inStock ? 'In Stock' : 'Out of Stock'}`);
+          if (p.ean) lines.push(`EAN: ${p.ean}`);
+          if (p.url) lines.push(`[View](${p.url})`);
+          lines.push('');
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── Amazon PAAPI ────────────────────────────────────────────────────────
+
+      case 'amazon_search': {
+        const { query, searchIndex, maxResults } = PaapiSearchSchema.parse(args);
+        const result = await paapiSearch(query, searchIndex, maxResults);
+        if (result.error) return ok(`Amazon PAAPI error: ${result.error}`);
+        if (result.products.length === 0) return ok(`No Amazon UK results for "${query}".`);
+        const lines = [`## Amazon UK: "${query}" — ${result.products.length} results${result.totalResults ? ` of ${result.totalResults}` : ''}\n`];
+        for (const p of result.products) {
+          lines.push(`### ${p.title}`);
+          lines.push(`ASIN: \`${p.asin}\`${p.brand ? ` | Brand: ${p.brand}` : ''} | ${p.inStock ? 'In Stock' : 'Out of Stock'}${p.isPrime ? ' | Prime' : ''}`);
+          lines.push(`**Price:** ${p.price != null ? fmtRaw(p.price, p.currency) : 'N/A'}${p.lowestNewPrice != null && p.lowestNewPrice !== p.price ? ` | Lowest new: ${fmtRaw(p.lowestNewPrice, p.currency)}` : ''}`);
+          if (p.features.length > 0) lines.push(`- ${p.features.join('\n- ')}`);
+          lines.push(`[View on Amazon](${p.url})\n`);
+        }
+        return ok(lines.join('\n'));
+      }
+
+      case 'amazon_get_items': {
+        const { asins } = PaapiGetItemsSchema.parse(args);
+        const result = await paapiGetItems(asins);
+        if (result.error) return ok(`Amazon PAAPI error: ${result.error}`);
+        if (result.products.length === 0) return ok('No products found for the given ASINs.');
+        const lines = [`## Amazon UK — ${result.products.length} items\n`];
+        for (const p of result.products) {
+          lines.push(`### ${p.title}`);
+          lines.push(`ASIN: \`${p.asin}\`${p.brand ? ` | ${p.brand}` : ''} | ${p.inStock ? 'In Stock' : 'Out of Stock'}${p.isPrime ? ' | Prime' : ''}`);
+          lines.push(`**Price:** ${p.price != null ? fmtRaw(p.price, p.currency) : 'N/A'}`);
+          lines.push(`[View on Amazon](${p.url})\n`);
+        }
+        return ok(lines.join('\n'));
       }
 
       default:
