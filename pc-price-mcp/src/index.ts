@@ -35,13 +35,17 @@ const SearchSchema = z.object({
   offers_per_product: z.number().int().min(1).max(20).default(10),
 });
 
-const ALL_RETAILER_ENUM = ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit'] as const;
+const ALL_RETAILER_ENUM = [
+  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit',
+  'corsair', 'nzxt', 'coolermaster', 'lianli', 'fractal', 'thermaltake',
+] as const;
 
 const ALL_PREBUILT_ENUM = [
   'currys', 'argos', 'johnlewis', 'ao', 'very',
   'ebuyer', 'scan', 'overclockers', 'box', 'novatech',
   'ccl', 'chillblast', 'dell', 'hp', 'amazon',
   'pallicomp', 'costco', 'cyberpower', 'pcspecialist', 'lenovo',
+  'bedrock',
 ] as const;
 
 const UkRetailersSchema = z.object({

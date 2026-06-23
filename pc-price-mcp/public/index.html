@@ -290,11 +290,11 @@
 
         <!-- Retailer selector -->
         <div x-show="searchSource === 'retailers'" class="flex flex-wrap gap-3">
-          <template x-for="r in allRetailers" :key="r">
+          <template x-for="r in allRetailers" :key="r.id">
             <label class="flex items-center gap-1.5 text-sm text-gray-300 cursor-pointer select-none">
-              <input type="checkbox" :value="r" x-model="selectedRetailers"
+              <input type="checkbox" :value="r.id" x-model="selectedRetailers"
                      class="rounded border-gray-600 bg-gray-700 text-blue-500 focus:ring-blue-500 focus:ring-offset-0">
-              <span x-text="r.charAt(0).toUpperCase() + r.slice(1)"></span>
+              <span x-text="r.label"></span>
             </label>
           </template>
         </div>
@@ -1261,8 +1261,16 @@ function app() {
     searchQuery: '',
     lastSearchQuery: '',
     searchSource: 'retailers',
-    selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit'],
-    allRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit'],
+    selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'corsair', 'nzxt', 'coolermaster', 'lianli', 'fractal', 'thermaltake'],
+    allRetailers: [
+      { id: 'scan', label: 'Scan' }, { id: 'overclockers', label: 'Overclockers' },
+      { id: 'ebuyer', label: 'Ebuyer' }, { id: 'ccl', label: 'CCL' },
+      { id: 'box', label: 'Box' }, { id: 'novatech', label: 'Novatech' },
+      { id: 'aria', label: 'Aria PC' }, { id: 'awdit', label: 'AWD-IT' },
+      { id: 'corsair', label: 'Corsair UK' }, { id: 'nzxt', label: 'NZXT UK' },
+      { id: 'coolermaster', label: 'Cooler Master UK' }, { id: 'lianli', label: 'Lian Li' },
+      { id: 'fractal', label: 'Fractal Design' }, { id: 'thermaltake', label: 'Thermaltake UK' },
+    ],
     searchResults: null,
     searchLoading: false,
 
@@ -1308,8 +1316,9 @@ function app() {
       { id: 'amazon', label: 'Amazon' }, { id: 'pallicomp', label: 'Pallicomp' },
       { id: 'costco', label: 'Costco UK' }, { id: 'cyberpower', label: 'CyberPower PC' },
       { id: 'pcspecialist', label: 'PC Specialist' }, { id: 'lenovo', label: 'Lenovo UK' },
+      { id: 'bedrock', label: 'Bedrock Computers' },
     ],
-    selectedPrebuiltRetailers: ['currys','argos','johnlewis','ao','very','ebuyer','scan','overclockers','box','novatech','ccl','chillblast','dell','hp','amazon','pallicomp','costco','cyberpower','pcspecialist','lenovo'],
+    selectedPrebuiltRetailers: ['currys','argos','johnlewis','ao','very','ebuyer','scan','overclockers','box','novatech','ccl','chillblast','dell','hp','amazon','pallicomp','costco','cyberpower','pcspecialist','lenovo','bedrock'],
     prebuiltSearchQuery: '',
     prebuiltSearchResults: null,
     prebuiltSearchLoading: false,

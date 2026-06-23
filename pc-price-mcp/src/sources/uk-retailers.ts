@@ -27,7 +27,8 @@ export interface RetailerSearchResult {
   error?: string;
 }
 
-export type RetailerId = 'scan' | 'overclockers' | 'ebuyer' | 'ccl' | 'box' | 'novatech' | 'aria' | 'awdit';
+export type RetailerId = 'scan' | 'overclockers' | 'ebuyer' | 'ccl' | 'box' | 'novatech' | 'aria' | 'awdit'
+  | 'corsair' | 'nzxt' | 'coolermaster' | 'lianli' | 'fractal' | 'thermaltake';
 
 const SHARED_HEADERS = {
   'User-Agent':
@@ -282,6 +283,126 @@ export async function awditSearch(query: string): Promise<RetailerSearchResult> 
   return scrapeRetailer('AWD-IT', `https://www.awd-it.co.uk/search?q=${encodeURIComponent(query)}`, 'awd-it.co.uk');
 }
 
+// ── Case manufacturer UK direct stores ────────────────────────────────────
+
+export async function corsairSearch(query: string): Promise<RetailerSearchResult> {
+  return scrapeRetailer('Corsair UK',
+    `https://www.corsair.com/en-gb/search#q=${encodeURIComponent(query)}`,
+    'corsair.com',
+    (html, url) => {
+      const results = extractJsonLdProducts(html, 'Corsair UK', url);
+      if (results.length > 0) return results;
+      const m = html.match(/window\.__NUXT__\s*=\s*(\{[\s\S]*?\})\s*(?:<\/script>|;)/);
+      if (m) {
+        try {
+          const state = JSON.parse(m[1]);
+          return findProductArray(state).slice(0, 8).map((p) => ({
+            retailer: 'Corsair UK',
+            name: String((p as Record<string, unknown>).name ?? (p as Record<string, unknown>).title ?? 'Unknown'),
+            price: (p as Record<string, unknown>).price != null ? Number((p as Record<string, unknown>).price) : null,
+            currency: 'GBP', inStock: (p as Record<string, unknown>).inStock !== false,
+            url: (p as Record<string, unknown>).url ? `https://www.corsair.com${(p as Record<string, unknown>).url}` : url,
+          }));
+        } catch { /* continue */ }
+      }
+      return [];
+    },
+  );
+}
+
+export async function nzxtSearch(query: string): Promise<RetailerSearchResult> {
+  // NZXT uses a Shopify storefront — JSON-LD is present on product pages
+  return scrapeRetailer('NZXT UK',
+    `https://www.nzxt.com/en-gb/search?q=${encodeURIComponent(query)}`,
+    'nzxt.com');
+}
+
+export async function coolerMasterSearch(query: string): Promise<RetailerSearchResult> {
+  return scrapeRetailer('Cooler Master UK',
+    `https://www.coolermaster.com/en-gb/search/?q=${encodeURIComponent(query)}`,
+    'coolermaster.com',
+    (html, url) => {
+      const results = extractJsonLdProducts(html, 'Cooler Master UK', url);
+      if (results.length > 0) return results;
+      const items: RetailerResult[] = [];
+      for (const [, block] of html.matchAll(/<(?:article|div)[^>]*class="[^"]*product[-_]?(?:item|card)[^"]*"[^>]*>([\s\S]*?)(?=<\/(?:article|div)>)/gi)) {
+        const nameM = block.match(/class="[^"]*(?:product[-_]?(?:name|title)|title)[^"]*"[^>]*>([\s\S]*?)<\//i);
+        const price = extractGbpPrice(block);
+        const linkM = block.match(/href="([^"]+)"/i);
+        if (!nameM || !price) continue;
+        const name = stripHtml(nameM[1]);
+        if (name.length < 3) continue;
+        items.push({
+          retailer: 'Cooler Master UK', name, price, currency: 'GBP',
+          inStock: !block.toLowerCase().includes('out of stock'),
+          url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://www.coolermaster.com${linkM[1]}`) : url,
+        });
+      }
+      return items;
+    },
+  );
+}
+
+export async function lianLiSearch(query: string): Promise<RetailerSearchResult> {
+  // Lian Li global store ships to UK; uses WooCommerce with JSON-LD
+  return scrapeRetailer('Lian Li',
+    `https://lian-li.com/?s=${encodeURIComponent(query)}&post_type=product`,
+    'lian-li.com');
+}
+
+export async function fractalSearch(query: string): Promise<RetailerSearchResult> {
+  // Fractal Design EU store ships to UK
+  return scrapeRetailer('Fractal Design',
+    `https://www.fractaldesign.com/search?q=${encodeURIComponent(query)}`,
+    'fractaldesign.com',
+    (html, url) => {
+      const results = extractJsonLdProducts(html, 'Fractal Design', url);
+      if (results.length > 0) return results;
+      const items: RetailerResult[] = [];
+      for (const [, block] of html.matchAll(/<(?:article|div|li)[^>]*class="[^"]*(?:product[-_]?(?:item|card|tile))[^"]*"[^>]*>([\s\S]*?)(?=<\/(?:article|div|li)>)/gi)) {
+        const nameM = block.match(/class="[^"]*(?:product[-_]?(?:name|title)|title)[^"]*"[^>]*>([\s\S]*?)<\//i);
+        const price = extractGbpPrice(block);
+        const linkM = block.match(/href="([^"]+)"/i);
+        if (!nameM || !price) continue;
+        const name = stripHtml(nameM[1]);
+        if (name.length < 3) continue;
+        items.push({
+          retailer: 'Fractal Design', name, price, currency: 'GBP',
+          inStock: !block.toLowerCase().includes('out of stock'),
+          url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://www.fractaldesign.com${linkM[1]}`) : url,
+        });
+      }
+      return items;
+    },
+  );
+}
+
+export async function thermaltakeSearch(query: string): Promise<RetailerSearchResult> {
+  return scrapeRetailer('Thermaltake UK',
+    `https://uk.thermaltake.com/search?q=${encodeURIComponent(query)}`,
+    'thermaltake.com',
+    (html, url) => {
+      const results = extractJsonLdProducts(html, 'Thermaltake UK', url);
+      if (results.length > 0) return results;
+      const items: RetailerResult[] = [];
+      for (const [, block] of html.matchAll(/<(?:article|div|li)[^>]*class="[^"]*(?:product[-_]?(?:item|card|tile))[^"]*"[^>]*>([\s\S]*?)(?=<\/(?:article|div|li)>)/gi)) {
+        const nameM = block.match(/class="[^"]*(?:product[-_]?(?:name|title)|title)[^"]*"[^>]*>([\s\S]*?)<\//i);
+        const price = extractGbpPrice(block);
+        const linkM = block.match(/href="([^"]+)"/i);
+        if (!nameM || !price) continue;
+        const name = stripHtml(nameM[1]);
+        if (name.length < 3) continue;
+        items.push({
+          retailer: 'Thermaltake UK', name, price, currency: 'GBP',
+          inStock: !block.toLowerCase().includes('out of stock'),
+          url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://uk.thermaltake.com${linkM[1]}`) : url,
+        });
+      }
+      return items;
+    },
+  );
+}
+
 // ── Aggregator ─────────────────────────────────────────────────────────────
 
 const RETAILER_FNS: Record<RetailerId, (q: string) => Promise<RetailerSearchResult>> = {
@@ -293,9 +414,18 @@ const RETAILER_FNS: Record<RetailerId, (q: string) => Promise<RetailerSearchResu
   novatech: novatechSearch,
   aria: ariaSearch,
   awdit: awditSearch,
+  corsair: corsairSearch,
+  nzxt: nzxtSearch,
+  coolermaster: coolerMasterSearch,
+  lianli: lianLiSearch,
+  fractal: fractalSearch,
+  thermaltake: thermaltakeSearch,
 };
 
-export const ALL_RETAILER_IDS: RetailerId[] = ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit'];
+export const ALL_RETAILER_IDS: RetailerId[] = [
+  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit',
+  'corsair', 'nzxt', 'coolermaster', 'lianli', 'fractal', 'thermaltake',
+];
 
 export async function searchAllUkRetailers(
   query: string,

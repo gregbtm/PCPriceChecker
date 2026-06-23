@@ -40,13 +40,15 @@ export type PrebuiltRetailerId =
   | 'currys' | 'argos' | 'johnlewis' | 'ao' | 'very'
   | 'ebuyer' | 'scan' | 'overclockers' | 'box' | 'novatech'
   | 'ccl' | 'chillblast' | 'dell' | 'hp' | 'amazon'
-  | 'pallicomp' | 'costco' | 'cyberpower' | 'pcspecialist' | 'lenovo';
+  | 'pallicomp' | 'costco' | 'cyberpower' | 'pcspecialist' | 'lenovo'
+  | 'bedrock';
 
 export const ALL_PREBUILT_RETAILER_IDS: PrebuiltRetailerId[] = [
   'currys', 'argos', 'johnlewis', 'ao', 'very',
   'ebuyer', 'scan', 'overclockers', 'box', 'novatech',
   'ccl', 'chillblast', 'dell', 'hp', 'amazon',
   'pallicomp', 'costco', 'cyberpower', 'pcspecialist', 'lenovo',
+  'bedrock',
 ];
 
 const BROWSER_HEADERS = {
@@ -710,6 +712,34 @@ export async function amazonPrebuiltSearch(query: string): Promise<PrebuiltSearc
   }
 }
 
+export async function bedrockPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  return scrapePrebuiltRetailer('Bedrock Computers',
+    `https://bedrockcomputers.co.uk/search?q=${encodeURIComponent(query)}`,
+    'bedrockcomputers.co.uk',
+    (html, url) => {
+      const results = extractJsonLd(html, 'Bedrock Computers', url);
+      if (results.length > 0) return results;
+      const items: PrebuiltResult[] = [];
+      for (const [, block] of html.matchAll(/<(?:article|div|li)[^>]*class="[^"]*(?:product[-_]?(?:item|card|tile))[^"]*"[^>]*>([\s\S]*?)(?=<\/(?:article|div|li)>)/gi)) {
+        const nameM = block.match(/class="[^"]*(?:product[-_]?(?:name|title)|title)[^"]*"[^>]*>([\s\S]*?)<\//i);
+        const price = extractGbpPrice(block);
+        const linkM = block.match(/href="([^"]+)"/i);
+        if (!nameM || !price) continue;
+        const name = stripHtml(nameM[1]);
+        if (name.length < 3) continue;
+        items.push({
+          retailer: 'Bedrock Computers', name, price, currency: 'GBP',
+          inStock: !block.toLowerCase().includes('out of stock'),
+          url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://bedrockcomputers.co.uk${linkM[1]}`) : url,
+          brand: 'Bedrock',
+          ...extractSpecs(name),
+        });
+      }
+      return items;
+    },
+  );
+}
+
 // ── Aggregator ─────────────────────────────────────────────────────────────
 
 const PREBUILT_FNS: Record<PrebuiltRetailerId, (q: string) => Promise<PrebuiltSearchResult>> = {
@@ -733,6 +763,7 @@ const PREBUILT_FNS: Record<PrebuiltRetailerId, (q: string) => Promise<PrebuiltSe
   cyberpower: cyberpowerPrebuiltSearch,
   pcspecialist: pcspecialistPrebuiltSearch,
   lenovo: lenovoPrebuiltSearch,
+  bedrock: bedrockPrebuiltSearch,
 };
 
 export async function searchAllPrebuiltRetailers(
