@@ -1,0 +1,56 @@
+# Render.com deployment config for the pc-price-mcp web dashboard.
+# Connect this repo in the Render dashboard (https://render.com) and it
+# will auto-deploy on every push to the configured branch.
+#
+# REQUIRED: set PRICES_API_KEY in the Render environment dashboard.
+# OPTIONAL: add a $1/month persistent disk (mountPath: /var/data) so the
+#           SQLite database survives redeploys. Without it, price history
+#           resets on each deploy.
+
+services:
+  - type: web
+    name: pc-price-mcp
+    runtime: node
+    rootDir: pc-price-mcp
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/web-standalone.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /var/data/pc-prices.db
+      - key: WEB_PORT
+        value: "10000"    # Render routes external traffic to internal port 10000
+      - key: SCHEDULER_INTERVAL_MINUTES
+        value: "60"       # auto-start price refresh scheduler on boot
+      - key: PRICES_API_KEY
+        sync: false
+      - key: KEEPA_API_KEY
+        sync: false
+      - key: AWIN_PUBLISHER_ID
+        sync: false
+      - key: AWIN_API_KEY
+        sync: false
+      - key: AMAZON_ACCESS_KEY
+        sync: false
+      - key: AMAZON_SECRET_KEY
+        sync: false
+      - key: AMAZON_ASSOCIATE_TAG
+        sync: false
+      - key: EBAY_CLIENT_ID
+        sync: false
+      - key: EBAY_CLIENT_SECRET
+        sync: false
+      - key: BING_API_KEY
+        sync: false
+      - key: YOUTUBE_API_KEY
+        sync: false
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+    disk:
+      name: pc-prices-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,0 +1,31 @@
+# ============================================================================
+# PC Price MCP — Railway deployment config
+# ============================================================================
+#
+# HOW TO DEPLOY
+# ─────────────
+# 1. Create a new project at railway.app
+# 2. "Deploy from GitHub repo" → select gregbtm/gregbtm
+# 3. In the service settings → Source → Root Directory: pc-price-mcp
+# 4. Railway auto-detects this file and uses the Dockerfile
+# 5. Add environment variables in the Railway dashboard:
+#      PRICES_API_KEY, KEEPA_API_KEY, AWIN_PUBLISHER_ID, AWIN_API_KEY
+#      AMAZON_ACCESS_KEY, AMAZON_SECRET_KEY, AMAZON_ASSOCIATE_TAG
+# 6. Add a Volume in the service → mount at /data (for persistent SQLite)
+#    Then set: DB_PATH=/data/pc-prices.db
+#
+# Railway injects PORT automatically — the app reads it via process.env.PORT.
+# ============================================================================
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 15
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[[services]]
+internalPort = 3000

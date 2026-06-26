@@ -1,22 +1,27 @@
 # UK PC Component Price MCP Server
 
-An MCP (Model Context Protocol) server for tracking PC component prices across UK retailers. Search for GPUs, CPUs, RAM, motherboards, and more — with price history tracking, alert thresholds, and eBay secondhand price monitoring.
+An MCP (Model Context Protocol) server for tracking PC component prices across UK retailers. Search, track price history, set alerts, compare used vs new prices, and plan builds — all locally with zero cloud dependency.
 
 ## Features
 
 - **Multi-retailer search** — Amazon UK, Scan, Ebuyer, Overclockers UK, and 40+ others via PricesAPI.io
-- **Price history tracking** — SQLite-backed local database, track trends over time
-- **Price alerts** — get notified when components drop below your target price
-- **eBay secondhand prices** — scrapes pcprice.watch for used GPU median prices across 100+ countries
-- **40+ GPU models** supported (RTX 50/40/30/20, RX 9000/7000, Intel Arc)
-- **No cloud required** — everything runs locally
+- **Direct UK retailer scraping** — Scan, Overclockers UK, Ebuyer scraped in parallel (no API key needed)
+- **Price history tracking** — SQLite-backed, persists across sessions
+- **Price intelligence** — all-time low/high, 7/30-day averages, 24h change detection
+- **Price drop alerts** — get notified when components hit your target GBP price
+- **eBay secondhand prices** — pcprice.watch scraper for used GPU median prices across 100+ countries
+- **Build planner** — group tracked components into named builds, track total cost over time
+- **40+ GPU models** supported for eBay lookup (RTX 50/40/30/20, RX 9000/7000, Intel Arc)
 
 ## Data Sources
 
-| Source | What | Coverage |
-|--------|------|----------|
-| PricesAPI.io | New retail prices | 40+ retailers, GB + 40 countries |
-| pcprice.watch | eBay secondhand GPU prices | 100+ eBay markets |
+| Source | Coverage | Notes |
+|--------|----------|-------|
+| PricesAPI.io | 40+ retailers, GB + 40 countries | Requires free API key; cold queries 30–90s |
+| Scan.co.uk | Direct scrape | No key needed; best-effort |
+| Overclockers UK | Direct scrape | No key needed; best-effort |
+| Ebuyer | Direct scrape | No key needed; best-effort |
+| pcprice.watch | eBay secondhand, 100+ countries | GPU median prices; used market only |
 
 ## Setup
 
@@ -28,9 +33,11 @@ npm install
 npm run build
 ```
 
-### 2. Get a PricesAPI.io key
+### 2. Get a free PricesAPI.io key
 
 Sign up at **https://pricesapi.io** (free, no credit card, 50,000 calls/month).
+
+> You can use `search_uk_retailers` without any API key. The key is only needed for `search_components` and `refresh_prices`.
 
 ### 3. Configure Claude Desktop
 
@@ -57,56 +64,83 @@ Add to your `claude_desktop_config.json`:
 
 ### 4. Restart Claude Desktop
 
-The MCP server will start automatically when Claude opens.
+## Available Tools (20 total)
 
-## Available Tools
+### Search
+| Tool | Description | API Key? |
+|------|-------------|----------|
+| `search_components` | 40+ retailer search via PricesAPI.io | ✅ Required |
+| `search_uk_retailers` | Scrape Scan, Overclockers UK, Ebuyer in parallel | ❌ None |
 
+### Tracking
 | Tool | Description |
 |------|-------------|
-| `search_components` | Search UK prices — returns current offers across retailers |
-| `track_component` | Add a component to your watchlist with optional price alert |
-| `untrack_component` | Remove a component and delete its price history |
-| `list_tracked` | Show all tracked components with latest prices |
-| `set_price_alert` | Set or clear a GBP price alert threshold |
-| `get_price_history` | View stored price history (raw or daily trend) |
-| `get_latest_prices` | Latest price per retailer for a tracked component |
-| `refresh_prices` | Fetch fresh prices and save to database |
-| `check_price_alerts` | See which tracked components are below their alert price |
-| `get_ebay_gpu_prices` | eBay UK secondhand GPU prices from pcprice.watch |
-| `list_supported_gpus` | List all GPU models supported for eBay lookup |
+| `track_component` | Add to watchlist; optionally fetch initial prices |
+| `untrack_component` | Remove from watchlist (deletes price history) |
+| `list_tracked` | Show all components with best price and alert status |
+| `set_price_alert` | Set/remove a GBP alert threshold |
 
-## Example Usage
+### Price Data & Intelligence
+| Tool | Description |
+|------|-------------|
+| `get_latest_prices` | Latest price per retailer, sorted cheapest first |
+| `get_price_history` | Raw records or daily min/avg/max trend table |
+| `get_price_stats` | All-time low/high, 7/30-day averages, 24h change |
+| `refresh_prices` | Fetch fresh prices and save to DB (shows change vs previous) |
+| `check_price_alerts` | Show components at or below their alert price |
+| `get_price_drops` | Components where price dropped in last 24h |
+
+### eBay Secondhand
+| Tool | Description |
+|------|-------------|
+| `get_ebay_gpu_prices` | eBay median GPU price via pcprice.watch |
+| `list_supported_gpus` | All GPU models supported for eBay lookup |
+
+### Build Planner
+| Tool | Description |
+|------|-------------|
+| `create_build` | Create a named PC build |
+| `list_builds` | Show all builds with component count and total cost |
+| `get_build` | Full build breakdown: components, prices, total |
+| `add_to_build` | Add a tracked component to a build |
+| `remove_from_build` | Remove a component from a build |
+| `delete_build` | Delete a build (tracked components are kept) |
+
+## Example Workflow
 
 ```
-Search for an RTX 4080:
-→ search_components { query: "RTX 4080 16GB", country: "gb" }
-
-Track it and alert below £650:
+# 1. Search and track an RTX 4080
+→ search_uk_retailers { query: "RTX 4080 16GB" }
 → track_component { name: "RTX 4080", search_query: "RTX 4080 16GB", category: "gpu", alert_price: 650 }
 
-Check all alerts:
-→ check_price_alerts
-
-See price trend over 60 days:
-→ get_price_history { id: 1, days: 60, show_trend: true }
-
-Check eBay secondhand price:
+# 2. Check what it sells for used on eBay
 → get_ebay_gpu_prices { query: "RTX 4080", country: "gb" }
+
+# 3. Plan a full build
+→ create_build { name: "Gaming Rig 2024", description: "1440p gaming build" }
+→ add_to_build { build_id: 1, component_id: 1 }  # RTX 4080
+→ add_to_build { build_id: 1, component_id: 2 }  # CPU (tracked separately)
+→ get_build { id: 1 }
+
+# 4. Monitor prices
+→ refresh_prices           # update all tracked components
+→ get_price_drops          # see what dropped in last 24h
+→ check_price_alerts       # see if anything hit your target
+→ get_price_stats { id: 1 }  # full statistics for RTX 4080
 ```
 
-## Important Notes
+## Notes
 
-- **Cold queries** (first search or cache expired) can take **30–90 seconds** — this is a PricesAPI.io limitation. Subsequent searches for the same component return in ~100ms.
-- **eBay prices** from pcprice.watch reflect **used/secondhand** market — not new retail pricing.
-- PCPartPicker UK (Scan, Overclockers UK, etc.) has no public API — those are covered via PricesAPI.io instead.
-- Price data is stored locally in `./data/pc-prices.db` (SQLite).
+- **Cold queries** (first search or cache expired) take **30–90 seconds** on PricesAPI.io. Cached repeats return in ~100ms.
+- **Direct retailer scrapers** (Scan, Overclockers, Ebuyer) work best-effort — these sites use JavaScript rendering, so JSON-LD structured data is extracted where available, with HTML fallbacks.
+- **eBay prices** from pcprice.watch are secondhand/resale only.
+- Price data is stored locally in `./data/pc-prices.db` (SQLite, auto-created on first run).
+- Set `DB_PATH` environment variable to override the database location.
 
 ## Development
 
 ```bash
-npm run dev    # Run with tsx (no build step)
+npm run dev    # Run with tsx (no build step needed)
 npm run build  # Compile TypeScript to dist/
 npm start      # Run compiled output
 ```
-
-Set `DB_PATH` environment variable to override the default database location.
