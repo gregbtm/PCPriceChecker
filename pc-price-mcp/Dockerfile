@@ -10,8 +10,10 @@ RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 COPY package*.json ./
-# Install all deps including optional (playwright-core types needed for tsc)
-RUN npm ci --ignore-scripts
+# Install deps; ignore-scripts skips playwright browser downloads, then
+# explicitly rebuild better-sqlite3 so its native .node binding is compiled
+# using the build tools installed above.
+RUN npm ci --ignore-scripts && npm rebuild better-sqlite3
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build

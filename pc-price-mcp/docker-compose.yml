@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 
     ports:
-      - "${HOST_PORT:-3000}:3000"
+      - "${HOST_PORT:-38574}:3000"
 
     env_file:
       - .env           # copy .env.example → .env and fill in keys

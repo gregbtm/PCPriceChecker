@@ -201,7 +201,7 @@ pm2 startup                # auto-start on boot (follow the printed command)
    EBAY_CLIENT_ID   = your_app_id
    EBAY_CLIENT_SECRET = your_cert_id
    KEEPA_API_KEY    = optional
-   HOST_PORT        = 3000
+   HOST_PORT        = 38574
    TZ               = Europe/London
    ```
 
