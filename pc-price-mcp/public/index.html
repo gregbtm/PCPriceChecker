@@ -649,25 +649,40 @@
           </div>
           <div>
             <label class="text-xs text-gray-400 block mb-1">Discord Webhook URL</label>
-            <input x-model="notifDiscord" type="text"
-                   placeholder="https://discord.com/api/webhooks/…"
-                   class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
-                          placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div class="flex gap-1">
+              <input x-model="notifDiscord" :type="showSecrets.discord ? 'text' : 'password'"
+                     placeholder="https://discord.com/api/webhooks/…"
+                     class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <button @click="showSecrets.discord = !showSecrets.discord"
+                      class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                      :title="showSecrets.discord ? 'Hide' : 'Show'" x-text="showSecrets.discord ? '🙈' : '👁'"></button>
+            </div>
           </div>
           <div>
             <label class="text-xs text-gray-400 block mb-1">Slack Webhook URL</label>
-            <input x-model="notifSlack" type="text"
-                   placeholder="https://hooks.slack.com/services/…"
-                   class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
-                          placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div class="flex gap-1">
+              <input x-model="notifSlack" :type="showSecrets.slack ? 'text' : 'password'"
+                     placeholder="https://hooks.slack.com/services/…"
+                     class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <button @click="showSecrets.slack = !showSecrets.slack"
+                      class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                      :title="showSecrets.slack ? 'Hide' : 'Show'" x-text="showSecrets.slack ? '🙈' : '👁'"></button>
+            </div>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="text-xs text-gray-400 block mb-1">Telegram Bot Token</label>
-              <input x-model="notifTelegram" type="text"
-                     placeholder="123456:ABC-DEF…"
-                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
-                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <div class="flex gap-1">
+                <input x-model="notifTelegram" :type="showSecrets.telegram ? 'text' : 'password'"
+                       placeholder="123456:ABC-DEF…"
+                       class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                              placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button @click="showSecrets.telegram = !showSecrets.telegram"
+                        class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                        :title="showSecrets.telegram ? 'Hide' : 'Show'" x-text="showSecrets.telegram ? '🙈' : '👁'"></button>
+              </div>
             </div>
             <div>
               <label class="text-xs text-gray-400 block mb-1">Telegram Chat ID</label>
@@ -683,10 +698,15 @@
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="text-xs text-gray-400 block mb-1">Resend API Key (email)</label>
-              <input x-model="notifResend" type="text"
-                     placeholder="re_xxxxxxxxxx"
-                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
-                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <div class="flex gap-1">
+                <input x-model="notifResend" :type="showSecrets.resend ? 'text' : 'password'"
+                       placeholder="re_xxxxxxxxxx"
+                       class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                              placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button @click="showSecrets.resend = !showSecrets.resend"
+                        class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                        :title="showSecrets.resend ? 'Hide' : 'Show'" x-text="showSecrets.resend ? '🙈' : '👁'"></button>
+              </div>
             </div>
             <div>
               <label class="text-xs text-gray-400 block mb-1">Alert Email Address</label>
@@ -1511,15 +1531,25 @@ function app() {
     searchQuery: '',
     lastSearchQuery: '',
     searchSource: 'retailers',
-    selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'corsair', 'nzxt', 'coolermaster', 'lianli', 'fractal', 'thermaltake'],
+    selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'currys', 'argos', 'johnlewis'],
     allRetailers: [
-      { id: 'scan', label: 'Scan' }, { id: 'overclockers', label: 'Overclockers' },
-      { id: 'ebuyer', label: 'Ebuyer' }, { id: 'ccl', label: 'CCL' },
-      { id: 'box', label: 'Box' }, { id: 'novatech', label: 'Novatech' },
-      { id: 'aria', label: 'Aria PC' }, { id: 'awdit', label: 'AWD-IT' },
-      { id: 'corsair', label: 'Corsair UK' }, { id: 'nzxt', label: 'NZXT UK' },
-      { id: 'coolermaster', label: 'Cooler Master UK' }, { id: 'lianli', label: 'Lian Li' },
-      { id: 'fractal', label: 'Fractal Design' }, { id: 'thermaltake', label: 'Thermaltake UK' },
+      { id: 'currys',       label: 'Currys' },
+      { id: 'argos',        label: 'Argos' },
+      { id: 'johnlewis',    label: 'John Lewis' },
+      { id: 'scan',         label: 'Scan' },
+      { id: 'overclockers', label: 'Overclockers' },
+      { id: 'ebuyer',       label: 'Ebuyer' },
+      { id: 'ccl',          label: 'CCL' },
+      { id: 'box',          label: 'Box' },
+      { id: 'novatech',     label: 'Novatech' },
+      { id: 'aria',         label: 'Aria PC' },
+      { id: 'awdit',        label: 'AWD-IT' },
+      { id: 'corsair',      label: 'Corsair UK' },
+      { id: 'nzxt',         label: 'NZXT UK' },
+      { id: 'coolermaster', label: 'Cooler Master UK' },
+      { id: 'lianli',       label: 'Lian Li' },
+      { id: 'fractal',      label: 'Fractal Design' },
+      { id: 'thermaltake',  label: 'Thermaltake UK' },
     ],
     searchResults: null,
     searchLoading: false,
@@ -1559,6 +1589,7 @@ function app() {
     notifResend: '',
     notifEmail: '',
     notifDropPct: '5',
+    showSecrets: { discord: false, slack: false, telegram: false, resend: false },
 
     // Saved searches
     savedSearches: [],
@@ -1658,6 +1689,12 @@ function app() {
       this.vatMode = cfg.vat_mode ?? 'inc_vat';
       this.schedulerInterval = cfg.auto_refresh_interval_minutes ?? '';
       this.notifDropPct = cfg.notify_drop_percent ?? '5';
+      this.notifDiscord      = cfg.discord_webhook_url ?? '';
+      this.notifSlack        = cfg.slack_webhook_url   ?? '';
+      this.notifTelegram     = cfg.telegram_bot_token  ?? '';
+      this.notifTelegramChat = cfg.telegram_chat_id    ?? '';
+      this.notifResend       = cfg.resend_api_key      ?? '';
+      this.notifEmail        = cfg.alert_email         ?? '';
       this.configStatus = {
         discord:  !!cfg.discord_webhook_url,
         slack:    !!cfg.slack_webhook_url,
@@ -1945,18 +1982,18 @@ function app() {
       await this.loadSchedulerStatus();
     },
     async saveNotifications() {
-      const updates = [{ key: 'notify_drop_percent', value: this.notifDropPct }];
-      if (this.notifDiscord)      updates.push({ key: 'discord_webhook_url', value: this.notifDiscord });
-      if (this.notifSlack)        updates.push({ key: 'slack_webhook_url',   value: this.notifSlack });
-      if (this.notifTelegram)     updates.push({ key: 'telegram_bot_token',  value: this.notifTelegram });
-      if (this.notifTelegramChat) updates.push({ key: 'telegram_chat_id',    value: this.notifTelegramChat });
-      if (this.notifResend)       updates.push({ key: 'resend_api_key',      value: this.notifResend });
-      if (this.notifEmail)        updates.push({ key: 'alert_email',         value: this.notifEmail });
-      for (const u of updates) {
-        await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(u) });
-      }
-      this.notifDiscord = ''; this.notifSlack = ''; this.notifTelegram = '';
-      this.notifTelegramChat = ''; this.notifResend = ''; this.notifEmail = '';
+      const fields = [
+        { key: 'notify_drop_percent', value: this.notifDropPct },
+        { key: 'discord_webhook_url', value: this.notifDiscord },
+        { key: 'slack_webhook_url',   value: this.notifSlack },
+        { key: 'telegram_bot_token',  value: this.notifTelegram },
+        { key: 'telegram_chat_id',    value: this.notifTelegramChat },
+        { key: 'resend_api_key',      value: this.notifResend },
+        { key: 'alert_email',         value: this.notifEmail },
+      ];
+      await Promise.all(fields.map(f =>
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
+      ));
       this.showToast('✅ Notification settings saved');
       await this.loadConfig();
     },

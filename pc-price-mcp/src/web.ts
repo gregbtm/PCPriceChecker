@@ -234,13 +234,7 @@ export function startWebServer(port: number): void {
   // ── Config ────────────────────────────────────────────────────────────────
 
   app.get('/api/config', h(async (_req, res) => {
-    const config = db.getAllConfig();
-    // Mask webhook URLs — return only a presence indicator
-    const safe: Record<string, string | boolean> = {};
-    for (const [k, v] of Object.entries(config)) {
-      safe[k] = k.includes('webhook_url') ? Boolean(v) : v;
-    }
-    res.json(safe);
+    res.json(db.getAllConfig());
   }));
 
   app.post('/api/config', h(async (req, res) => {

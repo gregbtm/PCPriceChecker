@@ -28,7 +28,8 @@ export interface RetailerSearchResult {
 }
 
 export type RetailerId = 'scan' | 'overclockers' | 'ebuyer' | 'ccl' | 'box' | 'novatech' | 'aria' | 'awdit'
-  | 'corsair' | 'nzxt' | 'coolermaster' | 'lianli' | 'fractal' | 'thermaltake';
+  | 'corsair' | 'nzxt' | 'coolermaster' | 'lianli' | 'fractal' | 'thermaltake'
+  | 'currys' | 'argos' | 'johnlewis';
 
 const SHARED_HEADERS = {
   'User-Agent':
@@ -403,6 +404,135 @@ export async function thermaltakeSearch(query: string): Promise<RetailerSearchRe
   );
 }
 
+// ── Mainstream UK retailers ─────────────────────────────────────────────────
+
+export async function currysSearch(query: string): Promise<RetailerSearchResult> {
+  const t0 = Date.now();
+  try {
+    const url = `https://api.currys.co.uk/catalog/products/search/v1?q=${encodeURIComponent(query)}&start=0&sz=8&format=json`;
+    const res = await fetch(url, {
+      headers: {
+        ...SHARED_HEADERS,
+        Accept: 'application/json',
+        Referer: 'https://www.currys.co.uk/',
+      },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      return { retailer: 'Currys', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error: `HTTP ${res.status}` };
+    }
+    const data = await res.json() as any;
+    const products: any[] = data.products ?? data.data?.products ?? [];
+    const results: RetailerResult[] = products.slice(0, 8).map((p: any) => {
+      const offer = Array.isArray(p.offers) ? p.offers[0] : (p.offers ?? {});
+      const rawPrice = offer.salePrice ?? offer.price ?? p.price ?? null;
+      return {
+        retailer: 'Currys',
+        name: [p.brandName, p.name].filter(Boolean).join(' ') || p.title || 'Unknown',
+        price: rawPrice != null ? Number(rawPrice) : null,
+        currency: 'GBP',
+        inStock: offer.availability === 'IN_STOCK' || offer.availability === 'AVAILABLE' || offer.availability == null,
+        url: p.links?.www ?? p.url ?? `https://www.currys.co.uk/search/${encodeURIComponent(query)}/`,
+        sku: String(p.id ?? p.sku ?? ''),
+      };
+    }).filter(r => r.price != null && r.price > 0);
+    return { retailer: 'Currys', results, scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0,
+      error: results.length === 0 ? 'No products returned from Currys API' : undefined };
+  } catch (e) {
+    return { retailer: 'Currys', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error: String(e) };
+  }
+}
+
+export async function argosSearch(query: string): Promise<RetailerSearchResult> {
+  const t0 = Date.now();
+  const url = `https://www.argos.co.uk/search/${encodeURIComponent(query)}/`;
+  const { html, ok, status } = await fetchPage(url);
+  if (!ok) {
+    return { retailer: 'Argos', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error: `HTTP ${status}` };
+  }
+
+  const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (m) {
+    try {
+      const data = JSON.parse(m[1]);
+      // Argos nests results in multiple possible locations
+      const pp = data?.props?.pageProps ?? {};
+      const products: any[] =
+        pp?.searchResultsData?.results ??
+        pp?.initialData?.responses?.[0]?.data?.products ??
+        findProductArray(pp) ?? [];
+      if (products.length > 0) {
+        const results: RetailerResult[] = products.slice(0, 8).map((p: any) => {
+          const rawPrice = p.price?.now ?? p.listPrice ?? p.price;
+          const price = rawPrice != null ? parseFloat(String(rawPrice).replace(/[^0-9.]/g, '')) : null;
+          const slug = p.url ?? p.attributes?.url ?? p.pdpUrl ?? '';
+          return {
+            retailer: 'Argos',
+            name: p.name ?? p.title ?? 'Unknown',
+            price: price && price > 0 ? price : null,
+            currency: 'GBP',
+            inStock: (p.attributes?.availabilityType ?? p.availabilityType ?? '').toLowerCase() !== 'outofstock',
+            url: slug ? (slug.startsWith('http') ? slug : `https://www.argos.co.uk${slug}`) : url,
+            sku: String(p.partNumber ?? p.id ?? ''),
+          };
+        }).filter(r => r.price != null);
+        return { retailer: 'Argos', results, scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0,
+          error: results.length === 0 ? 'No priced products found on Argos' : undefined };
+      }
+    } catch { /* fall through */ }
+  }
+
+  const ldResults = extractJsonLdProducts(html, 'Argos', url);
+  if (ldResults.length > 0) {
+    return { retailer: 'Argos', results: ldResults.slice(0, 8), scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0 };
+  }
+
+  return { retailer: 'Argos', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0,
+    error: 'No products parsed — Argos requires JS rendering' };
+}
+
+export async function johnLewisSearch(query: string): Promise<RetailerSearchResult> {
+  const t0 = Date.now();
+  const url = `https://www.johnlewis.com/search?search-term=${encodeURIComponent(query)}`;
+  const { html, ok, status } = await fetchPage(url);
+  if (!ok) {
+    return { retailer: 'John Lewis', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error: `HTTP ${status}` };
+  }
+
+  const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (m) {
+    try {
+      const data = JSON.parse(m[1]);
+      const pp = data?.props?.pageProps ?? {};
+      const products: any[] = pp?.searchResults?.products ?? pp?.products ?? findProductArray(pp) ?? [];
+      if (products.length > 0) {
+        const results: RetailerResult[] = products.slice(0, 8).map((p: any) => {
+          const rawPrice = p.price?.was ?? p.price?.now ?? p.priceLabel?.replace(/[^0-9.]/g, '');
+          return {
+            retailer: 'John Lewis',
+            name: p.title ?? p.name ?? 'Unknown',
+            price: rawPrice != null ? parseFloat(String(rawPrice)) : null,
+            currency: 'GBP',
+            inStock: p.availableInStock !== false && p.stockStatus !== 'OUTOFSTOCK',
+            url: p.seoURL ? `https://www.johnlewis.com${p.seoURL}` : (p.url ?? url),
+            sku: String(p.id ?? ''),
+          };
+        }).filter(r => r.price != null && r.price > 0);
+        return { retailer: 'John Lewis', results, scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0,
+          error: results.length === 0 ? 'No priced products found on John Lewis' : undefined };
+      }
+    } catch { /* fall through */ }
+  }
+
+  const ldResults = extractJsonLdProducts(html, 'John Lewis', url);
+  if (ldResults.length > 0) {
+    return { retailer: 'John Lewis', results: ldResults.slice(0, 8), scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0 };
+  }
+
+  return { retailer: 'John Lewis', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0,
+    error: 'No products parsed — John Lewis requires JS rendering' };
+}
+
 // ── Aggregator ─────────────────────────────────────────────────────────────
 
 const RETAILER_FNS: Record<RetailerId, (q: string) => Promise<RetailerSearchResult>> = {
@@ -420,11 +550,15 @@ const RETAILER_FNS: Record<RetailerId, (q: string) => Promise<RetailerSearchResu
   lianli: lianLiSearch,
   fractal: fractalSearch,
   thermaltake: thermaltakeSearch,
+  currys: currysSearch,
+  argos: argosSearch,
+  johnlewis: johnLewisSearch,
 };
 
 export const ALL_RETAILER_IDS: RetailerId[] = [
   'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit',
   'corsair', 'nzxt', 'coolermaster', 'lianli', 'fractal', 'thermaltake',
+  'currys', 'argos', 'johnlewis',
 ];
 
 export async function searchAllUkRetailers(
