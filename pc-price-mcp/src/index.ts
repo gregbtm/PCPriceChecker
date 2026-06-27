@@ -43,6 +43,8 @@ import {
 } from './export.js';
 import { startScheduler, stopScheduler, restartScheduler, getSchedulerStatus } from './scheduler.js';
 import { startWebServer } from './web.js';
+import { searchCex, getCexProduct, formatCexProduct } from './sources/cex.js';
+import { sendTelegram, sendEmail } from './notifications.js';
 
 // ── Argument schemas ───────────────────────────────────────────────────────
 
@@ -1504,6 +1506,71 @@ const TOOLS = [
         limit: { type: 'number', default: 20, description: 'Max results (1–100)' },
       },
       required: ['part_type'],
+    },
+  },
+
+  // ── CeX UK ───────────────────────────────────────────────────────────────
+  {
+    name: 'cex_search',
+    description:
+      'Search CeX (Computer Exchange) UK for used, refurbished, and second-hand PC components. ' +
+      'CeX offers warrantied used hardware at competitive prices — great for GPUs, CPUs, RAM, and consoles. ' +
+      'Returns sell price (what you pay), exchange price (trade-in value), and cash price (what CeX pays you).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Search term e.g. "RTX 4070" or "Ryzen 7 5800X"' },
+        in_stock_only: { type: 'boolean', default: false, description: 'Only show items available to buy online' },
+        limit: { type: 'number', default: 25, description: 'Max results (1–50)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'cex_get_product',
+    description: 'Get full details for a specific CeX product by its box ID (e.g. "5055910913656"). ' +
+      'Use after cex_search to get up-to-date stock and all three price types.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        box_id: { type: 'string', description: 'CeX box ID from a cex_search result' },
+      },
+      required: ['box_id'],
+    },
+  },
+
+  // ── Saved search alerts ───────────────────────────────────────────────────
+  {
+    name: 'save_search_alert',
+    description:
+      'Save a search query so the scheduler checks it automatically on every refresh cycle. ' +
+      'Sends a notification when any result for the query drops below max_price. ' +
+      'Useful for monitoring categories (e.g. "RTX 5070") rather than specific tracked components.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name:      { type: 'string', description: 'Friendly label for this saved search' },
+        query:     { type: 'string', description: 'Search query to run on each cycle' },
+        max_price: { type: 'number', description: 'Alert when any result is at or below this GBP price' },
+        category:  { type: 'string', description: 'Optional category hint (e.g. gpu, cpu, memory)' },
+      },
+      required: ['name', 'query'],
+    },
+  },
+  {
+    name: 'list_saved_search_alerts',
+    description: 'List all saved search alerts with their last check time and result count.',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] },
+  },
+  {
+    name: 'delete_saved_search_alert',
+    description: 'Delete a saved search alert by its ID.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'number', description: 'Saved search ID from list_saved_search_alerts' },
+      },
+      required: ['id'],
     },
   },
 ];
@@ -3555,6 +3622,68 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           lines.push('');
         }
         return ok(lines.join('\n'));
+      }
+
+      // ── CeX UK ──────────────────────────────────────────────────────────
+      case 'cex_search': {
+        const { query, in_stock_only = false, limit = 25 } = args as { query: string; in_stock_only?: boolean; limit?: number };
+        const result = await searchCex(String(query), Boolean(in_stock_only), Math.min(Number(limit) || 25, 50));
+        if (result.products.length === 0) {
+          return ok(`No CeX listings found for "${query}"${in_stock_only ? ' (in stock only)' : ''}.`);
+        }
+        const sym = '£';
+        const lines = [
+          `## CeX UK: "${query}"`,
+          `*${result.products.length} of ${result.total} results · Buy price = what CeX sells to you · Exchange = trade-in value*\n`,
+        ];
+        for (const p of result.products) {
+          const stock = p.outOfStock ? '❌' : `✅ (${p.ecomQuantityOnHand})`;
+          lines.push(
+            `**${p.boxName}**  \n` +
+            `Buy: **${sym}${p.sellPrice.toFixed(2)}** | Exchange: ${sym}${p.exchangePrice.toFixed(2)} | Cash: ${sym}${p.cashPrice.toFixed(2)} | ${stock}  \n` +
+            `ID: \`${p.boxId}\` · ${p.url}\n`
+          );
+        }
+        return ok(lines.join('\n'));
+      }
+
+      case 'cex_get_product': {
+        const { box_id } = args as { box_id: string };
+        const product = await getCexProduct(String(box_id));
+        if (!product) return ok(`CeX product "${box_id}" not found.`);
+        return ok(formatCexProduct(product));
+      }
+
+      // ── Saved search alerts ──────────────────────────────────────────────
+      case 'save_search_alert': {
+        const { name, query, max_price, category } = args as { name: string; query: string; max_price?: number; category?: string };
+        const saved = db.addSavedSearch(String(name), String(query), max_price ? Number(max_price) : null, category ? String(category) : null);
+        return ok(
+          `Saved search alert created (ID: ${saved.id}).\n\n` +
+          `**"${saved.name}"** — query: \`${saved.query}\`\n` +
+          (saved.max_price ? `Alert when any result is at or below **£${saved.max_price.toFixed(2)}**\n` : '') +
+          `The scheduler will check this on every refresh cycle and notify all configured channels.`
+        );
+      }
+
+      case 'list_saved_search_alerts': {
+        const searches = db.getSavedSearches();
+        if (searches.length === 0) return ok('No saved search alerts. Use `save_search_alert` to create one.');
+        const lines = ['## Saved Search Alerts\n'];
+        for (const s of searches) {
+          lines.push(
+            `**${s.id}. ${s.name}** — \`${s.query}\`  \n` +
+            (s.max_price ? `Alert: ≤ £${s.max_price.toFixed(2)}  \n` : '') +
+            `Last checked: ${s.last_checked ?? 'Never'} · Results: ${s.last_result_count}\n`
+          );
+        }
+        return ok(lines.join('\n'));
+      }
+
+      case 'delete_saved_search_alert': {
+        const { id } = args as { id: number };
+        const removed = db.removeSavedSearch(Number(id));
+        return ok(removed ? `Saved search alert ${id} deleted.` : `No saved search with ID ${id}.`);
       }
 
       default:

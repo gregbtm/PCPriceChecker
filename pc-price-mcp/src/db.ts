@@ -190,6 +190,17 @@ function initSchema(db: Database.Database): void {
       ON prebuilt_price_records(system_id, recorded_at DESC);
     CREATE INDEX IF NOT EXISTS idx_prebuilt_price_system_retailer
       ON prebuilt_price_records(system_id, retailer, source);
+
+    CREATE TABLE IF NOT EXISTS saved_searches (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      name               TEXT    NOT NULL,
+      query              TEXT    NOT NULL,
+      max_price          REAL,
+      category           TEXT,
+      created_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+      last_checked       TEXT,
+      last_result_count  INTEGER NOT NULL DEFAULT 0
+    );
   `);
 }
 
@@ -664,4 +675,98 @@ export function getPrebuiltsBelowAlertPrice(): {
     }
   }
   return results;
+}
+
+// ── Saved searches ──────────────────────────────────────────────────────────
+
+export interface SavedSearch {
+  id: number;
+  name: string;
+  query: string;
+  max_price: number | null;
+  category: string | null;
+  created_at: string;
+  last_checked: string | null;
+  last_result_count: number;
+}
+
+export function addSavedSearch(name: string, query: string, maxPrice?: number | null, category?: string | null): SavedSearch {
+  return getDb().prepare(`
+    INSERT INTO saved_searches (name, query, max_price, category)
+    VALUES (?, ?, ?, ?) RETURNING *
+  `).get(name, query, maxPrice ?? null, category ?? null) as SavedSearch;
+}
+
+export function getSavedSearches(): SavedSearch[] {
+  return getDb().prepare('SELECT * FROM saved_searches ORDER BY created_at DESC').all() as SavedSearch[];
+}
+
+export function getSavedSearchById(id: number): SavedSearch | undefined {
+  return getDb().prepare('SELECT * FROM saved_searches WHERE id = ?').get(id) as SavedSearch | undefined;
+}
+
+export function removeSavedSearch(id: number): boolean {
+  return getDb().prepare('DELETE FROM saved_searches WHERE id = ?').run(id).changes > 0;
+}
+
+export function updateSavedSearchChecked(id: number, resultCount: number): void {
+  getDb().prepare(`
+    UPDATE saved_searches SET last_checked = datetime('now'), last_result_count = ? WHERE id = ?
+  `).run(resultCount, id);
+}
+
+// ── Batch deal ratios (for UI "best time to buy" badges) ──────────────────
+
+export interface DealRatio {
+  component_id: number;
+  all_time_low: number | null;
+  current_best: number | null;
+  avg_30d: number | null;
+  deal_ratio: number | null;  // current_best / all_time_low — lower is better
+}
+
+export function getBatchDealRatios(componentIds: number[]): Map<number, DealRatio> {
+  if (componentIds.length === 0) return new Map();
+  const db = getDb();
+  const placeholders = componentIds.map(() => '?').join(',');
+
+  const atl = db.prepare(`
+    SELECT component_id, MIN(price) AS all_time_low
+    FROM price_records WHERE component_id IN (${placeholders}) AND is_outlier = 0
+    GROUP BY component_id
+  `).all(...componentIds) as { component_id: number; all_time_low: number }[];
+
+  const current = db.prepare(`
+    SELECT component_id, MIN(price) AS current_best
+    FROM price_records
+    WHERE component_id IN (${placeholders}) AND is_outlier = 0
+      AND recorded_at >= datetime('now', '-48 hours')
+    GROUP BY component_id
+  `).all(...componentIds) as { component_id: number; current_best: number }[];
+
+  const avg30 = db.prepare(`
+    SELECT component_id, ROUND(AVG(price), 2) AS avg_30d
+    FROM price_records
+    WHERE component_id IN (${placeholders}) AND is_outlier = 0
+      AND recorded_at >= datetime('now', '-30 days')
+    GROUP BY component_id
+  `).all(...componentIds) as { component_id: number; avg_30d: number }[];
+
+  const atlMap = new Map(atl.map(r => [r.component_id, r.all_time_low]));
+  const currentMap = new Map(current.map(r => [r.component_id, r.current_best]));
+  const avg30Map = new Map(avg30.map(r => [r.component_id, r.avg_30d]));
+
+  const result = new Map<number, DealRatio>();
+  for (const id of componentIds) {
+    const atl = atlMap.get(id) ?? null;
+    const cur = currentMap.get(id) ?? null;
+    result.set(id, {
+      component_id: id,
+      all_time_low: atl,
+      current_best: cur,
+      avg_30d: avg30Map.get(id) ?? null,
+      deal_ratio: atl && cur ? Math.round((cur / atl) * 100) / 100 : null,
+    });
+  }
+  return result;
 }

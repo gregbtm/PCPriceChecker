@@ -16,6 +16,8 @@ import { ebayBrowseSearch, ebayBrowseGetItem, type EbayCondition } from './sourc
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
 import { getSchedulerStatus, restartScheduler, stopScheduler } from './scheduler.js';
 import { notifyAll } from './notifications.js';
+import { searchCex, getCexProduct } from './sources/cex.js';
+import { searchDataset, browseDataset, DATASET_SLUGS, type DatasetSlug } from './sources/pcpartpicker-dataset.js';
 import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
   exportBuildCsv, exportBuildJson, exportTrackedComponentsCsv,
@@ -47,9 +49,12 @@ export function startWebServer(port: number): void {
 
   app.get('/api/components', h(async (_req, res) => {
     const components = db.getTrackedComponents();
+    const ids = components.map(c => c.id);
+    const dealRatios = db.getBatchDealRatios(ids);
     const result = components.map(c => {
       const latest = db.getLatestPricePerRetailer(c.id);
       const best = latest[0] ?? null;
+      const dr = dealRatios.get(c.id);
       return {
         ...c,
         best_price: best?.price ?? null,
@@ -57,6 +62,9 @@ export function startWebServer(port: number): void {
         best_in_stock: best?.in_stock ?? null,
         best_currency: best?.currency ?? 'GBP',
         best_url: best?.url ?? null,
+        deal_ratio: dr?.deal_ratio ?? null,
+        all_time_low: dr?.all_time_low ?? null,
+        avg_30d: dr?.avg_30d ?? null,
       };
     });
     res.json(result);
@@ -450,6 +458,65 @@ export function startWebServer(port: number): void {
     if (!item) { res.status(404).json({ error: 'Item not found' }); return; }
     res.json(item);
   }));
+
+  // ── CeX UK ───────────────────────────────────────────────────────────────
+
+  app.get('/api/cex/search', h(async (req, res) => {
+    const { q, in_stock = 'false', limit = '25' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    res.json(await searchCex(q, in_stock === 'true', Math.min(parseInt(limit) || 25, 50)));
+  }));
+
+  app.get('/api/cex/product/:boxId', h(async (req, res) => {
+    const product = await getCexProduct(param(req.params.boxId));
+    if (!product) { res.status(404).json({ error: 'Product not found' }); return; }
+    res.json(product);
+  }));
+
+  // ── Saved searches ────────────────────────────────────────────────────────
+
+  app.get('/api/saved-searches', h(async (_req, res) => {
+    res.json(db.getSavedSearches());
+  }));
+
+  app.post('/api/saved-searches', h(async (req, res) => {
+    const { name, query, max_price, category } = req.body;
+    if (!name || !query) { res.status(400).json({ error: 'name and query are required' }); return; }
+    res.json(db.addSavedSearch(name, query, max_price ? Number(max_price) : null, category || null));
+  }));
+
+  app.delete('/api/saved-searches/:id', h(async (req, res) => {
+    const removed = db.removeSavedSearch(parseInt(param(req.params.id)));
+    res.json({ removed });
+  }));
+
+  // ── Parts database (docyx dataset) ───────────────────────────────────────
+
+  app.get('/api/dataset/browse', h(async (req, res) => {
+    const { part_type, priced_only = 'false', limit = '40' } = req.query as Record<string, string>;
+    if (!part_type || !(DATASET_SLUGS as readonly string[]).includes(part_type)) {
+      res.status(400).json({ error: `part_type must be one of: ${DATASET_SLUGS.join(', ')}` });
+      return;
+    }
+    const result = await browseDataset(part_type as DatasetSlug, priced_only === 'true', Math.min(parseInt(limit) || 40, 100));
+    res.json(result);
+  }));
+
+  app.get('/api/dataset/search', h(async (req, res) => {
+    const { q, part_type, priced_only = 'false', limit = '40' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    if (!part_type || !(DATASET_SLUGS as readonly string[]).includes(part_type)) {
+      res.status(400).json({ error: `part_type must be one of: ${DATASET_SLUGS.join(', ')}` });
+      return;
+    }
+    const slug = part_type as DatasetSlug;
+    const results = await searchDataset(q, slug, priced_only === 'true', Math.min(parseInt(limit) || 40, 100));
+    res.json({ results, query: q, part_type: slug });
+  }));
+
+  app.get('/api/dataset/slugs', (_req, res) => {
+    res.json({ slugs: DATASET_SLUGS });
+  });
 
   // ── Health check ──────────────────────────────────────────────────────────
 

@@ -121,6 +121,7 @@
                 <th class="px-4 py-2.5">Name</th>
                 <th class="px-4 py-2.5">Cat.</th>
                 <th class="px-4 py-2.5">Best Price</th>
+                <th class="px-4 py-2.5">Deal</th>
                 <th class="px-4 py-2.5">Retailer</th>
                 <th class="px-4 py-2.5">Stock</th>
                 <th class="px-4 py-2.5">Alert</th>
@@ -147,6 +148,23 @@
                     </template>
                     <template x-if="c.best_price == null">
                       <span class="text-gray-600">No data</span>
+                    </template>
+                  </td>
+                  <!-- Deal / Best time to buy badge -->
+                  <td class="px-4 py-3">
+                    <template x-if="c.deal_ratio != null && c.best_price != null">
+                      <span :class="{
+                              'bg-green-900/60 text-green-300': c.deal_ratio <= 1.05,
+                              'bg-yellow-900/60 text-yellow-300': c.deal_ratio > 1.05 && c.deal_ratio <= 1.20,
+                              'bg-red-900/50 text-red-300': c.deal_ratio > 1.20,
+                            }"
+                            class="px-1.5 py-0.5 rounded text-xs font-medium whitespace-nowrap"
+                            :title="'All-time low: ' + (c.all_time_low ? fmtPrice(c.all_time_low) : 'N/A') + ' · 30d avg: ' + (c.avg_30d ? fmtPrice(c.avg_30d) : 'N/A')"
+                            x-text="c.deal_ratio <= 1.05 ? '🟢 Great' : c.deal_ratio <= 1.20 ? '🟡 Avg' : '🔴 Wait'">
+                      </span>
+                    </template>
+                    <template x-if="c.deal_ratio == null || c.best_price == null">
+                      <span class="text-gray-700 text-xs">—</span>
                     </template>
                   </td>
                   <td class="px-4 py-3 text-gray-300 text-xs" x-text="c.best_retailer ?? '—'"></td>
@@ -192,7 +210,7 @@
               </template>
               <template x-if="components.length === 0">
                 <tr>
-                  <td colspan="8" class="px-4 py-10 text-center text-gray-600">
+                  <td colspan="9" class="px-4 py-10 text-center text-gray-600">
                     No components tracked. Click "+ Add Component" to start watching prices.
                   </td>
                 </tr>
@@ -263,7 +281,7 @@
         <h2 class="font-semibold text-white mb-4">Search UK Retailers</h2>
 
         <!-- Source toggle -->
-        <div class="flex gap-2 mb-4">
+        <div class="flex flex-wrap gap-2 mb-4">
           <button @click="searchSource = 'retailers'"
                   :class="searchSource === 'retailers' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'"
                   class="px-4 py-1.5 rounded-lg text-sm font-medium">
@@ -273,6 +291,11 @@
                   :class="searchSource === 'api' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'"
                   class="px-4 py-1.5 rounded-lg text-sm font-medium">
             PricesAPI (40+ sites)
+          </button>
+          <button @click="searchSource = 'cex'"
+                  :class="searchSource === 'cex' ? 'bg-orange-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'"
+                  class="px-4 py-1.5 rounded-lg text-sm font-medium">
+            CeX (used/refurb)
           </button>
         </div>
 
@@ -299,11 +322,19 @@
           </template>
         </div>
 
+        <!-- CeX in-stock filter -->
+        <div x-show="searchSource === 'cex'" class="flex items-center gap-2 mt-2">
+          <input type="checkbox" id="cexInStock" x-model="cexInStockOnly"
+                 class="rounded border-gray-600 bg-gray-700 text-orange-500">
+          <label for="cexInStock" class="text-sm text-gray-300 cursor-pointer">In stock online only</label>
+        </div>
+
         <!-- Loading state -->
         <div x-show="searchLoading" class="mt-6 text-center py-8">
           <div class="text-4xl mb-3">⏳</div>
           <p class="text-gray-400 text-sm" x-text="searchSource === 'api'
             ? 'Querying PricesAPI.io — cold searches take 30–90 seconds…'
+            : searchSource === 'cex' ? 'Querying CeX UK…'
             : 'Scraping retailers in parallel…'"></p>
         </div>
       </div>
@@ -396,6 +427,40 @@
                                 x-text="fmtPrice(o.price, o.currency)"></span>
                         </div>
                       </template>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- CeX results -->
+          <template x-if="searchSource === 'cex' && searchResults?.products">
+            <div>
+              <div class="px-4 py-2 bg-orange-900/20 text-xs text-orange-300 flex gap-4 border-b border-gray-700">
+                <span x-text="searchResults.products.length + ' of ' + searchResults.total + ' results'"></span>
+                <span class="text-gray-500">Buy = CeX sells to you · Exchange = trade-in value</span>
+              </div>
+              <div class="divide-y divide-gray-700/50">
+                <template x-for="(p, pi) in (searchResults?.products ?? [])" :key="pi">
+                  <div class="flex items-center justify-between px-4 py-3">
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-medium text-white truncate" x-text="p.boxName"></div>
+                      <div class="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
+                        <span x-text="p.outOfStock ? '❌ Out of stock' : '✅ ' + p.ecomQuantityOnHand + ' available'"></span>
+                        <span x-text="'Exchange: £' + p.exchangePrice.toFixed(2)"></span>
+                        <a :href="p.url" target="_blank" rel="noopener" class="text-orange-400 hover:underline">View →</a>
+                      </div>
+                    </div>
+                    <div class="ml-4 flex items-center gap-3 flex-shrink-0">
+                      <div class="text-right">
+                        <div class="font-bold text-white text-sm" x-text="'£' + p.sellPrice.toFixed(2)"></div>
+                        <div class="text-xs text-gray-500">buy price</div>
+                      </div>
+                      <button @click="prefillAdd(p.boxName, 'CeX')"
+                              class="px-2 py-1 bg-orange-700/80 hover:bg-orange-700 rounded text-xs">
+                        + Track
+                      </button>
                     </div>
                   </div>
                 </template>
@@ -571,21 +636,69 @@
               <span class="text-gray-300">Slack</span>
               <span x-text="configStatus.slack ? '✅ Set' : '❌ Not set'" class="text-xs text-gray-500"></span>
             </div>
+            <div class="flex items-center gap-2">
+              <div :class="configStatus.telegram ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
+              <span class="text-gray-300">Telegram</span>
+              <span x-text="configStatus.telegram ? '✅ Set' : '❌ Not set'" class="text-xs text-gray-500"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div :class="configStatus.email ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
+              <span class="text-gray-300">Email</span>
+              <span x-text="configStatus.email ? '✅ Set' : '❌ Not set'" class="text-xs text-gray-500"></span>
+            </div>
           </div>
           <div>
-            <label class="text-xs text-gray-400 block mb-1">New Discord Webhook URL</label>
+            <label class="text-xs text-gray-400 block mb-1">Discord Webhook URL</label>
             <input x-model="notifDiscord" type="text"
                    placeholder="https://discord.com/api/webhooks/…"
                    class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
                           placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
           <div>
-            <label class="text-xs text-gray-400 block mb-1">New Slack Webhook URL</label>
+            <label class="text-xs text-gray-400 block mb-1">Slack Webhook URL</label>
             <input x-model="notifSlack" type="text"
                    placeholder="https://hooks.slack.com/services/…"
                    class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
                           placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Telegram Bot Token</label>
+              <input x-model="notifTelegram" type="text"
+                     placeholder="123456:ABC-DEF…"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Telegram Chat ID</label>
+              <input x-model="notifTelegramChat" type="text"
+                     placeholder="-100123456789"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          <p class="text-xs text-gray-600">
+            Telegram: create a bot via @BotFather, add it to a group, get the chat ID with @userinfobot.
+          </p>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Resend API Key (email)</label>
+              <input x-model="notifResend" type="text"
+                     placeholder="re_xxxxxxxxxx"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Alert Email Address</label>
+              <input x-model="notifEmail" type="email"
+                     placeholder="you@example.com"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          <p class="text-xs text-gray-600">
+            Email via <a href="https://resend.com" target="_blank" class="text-blue-400 hover:underline">Resend.com</a> — free tier: 100 emails/day. Get an API key at resend.com.
+          </p>
           <div>
             <label class="text-xs text-gray-400 block mb-1">Minimum drop % to notify</label>
             <input x-model="notifDropPct" type="number" min="0" max="100"
@@ -629,6 +742,65 @@
         </div>
       </div>
 
+      <!-- Saved Search Alerts -->
+      <div class="bg-gray-800 rounded-xl border border-gray-700">
+        <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+          <h3 class="font-semibold text-white">🔍 Saved Search Alerts</h3>
+          <span class="text-xs text-gray-500">Checked automatically on every scheduler refresh</span>
+        </div>
+        <div class="p-4 space-y-3">
+          <!-- Add form -->
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Label</label>
+              <input x-model="savedSearchName" type="text" placeholder="RTX 5070 Ti watch"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Search query</label>
+              <input x-model="savedSearchQuery" type="text" placeholder="RTX 5070 Ti"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Max price (£, optional)</label>
+              <input x-model="savedSearchMaxPrice" type="number" placeholder="600"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex items-end">
+              <button @click="addSavedSearch()"
+                      class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium">
+                + Add Alert
+              </button>
+            </div>
+          </div>
+          <!-- List -->
+          <template x-if="savedSearches.length > 0">
+            <div class="space-y-1 mt-2">
+              <template x-for="s in savedSearches" :key="s.id">
+                <div class="flex items-center justify-between bg-gray-700/40 rounded-lg px-3 py-2">
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm text-white font-medium" x-text="s.name"></div>
+                    <div class="text-xs text-gray-400 flex gap-3 mt-0.5">
+                      <span x-text="'Query: ' + s.query"></span>
+                      <span x-show="s.max_price" x-text="'Max: £' + s.max_price"></span>
+                      <span x-text="'Last: ' + (s.last_checked ? fmtDate(s.last_checked) : 'never')"></span>
+                    </div>
+                  </div>
+                  <button @click="deleteSavedSearch(s.id)"
+                          class="ml-3 p-1.5 bg-red-900/50 hover:bg-red-800 rounded text-xs">🗑️</button>
+                </div>
+              </template>
+            </div>
+          </template>
+          <template x-if="savedSearches.length === 0">
+            <p class="text-xs text-gray-600">No saved searches yet. Add one above to get notified when new deals appear.</p>
+          </template>
+        </div>
+      </div>
+
       <!-- Export -->
       <div class="bg-gray-800 rounded-xl border border-gray-700">
         <div class="px-4 py-3 border-b border-gray-700">
@@ -647,6 +819,83 @@
           </p>
         </div>
       </div>
+    </div>
+
+    <!-- ══ PARTS DB TAB ══════════════════════════════════════════════════════ -->
+    <div x-show="activeTab === 'parts'" class="p-6 space-y-5">
+      <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+        <h2 class="font-semibold text-white mb-4">Parts Database <span class="text-gray-500 font-normal text-sm">— 66,000+ components · full specs · USD reference prices</span></h2>
+
+        <div class="flex flex-wrap gap-3 mb-4">
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Category</label>
+            <select x-model="partsCategory"
+                    class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <template x-for="slug in partsAllSlugs" :key="slug">
+                <option :value="slug" x-text="slug.replace(/-/g,' ')"></option>
+              </template>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Search (optional)</label>
+            <input x-model="partsQuery" @keydown.enter="loadPartsDb()" type="text"
+                   placeholder="e.g. RTX 4070, 32GB DDR5…"
+                   class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white w-64
+                          placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div class="flex items-end gap-2">
+            <label class="flex items-center gap-1.5 text-sm text-gray-300 cursor-pointer mb-2">
+              <input type="checkbox" x-model="partsPricedOnly" class="rounded border-gray-600 bg-gray-700 text-blue-500">
+              Priced only
+            </label>
+            <button @click="loadPartsDb()" :disabled="partsLoading"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium disabled:opacity-40 mb-0.5">
+              <span x-text="partsLoading ? 'Loading…' : 'Browse'"></span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <template x-if="partsResults && partsResults.length > 0">
+        <div class="bg-gray-800 rounded-xl border border-gray-700">
+          <div class="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+            <span class="text-sm text-white" x-text="partsResults.length + ' results for ' + (partsQuery || partsCategory)"></span>
+            <span class="text-xs text-gray-500">USD reference prices · from docyx/pc-part-dataset</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase border-b border-gray-700">
+                  <th class="px-4 py-2.5">Name</th>
+                  <th class="px-4 py-2.5">Brand</th>
+                  <th class="px-4 py-2.5">Price (USD ref.)</th>
+                  <th class="px-4 py-2.5">Key Specs</th>
+                  <th class="px-4 py-2.5"></th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-700/50">
+                <template x-for="(p, pi) in partsResults" :key="pi">
+                  <tr class="hover:bg-gray-700/30 transition-colors">
+                    <td class="px-4 py-3 font-medium text-white text-sm" x-text="p.name"></td>
+                    <td class="px-4 py-3 text-gray-400 text-xs" x-text="p.brand ?? '—'"></td>
+                    <td class="px-4 py-3">
+                      <span x-show="p.price != null" class="text-yellow-300 font-semibold text-sm" x-text="'$' + (p.price ?? 0).toFixed(0)"></span>
+                      <span x-show="p.price == null" class="text-gray-600 text-xs">N/A</span>
+                    </td>
+                    <td class="px-4 py-3 text-gray-400 text-xs max-w-xs truncate" x-text="p.specs_summary ?? ''"></td>
+                    <td class="px-4 py-3">
+                      <button @click="prefillAdd(p.name, '')"
+                              class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">
+                        + Track
+                      </button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </template>
     </div>
 
     <!-- ══ PRE-BUILT PCS TAB ═══════════════════════════════════════════════ -->
@@ -1241,6 +1490,7 @@ function app() {
       { id: 'dashboard', icon: '📊', label: 'Dashboard' },
       { id: 'search',    icon: '🔍', label: 'Search' },
       { id: 'builds',   icon: '🖥️', label: 'Builds' },
+      { id: 'parts',    icon: '🗂️', label: 'Parts DB' },
       { id: 'settings', icon: '⚙️', label: 'Settings' },
       { id: 'prebuilts', icon: '💻', label: 'Pre-Built PCs' },
     ],
@@ -1255,7 +1505,7 @@ function app() {
     selectedBuild: null,
     selectedBuildDetail: null,
     vatMode: 'inc_vat',
-    configStatus: { discord: false, slack: false },
+    configStatus: { discord: false, slack: false, telegram: false, email: false },
 
     // Search
     searchQuery: '',
@@ -1297,11 +1547,32 @@ function app() {
     addToBuildCid: '',
     addToBuildQty: 1,
 
+    // Search extras
+    cexInStockOnly: false,
+
     // Settings
     schedulerInterval: '',
     notifDiscord: '',
     notifSlack: '',
+    notifTelegram: '',
+    notifTelegramChat: '',
+    notifResend: '',
+    notifEmail: '',
     notifDropPct: '5',
+
+    // Saved searches
+    savedSearches: [],
+    savedSearchName: '',
+    savedSearchQuery: '',
+    savedSearchMaxPrice: '',
+
+    // Parts DB
+    partsAllSlugs: [],
+    partsCategory: 'video-card',
+    partsQuery: '',
+    partsPricedOnly: false,
+    partsLoading: false,
+    partsResults: null,
 
     // Pre-built PCs
     prebuilts: [],
@@ -1350,6 +1621,8 @@ function app() {
         this.loadBuilds(),
         this.loadConfig(),
         this.loadPrebuilts(),
+        this.loadSavedSearches(),
+        this.loadPartsSlugs(),
       ]);
       setInterval(() => this.loadSchedulerStatus(), 30_000);
     },
@@ -1385,7 +1658,12 @@ function app() {
       this.vatMode = cfg.vat_mode ?? 'inc_vat';
       this.schedulerInterval = cfg.auto_refresh_interval_minutes ?? '';
       this.notifDropPct = cfg.notify_drop_percent ?? '5';
-      this.configStatus = { discord: !!cfg.discord_webhook_url, slack: !!cfg.slack_webhook_url };
+      this.configStatus = {
+        discord:  !!cfg.discord_webhook_url,
+        slack:    !!cfg.slack_webhook_url,
+        telegram: !!(cfg.telegram_bot_token && cfg.telegram_chat_id),
+        email:    !!(cfg.resend_api_key && cfg.alert_email),
+      };
     },
 
     // ── Formatting ─────────────────────────────────────────────────────────
@@ -1588,6 +1866,11 @@ function app() {
           const p = new URLSearchParams({ q: this.searchQuery, retailers: this.selectedRetailers.join(',') });
           const r = await fetch(`/api/search/retailers?${p}`);
           this.searchResults = await r.json();
+        } else if (this.searchSource === 'cex') {
+          const p = new URLSearchParams({ q: this.searchQuery, limit: '25' });
+          if (this.cexInStockOnly) p.set('in_stock', '1');
+          const r = await fetch(`/api/cex/search?${p}`);
+          this.searchResults = await r.json();
         } else {
           const p = new URLSearchParams({ q: this.searchQuery, country: 'gb' });
           const r = await fetch(`/api/search/api?${p}`);
@@ -1663,12 +1946,17 @@ function app() {
     },
     async saveNotifications() {
       const updates = [{ key: 'notify_drop_percent', value: this.notifDropPct }];
-      if (this.notifDiscord) updates.push({ key: 'discord_webhook_url', value: this.notifDiscord });
-      if (this.notifSlack)   updates.push({ key: 'slack_webhook_url',   value: this.notifSlack });
+      if (this.notifDiscord)      updates.push({ key: 'discord_webhook_url', value: this.notifDiscord });
+      if (this.notifSlack)        updates.push({ key: 'slack_webhook_url',   value: this.notifSlack });
+      if (this.notifTelegram)     updates.push({ key: 'telegram_bot_token',  value: this.notifTelegram });
+      if (this.notifTelegramChat) updates.push({ key: 'telegram_chat_id',    value: this.notifTelegramChat });
+      if (this.notifResend)       updates.push({ key: 'resend_api_key',      value: this.notifResend });
+      if (this.notifEmail)        updates.push({ key: 'alert_email',         value: this.notifEmail });
       for (const u of updates) {
         await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(u) });
       }
-      this.notifDiscord = ''; this.notifSlack = '';
+      this.notifDiscord = ''; this.notifSlack = ''; this.notifTelegram = '';
+      this.notifTelegramChat = ''; this.notifResend = ''; this.notifEmail = '';
       this.showToast('✅ Notification settings saved');
       await this.loadConfig();
     },
@@ -1676,9 +1964,12 @@ function app() {
       const r = await fetch('/api/notifications/test', { method: 'POST' });
       const d = await r.json();
       const parts = [];
-      if (d.discord !== undefined) parts.push('Discord ' + (d.discord ? '✅' : '❌'));
-      if (d.slack   !== undefined) parts.push('Slack '   + (d.slack   ? '✅' : '❌'));
-      this.showToast(parts.join(' · ') || 'No webhooks configured', (d.discord || d.slack) ? 'success' : 'error');
+      if (d.discord  !== undefined) parts.push('Discord '  + (d.discord  ? '✅' : '❌'));
+      if (d.slack    !== undefined) parts.push('Slack '    + (d.slack    ? '✅' : '❌'));
+      if (d.telegram !== undefined) parts.push('Telegram ' + (d.telegram ? '✅' : '❌'));
+      if (d.email    !== undefined) parts.push('Email '    + (d.email    ? '✅' : '❌'));
+      const ok = d.discord || d.slack || d.telegram || d.email;
+      this.showToast(parts.join(' · ') || 'No notifications configured', ok ? 'success' : 'error');
     },
     async setVatMode(mode) {
       this.vatMode = mode;
@@ -1806,6 +2097,64 @@ function app() {
     closePrebuiltHistory() {
       this.showPrebuiltHistory = false;
       if (this.prebuiltHistoryChart) { this.prebuiltHistoryChart.destroy(); this.prebuiltHistoryChart = null; }
+    },
+
+    // ── Saved Searches ─────────────────────────────────────────────────────
+    async loadSavedSearches() {
+      try {
+        const r = await fetch('/api/saved-searches');
+        this.savedSearches = await r.json();
+      } catch {}
+    },
+    async addSavedSearch() {
+      if (!this.savedSearchName || !this.savedSearchQuery) {
+        this.showToast('Label and query are required', 'error');
+        return;
+      }
+      const body = { name: this.savedSearchName, query: this.savedSearchQuery };
+      if (this.savedSearchMaxPrice) body.max_price = parseFloat(this.savedSearchMaxPrice);
+      await fetch('/api/saved-searches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      this.savedSearchName = ''; this.savedSearchQuery = ''; this.savedSearchMaxPrice = '';
+      this.showToast('✅ Saved search alert added');
+      await this.loadSavedSearches();
+    },
+    async deleteSavedSearch(id) {
+      await fetch(`/api/saved-searches/${id}`, { method: 'DELETE' });
+      this.showToast('🗑️ Saved search removed');
+      await this.loadSavedSearches();
+    },
+
+    // ── Parts DB ───────────────────────────────────────────────────────────
+    async loadPartsSlugs() {
+      try {
+        const r = await fetch('/api/dataset/slugs');
+        const data = await r.json();
+        this.partsAllSlugs = data.slugs ?? [];
+        if (this.partsAllSlugs.length > 0 && !this.partsAllSlugs.includes(this.partsCategory)) {
+          this.partsCategory = this.partsAllSlugs[0];
+        }
+      } catch {}
+    },
+    async loadPartsDb() {
+      this.partsLoading = true;
+      this.partsResults = null;
+      try {
+        const p = new URLSearchParams({ part_type: this.partsCategory, limit: '100' });
+        if (this.partsPricedOnly) p.set('priced_only', '1');
+        let endpoint = '/api/dataset/browse';
+        if (this.partsQuery) { endpoint = '/api/dataset/search'; p.set('q', this.partsQuery); }
+        const r = await fetch(`${endpoint}?${p}`);
+        const data = await r.json();
+        this.partsResults = data.results ?? [];
+      } catch (e) {
+        this.showToast('❌ Failed to load parts: ' + e.message, 'error');
+      } finally {
+        this.partsLoading = false;
+      }
     },
   };
 }
