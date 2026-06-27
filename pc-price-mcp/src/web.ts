@@ -40,10 +40,39 @@ function param(p: string | string[]): string {
   return Array.isArray(p) ? p[0] : p;
 }
 
+// DB config keys that map directly to environment variables used by the source modules.
+const DB_KEY_TO_ENV: Record<string, string> = {
+  prices_api_key:       'PRICES_API_KEY',
+  ebay_client_id:       'EBAY_CLIENT_ID',
+  ebay_client_secret:   'EBAY_CLIENT_SECRET',
+  keepa_api_key:        'KEEPA_API_KEY',
+  amazon_access_key:    'AMAZON_ACCESS_KEY',
+  amazon_secret_key:    'AMAZON_SECRET_KEY',
+  amazon_associate_tag: 'AMAZON_ASSOCIATE_TAG',
+  awin_publisher_id:    'AWIN_PUBLISHER_ID',
+  awin_api_key:         'AWIN_API_KEY',
+  reddit_client_id:     'REDDIT_CLIENT_ID',
+  reddit_client_secret: 'REDDIT_CLIENT_SECRET',
+  youtube_api_key:      'YOUTUBE_API_KEY',
+  bing_api_key:         'BING_API_KEY',
+};
+
+function syncEnvFromDb(): void {
+  const cfg = db.getAllConfig();
+  for (const [dbKey, envVar] of Object.entries(DB_KEY_TO_ENV)) {
+    if (cfg[dbKey]) {
+      process.env[envVar] = cfg[dbKey];
+    }
+  }
+}
+
 export function startWebServer(port: number): void {
   const app = express();
   app.use(express.json());
   app.use(express.static(PUBLIC_DIR));
+
+  // Seed process.env from any API keys previously saved in the DB.
+  syncEnvFromDb();
 
   // ── Components ───────────────────────────────────────────────────────────
 
@@ -242,8 +271,10 @@ export function startWebServer(port: number): void {
     if (!key) { res.status(400).json({ error: 'key is required' }); return; }
     if (value === null || value === '' || value === undefined) {
       db.deleteConfig(key);
+      if (DB_KEY_TO_ENV[key]) delete process.env[DB_KEY_TO_ENV[key]];
     } else {
       db.setConfig(key, String(value));
+      if (DB_KEY_TO_ENV[key]) process.env[DB_KEY_TO_ENV[key]] = String(value);
     }
     if (key === 'auto_refresh_interval_minutes') restartScheduler();
     res.json({ ok: true });

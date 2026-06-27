@@ -784,6 +784,233 @@
         </div>
       </div>
 
+      <!-- API Keys -->
+      <div class="bg-gray-800 rounded-xl border border-gray-700">
+        <div class="px-4 py-3 border-b border-gray-700">
+          <h3 class="font-semibold text-white">🔑 API Keys</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Saved securely in the local database. Takes effect immediately — no restart needed.</p>
+        </div>
+        <div class="p-4 space-y-5">
+
+          <!-- Status pills -->
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <template x-for="[label, ok] in [
+              ['PricesAPI', apiKeyStatus.pricesapi],
+              ['eBay',      apiKeyStatus.ebay],
+              ['Keepa',     apiKeyStatus.keepa],
+              ['Amazon PA', apiKeyStatus.amazon],
+              ['AWIN',      apiKeyStatus.awin],
+              ['Reddit',    apiKeyStatus.reddit],
+              ['YouTube',   apiKeyStatus.youtube],
+              ['Bing',      apiKeyStatus.bing],
+            ]" :key="label">
+              <div class="flex items-center gap-1.5">
+                <span :class="ok ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full flex-shrink-0"></span>
+                <span class="text-gray-300" x-text="label"></span>
+                <span :class="ok ? 'text-green-400' : 'text-gray-600'" x-text="ok ? '✅' : '❌'"></span>
+              </div>
+            </template>
+          </div>
+
+          <!-- PricesAPI -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">PricesAPI Key <span class="text-gray-600">(pricesapi.io — free 50k/month)</span></label>
+            <div class="flex gap-1">
+              <input x-model="apiKeyPricesApi" :type="showSecrets.pricesapi ? 'text' : 'password'"
+                     placeholder="pa_…"
+                     class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <button @click="showSecrets.pricesapi = !showSecrets.pricesapi"
+                      class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                      x-text="showSecrets.pricesapi ? '🙈' : '👁'"></button>
+            </div>
+          </div>
+
+          <!-- eBay -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">eBay Browse API <span class="text-gray-600">(developer.ebay.com — free)</span></label>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-xs text-gray-600 block mb-1">Client ID (AppID)</label>
+                <div class="flex gap-1">
+                  <input x-model="apiKeyEbayId" :type="showSecrets.ebayId ? 'text' : 'password'"
+                         placeholder="YourApp-…"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.ebayId = !showSecrets.ebayId"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.ebayId ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-gray-600 block mb-1">Client Secret (CertID)</label>
+                <div class="flex gap-1">
+                  <input x-model="apiKeyEbaySec" :type="showSecrets.ebaySec ? 'text' : 'password'"
+                         placeholder="SBX-…"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.ebaySec = !showSecrets.ebaySec"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.ebaySec ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Keepa -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Keepa API Key <span class="text-gray-600">(keepa.com/api — Amazon price history)</span></label>
+            <div class="flex gap-1">
+              <input x-model="apiKeyKeepa" :type="showSecrets.keepa ? 'text' : 'password'"
+                     placeholder="keepa_…"
+                     class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <button @click="showSecrets.keepa = !showSecrets.keepa"
+                      class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                      x-text="showSecrets.keepa ? '🙈' : '👁'"></button>
+            </div>
+          </div>
+
+          <!-- Amazon PA API -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Amazon PA API <span class="text-gray-600">(affiliate programme — requires associate account)</span></label>
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="text-xs text-gray-600 block mb-1">Access Key</label>
+                <div class="flex gap-1">
+                  <input x-model="apiKeyAmzAccess" :type="showSecrets.amzAccess ? 'text' : 'password'"
+                         placeholder="AKIA…"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.amzAccess = !showSecrets.amzAccess"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.amzAccess ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-gray-600 block mb-1">Secret Key</label>
+                <div class="flex gap-1">
+                  <input x-model="apiKeyAmzSecret" :type="showSecrets.amzSecret ? 'text' : 'password'"
+                         placeholder="…"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.amzSecret = !showSecrets.amzSecret"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.amzSecret ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-gray-600 block mb-1">Associate Tag</label>
+                <div class="flex gap-1">
+                  <input x-model="apiKeyAmzTag" :type="showSecrets.amzTag ? 'text' : 'password'"
+                         placeholder="yourtag-21"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.amzTag = !showSecrets.amzTag"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.amzTag ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AWIN -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">AWIN Affiliate <span class="text-gray-600">(awin.com — Scan, Overclockers, Currys, 300+ UK shops)</span></label>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-xs text-gray-600 block mb-1">Publisher ID</label>
+                <div class="flex gap-1">
+                  <input x-model="apiKeyAwinId" :type="showSecrets.awinId ? 'text' : 'password'"
+                         placeholder="123456"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.awinId = !showSecrets.awinId"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.awinId ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-gray-600 block mb-1">API Key</label>
+                <div class="flex gap-1">
+                  <input x-model="apiKeyAwinKey" :type="showSecrets.awinKey ? 'text' : 'password'"
+                         placeholder="…"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.awinKey = !showSecrets.awinKey"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.awinKey ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Reddit -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Reddit API <span class="text-gray-600">(reddit.com/prefs/apps — free)</span></label>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="text-xs text-gray-600 block mb-1">Client ID</label>
+                <div class="flex gap-1">
+                  <input x-model="apiKeyRedditId" :type="showSecrets.redditId ? 'text' : 'password'"
+                         placeholder="…"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.redditId = !showSecrets.redditId"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.redditId ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-gray-600 block mb-1">Client Secret</label>
+                <div class="flex gap-1">
+                  <input x-model="apiKeyRedditSec" :type="showSecrets.redditSec ? 'text' : 'password'"
+                         placeholder="…"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.redditSec = !showSecrets.redditSec"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.redditSec ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- YouTube -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">YouTube Data API v3 <span class="text-gray-600">(Google Cloud Console — free 10k units/day)</span></label>
+            <div class="flex gap-1">
+              <input x-model="apiKeyYoutube" :type="showSecrets.youtube ? 'text' : 'password'"
+                     placeholder="AIza…"
+                     class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <button @click="showSecrets.youtube = !showSecrets.youtube"
+                      class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                      x-text="showSecrets.youtube ? '🙈' : '👁'"></button>
+            </div>
+          </div>
+
+          <!-- Bing -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Bing Search API Key <span class="text-gray-600">(Azure — free 1k/month)</span></label>
+            <div class="flex gap-1">
+              <input x-model="apiKeyBing" :type="showSecrets.bing ? 'text' : 'password'"
+                     placeholder="…"
+                     class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <button @click="showSecrets.bing = !showSecrets.bing"
+                      class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                      x-text="showSecrets.bing ? '🙈' : '👁'"></button>
+            </div>
+          </div>
+
+          <button @click="saveApiKeys()"
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium">
+            Save API Keys
+          </button>
+        </div>
+      </div>
+
       <!-- VAT mode -->
       <div class="bg-gray-800 rounded-xl border border-gray-700">
         <div class="px-4 py-3 border-b border-gray-700">
@@ -1635,7 +1862,23 @@ function app() {
     notifResend: '',
     notifEmail: '',
     notifDropPct: '5',
-    showSecrets: { discord: false, slack: false, telegram: false, resend: false },
+    showSecrets: { discord: false, slack: false, telegram: false, resend: false,
+                   pricesapi: false, ebayId: false, ebaySec: false, keepa: false,
+                   amzAccess: false, amzSecret: false, amzTag: false,
+                   awinId: false, awinKey: false,
+                   redditId: false, redditSec: false,
+                   youtube: false, bing: false },
+
+    // API keys
+    apiKeyPricesApi: '',
+    apiKeyEbayId: '', apiKeyEbaySec: '',
+    apiKeyKeepa: '',
+    apiKeyAmzAccess: '', apiKeyAmzSecret: '', apiKeyAmzTag: '',
+    apiKeyAwinId: '', apiKeyAwinKey: '',
+    apiKeyRedditId: '', apiKeyRedditSec: '',
+    apiKeyYoutube: '',
+    apiKeyBing: '',
+    apiKeyStatus: {},
 
     // Saved searches
     savedSearches: [],
@@ -1746,6 +1989,30 @@ function app() {
         slack:    !!cfg.slack_webhook_url,
         telegram: !!(cfg.telegram_bot_token && cfg.telegram_chat_id),
         email:    !!(cfg.resend_api_key && cfg.alert_email),
+      };
+      // API keys
+      this.apiKeyPricesApi  = cfg.prices_api_key       ?? '';
+      this.apiKeyEbayId     = cfg.ebay_client_id        ?? '';
+      this.apiKeyEbaySec    = cfg.ebay_client_secret    ?? '';
+      this.apiKeyKeepa      = cfg.keepa_api_key         ?? '';
+      this.apiKeyAmzAccess  = cfg.amazon_access_key     ?? '';
+      this.apiKeyAmzSecret  = cfg.amazon_secret_key     ?? '';
+      this.apiKeyAmzTag     = cfg.amazon_associate_tag  ?? '';
+      this.apiKeyAwinId     = cfg.awin_publisher_id     ?? '';
+      this.apiKeyAwinKey    = cfg.awin_api_key          ?? '';
+      this.apiKeyRedditId   = cfg.reddit_client_id      ?? '';
+      this.apiKeyRedditSec  = cfg.reddit_client_secret  ?? '';
+      this.apiKeyYoutube    = cfg.youtube_api_key       ?? '';
+      this.apiKeyBing       = cfg.bing_api_key          ?? '';
+      this.apiKeyStatus = {
+        pricesapi: !!cfg.prices_api_key,
+        ebay:      !!(cfg.ebay_client_id && cfg.ebay_client_secret),
+        keepa:     !!cfg.keepa_api_key,
+        amazon:    !!(cfg.amazon_access_key && cfg.amazon_secret_key && cfg.amazon_associate_tag),
+        awin:      !!(cfg.awin_publisher_id && cfg.awin_api_key),
+        reddit:    !!(cfg.reddit_client_id && cfg.reddit_client_secret),
+        youtube:   !!cfg.youtube_api_key,
+        bing:      !!cfg.bing_api_key,
       };
     },
 
@@ -2049,6 +2316,28 @@ function app() {
         fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
       ));
       this.showToast('✅ Notification settings saved');
+      await this.loadConfig();
+    },
+    async saveApiKeys() {
+      const fields = [
+        { key: 'prices_api_key',       value: this.apiKeyPricesApi },
+        { key: 'ebay_client_id',       value: this.apiKeyEbayId },
+        { key: 'ebay_client_secret',   value: this.apiKeyEbaySec },
+        { key: 'keepa_api_key',        value: this.apiKeyKeepa },
+        { key: 'amazon_access_key',    value: this.apiKeyAmzAccess },
+        { key: 'amazon_secret_key',    value: this.apiKeyAmzSecret },
+        { key: 'amazon_associate_tag', value: this.apiKeyAmzTag },
+        { key: 'awin_publisher_id',    value: this.apiKeyAwinId },
+        { key: 'awin_api_key',         value: this.apiKeyAwinKey },
+        { key: 'reddit_client_id',     value: this.apiKeyRedditId },
+        { key: 'reddit_client_secret', value: this.apiKeyRedditSec },
+        { key: 'youtube_api_key',      value: this.apiKeyYoutube },
+        { key: 'bing_api_key',         value: this.apiKeyBing },
+      ];
+      await Promise.all(fields.map(f =>
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
+      ));
+      this.showToast('✅ API keys saved');
       await this.loadConfig();
     },
     async testNotification() {
