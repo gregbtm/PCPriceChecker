@@ -13,7 +13,10 @@ export interface SearchOffer {
   price: number;
   currency: string;
   merchant: string;
+  merchantUrl: string;
   url: string;
+  condition: string;
+  shipping: number | null;
   inStock: boolean;
 }
 
@@ -57,7 +60,8 @@ export async function searchProducts(
 
   try {
     const res = await fetch(`${BASE_URL}/products/search?${params}`, {
-      headers: { Authorization: `Bearer ${apiKey}` },
+      // Playground uses x-api-key; send both for compatibility
+      headers: { 'x-api-key': apiKey, Authorization: `Bearer ${apiKey}` },
       signal: controller.signal,
     });
 
@@ -75,24 +79,34 @@ export async function searchProducts(
     }
 
     const body = (await res.json()) as any;
-    const rawProducts: any[] = body?.data?.products ?? [];
-    const cacheSource: string = body?.meta?.cache_source ?? 'unknown';
+    // Support both response shapes: { data: { products } } and { products }
+    const rawProducts: any[] = body?.data?.products ?? body?.products ?? [];
+    const cacheSource: string = body?.meta?.cache_source ?? body?.data?.cache_source ?? 'unknown';
 
-    const products: SearchProduct[] = rawProducts.map((p: any) => ({
-      name: p.name ?? p.title ?? 'Unknown Product',
-      url: p.url ?? '',
-      image: p.image,
-      offers: (p.offers ?? []).map((o: any) => ({
-        price: Number(o.price ?? 0),
-        currency: ((o.currency ?? 'GBP') as string).toUpperCase(),
-        merchant: o.merchant ?? o.seller ?? o.store ?? 'Unknown',
-        url: o.url ?? o.link ?? '',
-        inStock:
-          o.availability !== 'OutOfStock' &&
-          o.in_stock !== false &&
-          o.stock !== 0,
-      })),
-    }));
+    const products: SearchProduct[] = rawProducts.map((p: any) => {
+      // PricesAPI docs: offer fields are seller, seller_url, price, currency, shipping, condition, url
+      const rawOffers: any[] = p.offers ?? p.pricing ?? p.prices ?? p.sellers ?? [];
+      return {
+        name: p.name ?? p.title ?? 'Unknown Product',
+        url: p.url ?? p.link ?? '',
+        image: p.image,
+        offers: rawOffers.map((o: any) => ({
+          price: Number(o.price ?? o.salePrice ?? 0),
+          currency: ((o.currency ?? 'GBP') as string).toUpperCase(),
+          // API field is `seller`; fall back to other common names
+          merchant: o.seller ?? o.merchant ?? o.merchant_name ?? o.store ?? o.retailer ?? 'Unknown',
+          merchantUrl: o.seller_url ?? o.merchant_url ?? '',
+          url: o.url ?? o.product_url ?? o.link ?? '',
+          condition: o.condition ?? o.item_condition ?? 'New',
+          shipping: o.shipping != null ? Number(o.shipping) : null,
+          inStock:
+            o.availability !== 'OutOfStock' &&
+            o.in_stock !== false &&
+            o.stock !== 0 &&
+            (o.condition ?? '').toLowerCase() !== 'out of stock',
+        })),
+      };
+    });
 
     return { products, cacheSource, durationMs: Date.now() - t0 };
   } finally {
