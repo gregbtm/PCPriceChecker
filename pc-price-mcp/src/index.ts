@@ -1574,6 +1574,95 @@ const TOOLS = [
       required: ['id'],
     },
   },
+
+  // ── Power workflows ──────────────────────────────────────────────────────
+  {
+    name: 'search_and_track_component',
+    description:
+      'Search for a PC component via PricesAPI and immediately add matching products to the price tracker. ' +
+      'One-step alternative to calling search_components then track_component separately. ' +
+      'Pass max_track to limit how many products are tracked (default 3, max 10). ' +
+      'Returns the IDs of newly tracked components so you can reference them later.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:       { type: 'string', description: 'Component to find, e.g. "RTX 5070 Ti" or "Ryzen 9 9950X"' },
+        category:    { type: 'string', enum: ['gpu','cpu','ram','motherboard','storage','psu','case','cooling','monitor','other'], default: 'other' },
+        alert_price: { type: 'number', description: 'GBP alert threshold applied to all tracked results' },
+        max_track:   { type: 'number', default: 3, description: 'How many of the top results to track (1–10)' },
+        notes:       { type: 'string' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'search_and_track_prebuilt',
+    description:
+      'Search for pre-built PC systems and immediately add the top results to the prebuilt watchlist. ' +
+      'One-step alternative to calling search_prebuilt_pcs then track_prebuilt_pc separately. ' +
+      'Great for saying "find me gaming desktops under £1200 and track the best ones".',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:      { type: 'string', description: 'Search term e.g. "gaming desktop RTX 4070"' },
+        max_price:  { type: 'number', description: 'Only track results at or below this GBP price' },
+        alert_price:{ type: 'number', description: 'GBP alert threshold applied to tracked results' },
+        category:   { type: 'string', enum: ['gaming','workstation','office','home','mini','aio','other'], default: 'gaming' },
+        max_track:  { type: 'number', default: 3, description: 'How many of the top results to track (1–10)' },
+        retailers:  { type: 'array', items: { type: 'string', enum: [...ALL_PREBUILT_ENUM] }, description: 'Retailers to search (default: all)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'plan_and_track_build',
+    description:
+      'Design an optimal PC build for a given budget and use case, then automatically: ' +
+      '(1) create a named build in your watchlist, (2) add every recommended component to price tracking. ' +
+      'Combines budget_builder + create_build + track_component in one step. ' +
+      'After this, use refresh_prices to fetch live UK prices for all parts.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        budget:     { type: 'number', description: 'Total budget in GBP' },
+        use_case:   { type: 'string', enum: ['gaming_1080p','gaming_1440p','gaming_4k','workstation','streaming','general'], default: 'gaming_1440p' },
+        build_name: { type: 'string', description: 'Name for the saved build, e.g. "1440p Gaming Rig 2025"' },
+      },
+      required: ['budget'],
+    },
+  },
+  {
+    name: 'configure_api_keys',
+    description:
+      'Set or view API keys for the integrated services (PricesAPI, eBay, Keepa, Amazon PA, AWIN, Reddit, YouTube, Bing). ' +
+      'Keys are saved to the local database and take effect immediately — no restart needed. ' +
+      'Omit a field to leave it unchanged. Pass null to remove a key.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        prices_api_key:       { type: ['string','null'], description: 'PricesAPI key — get free at pricesapi.io (50k calls/month)' },
+        ebay_client_id:       { type: ['string','null'], description: 'eBay App ID (developer.ebay.com)' },
+        ebay_client_secret:   { type: ['string','null'], description: 'eBay Cert ID (developer.ebay.com)' },
+        keepa_api_key:        { type: ['string','null'], description: 'Keepa API key (keepa.com/api)' },
+        amazon_access_key:    { type: ['string','null'], description: 'Amazon PA API Access Key' },
+        amazon_secret_key:    { type: ['string','null'], description: 'Amazon PA API Secret Key' },
+        amazon_associate_tag: { type: ['string','null'], description: 'Amazon associate tag (e.g. yourtag-21)' },
+        awin_publisher_id:    { type: ['string','null'], description: 'AWIN publisher/affiliate ID' },
+        awin_api_key:         { type: ['string','null'], description: 'AWIN API key' },
+        reddit_client_id:     { type: ['string','null'], description: 'Reddit app client ID (reddit.com/prefs/apps)' },
+        reddit_client_secret: { type: ['string','null'], description: 'Reddit app client secret' },
+        youtube_api_key:      { type: ['string','null'], description: 'YouTube Data API v3 key (Google Cloud Console)' },
+        bing_api_key:         { type: ['string','null'], description: 'Bing Search v7 API key (Azure)' },
+      },
+    },
+  },
+  {
+    name: 'get_config',
+    description:
+      'Read current app configuration: which API keys are set, notification channels, scheduler status, VAT mode, etc. ' +
+      'Key values are masked for security — only set/not-set status is shown.',
+    inputSchema: { type: 'object' as const, properties: {} },
+  },
 ];
 
 // ── Server ─────────────────────────────────────────────────────────────────
@@ -2295,42 +2384,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // ── configure_notifications ──────────────────────────────────────────
       case 'configure_notifications': {
-        const { discord_webhook_url, slack_webhook_url, notify_drop_percent } = ConfigNotificationsSchema.parse(args);
+        const a = args as Record<string, unknown>;
         const changes: string[] = [];
 
-        if (discord_webhook_url !== undefined) {
-          if (discord_webhook_url === null) {
-            db.deleteConfig('discord_webhook_url');
-            changes.push('Discord webhook removed');
+        const notifFields: Array<{ arg: string; key: string; label: string }> = [
+          { arg: 'discord_webhook_url',  key: 'discord_webhook_url',  label: 'Discord webhook' },
+          { arg: 'slack_webhook_url',    key: 'slack_webhook_url',    label: 'Slack webhook' },
+          { arg: 'telegram_bot_token',   key: 'telegram_bot_token',   label: 'Telegram bot token' },
+          { arg: 'telegram_chat_id',     key: 'telegram_chat_id',     label: 'Telegram chat ID' },
+          { arg: 'resend_api_key',       key: 'resend_api_key',       label: 'Resend API key' },
+          { arg: 'alert_email',          key: 'alert_email',          label: 'Alert email' },
+        ];
+
+        for (const f of notifFields) {
+          const val = a[f.arg];
+          if (val === undefined) continue;
+          if (val === null || val === '') {
+            db.deleteConfig(f.key);
+            changes.push(`${f.label} removed`);
           } else {
-            db.setConfig('discord_webhook_url', discord_webhook_url);
-            changes.push(`Discord webhook set`);
+            db.setConfig(f.key, String(val));
+            changes.push(`${f.label} set`);
           }
         }
-        if (slack_webhook_url !== undefined) {
-          if (slack_webhook_url === null) {
-            db.deleteConfig('slack_webhook_url');
-            changes.push('Slack webhook removed');
-          } else {
-            db.setConfig('slack_webhook_url', slack_webhook_url);
-            changes.push(`Slack webhook set`);
-          }
-        }
-        if (notify_drop_percent !== undefined) {
-          db.setConfig('notify_drop_percent', String(notify_drop_percent));
-          changes.push(`Notification threshold set to ${notify_drop_percent}%`);
+
+        const dropPct = a.notify_drop_percent;
+        if (dropPct !== undefined && dropPct !== null) {
+          db.setConfig('notify_drop_percent', String(dropPct));
+          changes.push(`Drop threshold set to ${dropPct}%`);
         }
 
         if (changes.length === 0) {
-          const discordUrl = db.getConfig('discord_webhook_url');
-          const slackUrl = db.getConfig('slack_webhook_url');
-          const threshold = db.getConfig('notify_drop_percent') ?? '5';
+          const cfg = db.getAllConfig();
+          const threshold = cfg.notify_drop_percent ?? '5';
           return ok(
             `## Notification Configuration\n` +
-            `- Discord: ${discordUrl ? '✅ Configured' : '❌ Not set'}\n` +
-            `- Slack: ${slackUrl ? '✅ Configured' : '❌ Not set'}\n` +
+            `- Discord:  ${cfg.discord_webhook_url  ? '✅ Configured' : '❌ Not set'}\n` +
+            `- Slack:    ${cfg.slack_webhook_url    ? '✅ Configured' : '❌ Not set'}\n` +
+            `- Telegram: ${cfg.telegram_bot_token && cfg.telegram_chat_id ? '✅ Configured' : '❌ Not set'}\n` +
+            `- Email:    ${cfg.resend_api_key && cfg.alert_email ? '✅ Configured' : '❌ Not set'}\n` +
             `- Drop threshold: ${threshold}%\n\n` +
-            `Use \`test_notification\` to verify webhooks are working.`,
+            `Use \`test_notification\` to verify channels are working.`,
           );
         }
 
@@ -3685,6 +3779,196 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { id } = args as { id: number };
         const removed = db.removeSavedSearch(Number(id));
         return ok(removed ? `Saved search alert ${id} deleted.` : `No saved search with ID ${id}.`);
+      }
+
+      // ── search_and_track_component ────────────────────────────────────────
+      case 'search_and_track_component': {
+        const { query, category = 'other', alert_price, max_track = 3, notes } = args as {
+          query: string; category?: string; alert_price?: number; max_track?: number; notes?: string;
+        };
+        const limit = Math.min(Math.max(1, max_track), 10);
+        const { products, cacheSource, durationMs } = await searchWithRetry(query, 'gb', limit, 5);
+
+        if (products.length === 0) return ok(`No products found for "${query}". Try a broader search term.`);
+
+        const lines = [
+          `## Search + Track: "${query}"`,
+          `*${products.length} result(s) found · ${cacheSource} · ${(durationMs / 1000).toFixed(1)}s*\n`,
+        ];
+        const tracked: Array<{ id: number; name: string; price: string }> = [];
+
+        for (const p of products.slice(0, limit)) {
+          const component = db.addTrackedComponent(
+            p.name, category, p.name, alert_price, notes,
+          );
+          const bestOffer = p.offers.filter(o => o.inStock && o.price > 0).sort((a, b) => a.price - b.price)[0];
+          const priceStr = bestOffer ? `from ${fmt(bestOffer.price, bestOffer.currency)} at ${bestOffer.merchant}` : 'price unknown';
+          lines.push(`✅ **[ID: ${component.id}]** ${p.name}`);
+          lines.push(`   ${priceStr}${alert_price ? ` · alert set at ${fmt(alert_price)}` : ''}`);
+          if (p.url) lines.push(`   <${p.url}>`);
+          tracked.push({ id: component.id, name: p.name, price: priceStr });
+        }
+
+        lines.push('');
+        lines.push(`Tracked ${tracked.length} component(s). Use \`refresh_prices\` to keep prices up to date.`);
+        if (alert_price) lines.push(`You'll be notified when any drops below **${fmt(alert_price)}**.`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── search_and_track_prebuilt ─────────────────────────────────────────
+      case 'search_and_track_prebuilt': {
+        const { query, max_price, alert_price, category = 'gaming', max_track = 3, retailers } = args as {
+          query: string; max_price?: number; alert_price?: number; category?: string; max_track?: number; retailers?: string[];
+        };
+        const limit = Math.min(Math.max(1, max_track), 10);
+
+        const results = await searchAllPrebuiltRetailers(query, retailers as any);
+        const allFound = results
+          .flatMap(r => r.results.map(p => ({ ...p, _retailer: r.retailer })))
+          .filter(p => p.price != null && p.price > 0)
+          .filter(p => max_price == null || p.price! <= max_price)
+          .sort((a, b) => a.price! - b.price!);
+
+        if (allFound.length === 0) {
+          return ok(`No prebuilt results found for "${query}"${max_price ? ` under £${max_price}` : ''}. Try broader terms or remove the price filter.`);
+        }
+
+        const lines = [
+          `## Search + Track Prebuilts: "${query}"`,
+          `*${allFound.length} result(s) found across ${results.length} retailers*\n`,
+        ];
+
+        for (const p of allFound.slice(0, limit)) {
+          const system = db.addPrebuiltSystem(p.name, category as any, p.name, {
+            brand: p.brand, cpu: p.cpu, gpu: p.gpu, ram: p.ram, storage: p.storage, os: p.os,
+            formFactor: p.formFactor, alertPrice: alert_price,
+          });
+          const specs = [p.cpu, p.gpu, p.ram, p.storage].filter(Boolean).join(' · ');
+          lines.push(`✅ **[ID: ${system.id}]** ${p.name}`);
+          lines.push(`   **${fmt(p.price!, p.currency)}** at ${p._retailer}${p.inStock ? ' ✅' : ' ❌ Out of stock'}`);
+          if (specs) lines.push(`   *${specs}*`);
+          if (p.url) lines.push(`   <${p.url}>`);
+          if (alert_price) lines.push(`   Alert set at ${fmt(alert_price)}`);
+          lines.push('');
+        }
+
+        lines.push(`Tracking ${Math.min(allFound.length, limit)} prebuilt(s). Use \`refresh_prebuilt_prices\` to update.`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── plan_and_track_build ──────────────────────────────────────────────
+      case 'plan_and_track_build': {
+        const { budget, use_case = 'gaming_1440p', build_name } = args as {
+          budget: number; use_case?: string; build_name?: string;
+        };
+        const result = budgetBuilder(budget, use_case as UseCase);
+        const name = build_name ?? `${result.useCaseLabel} — £${budget.toLocaleString()} Build`;
+
+        const build = db.createBuild(name);
+        const lines = [
+          `## Plan + Track: ${name}`,
+          `*Build ID: ${build.id} · ${result.useCaseLabel} · £${budget.toLocaleString()} budget*\n`,
+          '| Component | Budget | Suggestion |',
+          '|---|---|---|',
+          ...result.allocations.map(a => `| ${a.label} | £${a.budgetPounds} | ${a.suggestion} |`),
+          '',
+          `**Total allocated:** £${result.totalAllocated.toLocaleString()}\n`,
+          '### Tracking components…',
+        ];
+
+        for (const a of result.allocations) {
+          const cat = a.label.toLowerCase().includes('gpu') ? 'gpu'
+            : a.label.toLowerCase().includes('cpu') ? 'cpu'
+            : a.label.toLowerCase().includes('ram') || a.label.toLowerCase().includes('memory') ? 'ram'
+            : a.label.toLowerCase().includes('motherboard') ? 'motherboard'
+            : a.label.toLowerCase().includes('storage') || a.label.toLowerCase().includes('ssd') ? 'storage'
+            : a.label.toLowerCase().includes('psu') || a.label.toLowerCase().includes('power') ? 'psu'
+            : a.label.toLowerCase().includes('case') ? 'case'
+            : a.label.toLowerCase().includes('cool') ? 'cooling'
+            : 'other';
+          const component = db.addTrackedComponent(
+            a.suggestion, cat, a.searchQuery ?? a.suggestion, undefined,
+            `Part of build "${name}" (ID ${build.id})`,
+          );
+          db.addBuildItem(build.id, component.id, 1, undefined);
+          lines.push(`- ✅ **[${component.id}]** ${a.label}: ${a.suggestion} *(search: "${a.searchQuery ?? a.suggestion}")*`);
+        }
+
+        lines.push('', `\n**Build "${name}" created (ID: ${build.id})** with ${result.allocations.length} components tracked.`);
+        lines.push('Run `refresh_prices` to fetch current UK prices for all parts.');
+        if (result.notes.length > 0) {
+          lines.push('', '### Build notes', ...result.notes.map(n => `- ${n}`));
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── configure_api_keys ────────────────────────────────────────────────
+      case 'configure_api_keys': {
+        const a = args as Record<string, string | null | undefined>;
+        const keyMap: Array<{ arg: string; dbKey: string; envVar: string; label: string }> = [
+          { arg: 'prices_api_key',       dbKey: 'prices_api_key',       envVar: 'PRICES_API_KEY',       label: 'PricesAPI' },
+          { arg: 'ebay_client_id',       dbKey: 'ebay_client_id',       envVar: 'EBAY_CLIENT_ID',       label: 'eBay Client ID' },
+          { arg: 'ebay_client_secret',   dbKey: 'ebay_client_secret',   envVar: 'EBAY_CLIENT_SECRET',   label: 'eBay Client Secret' },
+          { arg: 'keepa_api_key',        dbKey: 'keepa_api_key',        envVar: 'KEEPA_API_KEY',        label: 'Keepa' },
+          { arg: 'amazon_access_key',    dbKey: 'amazon_access_key',    envVar: 'AMAZON_ACCESS_KEY',    label: 'Amazon Access Key' },
+          { arg: 'amazon_secret_key',    dbKey: 'amazon_secret_key',    envVar: 'AMAZON_SECRET_KEY',    label: 'Amazon Secret Key' },
+          { arg: 'amazon_associate_tag', dbKey: 'amazon_associate_tag', envVar: 'AMAZON_ASSOCIATE_TAG', label: 'Amazon Associate Tag' },
+          { arg: 'awin_publisher_id',    dbKey: 'awin_publisher_id',    envVar: 'AWIN_PUBLISHER_ID',    label: 'AWIN Publisher ID' },
+          { arg: 'awin_api_key',         dbKey: 'awin_api_key',         envVar: 'AWIN_API_KEY',         label: 'AWIN API Key' },
+          { arg: 'reddit_client_id',     dbKey: 'reddit_client_id',     envVar: 'REDDIT_CLIENT_ID',     label: 'Reddit Client ID' },
+          { arg: 'reddit_client_secret', dbKey: 'reddit_client_secret', envVar: 'REDDIT_CLIENT_SECRET', label: 'Reddit Client Secret' },
+          { arg: 'youtube_api_key',      dbKey: 'youtube_api_key',      envVar: 'YOUTUBE_API_KEY',      label: 'YouTube' },
+          { arg: 'bing_api_key',         dbKey: 'bing_api_key',         envVar: 'BING_API_KEY',         label: 'Bing' },
+        ];
+        const changes: string[] = [];
+        for (const k of keyMap) {
+          const val = a[k.arg];
+          if (val === undefined) continue;
+          if (val === null || val === '') {
+            db.deleteConfig(k.dbKey);
+            delete process.env[k.envVar];
+            changes.push(`${k.label} removed`);
+          } else {
+            db.setConfig(k.dbKey, val);
+            process.env[k.envVar] = val;
+            changes.push(`${k.label} set`);
+          }
+        }
+        if (changes.length === 0) {
+          const cfg = db.getAllConfig();
+          const status = keyMap.map(k => `- ${k.label}: ${cfg[k.dbKey] ? '✅ Set' : '❌ Not set'}`);
+          return ok(`## API Key Status\n\n${status.join('\n')}`);
+        }
+        return ok(`✅ API keys updated:\n${changes.map(c => `- ${c}`).join('\n')}`);
+      }
+
+      // ── get_config ────────────────────────────────────────────────────────
+      case 'get_config': {
+        const cfg = db.getAllConfig();
+        const apiKeys = ['prices_api_key','ebay_client_id','ebay_client_secret','keepa_api_key',
+          'amazon_access_key','amazon_secret_key','amazon_associate_tag',
+          'awin_publisher_id','awin_api_key','reddit_client_id','reddit_client_secret',
+          'youtube_api_key','bing_api_key'];
+        const lines = [
+          '## App Configuration',
+          '',
+          '### Scheduler',
+          `- Status: ${db.getConfig('auto_refresh_interval_minutes') ? `Active — every ${cfg.auto_refresh_interval_minutes} minute(s)` : 'Stopped'}`,
+          '',
+          '### Notifications',
+          `- Discord:  ${cfg.discord_webhook_url  ? '✅ Set' : '❌ Not set'}`,
+          `- Slack:    ${cfg.slack_webhook_url    ? '✅ Set' : '❌ Not set'}`,
+          `- Telegram: ${cfg.telegram_bot_token && cfg.telegram_chat_id ? '✅ Set' : '❌ Not set'}`,
+          `- Email:    ${cfg.resend_api_key && cfg.alert_email ? `✅ Set (${cfg.alert_email})` : '❌ Not set'}`,
+          `- Drop threshold: ${cfg.notify_drop_percent ?? '5'}%`,
+          '',
+          '### API Keys',
+          ...apiKeys.map(k => `- ${k.replace(/_/g, ' ')}: ${cfg[k] ? '✅ Set' : '❌ Not set'}`),
+          '',
+          '### Display',
+          `- VAT mode: ${cfg.vat_mode ?? 'inc_vat'}`,
+        ];
+        return ok(lines.join('\n'));
       }
 
       default:
