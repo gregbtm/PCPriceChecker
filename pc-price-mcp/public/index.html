@@ -671,26 +671,36 @@
           <h3 class="font-semibold text-white">🔔 Notifications</h3>
         </div>
         <div class="p-4 space-y-4">
-          <div class="grid grid-cols-2 gap-3 text-sm mb-2">
+          <div class="grid grid-cols-3 gap-2 text-sm mb-2">
             <div class="flex items-center gap-2">
               <div :class="configStatus.discord ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
-              <span class="text-gray-300">Discord</span>
-              <span x-text="configStatus.discord ? '✅ Set' : '❌ Not set'" class="text-xs text-gray-500"></span>
+              <span class="text-gray-300 text-xs">Discord</span>
+              <span x-text="configStatus.discord ? '✅' : '❌'" class="text-xs"></span>
             </div>
             <div class="flex items-center gap-2">
               <div :class="configStatus.slack ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
-              <span class="text-gray-300">Slack</span>
-              <span x-text="configStatus.slack ? '✅ Set' : '❌ Not set'" class="text-xs text-gray-500"></span>
+              <span class="text-gray-300 text-xs">Slack</span>
+              <span x-text="configStatus.slack ? '✅' : '❌'" class="text-xs"></span>
             </div>
             <div class="flex items-center gap-2">
               <div :class="configStatus.telegram ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
-              <span class="text-gray-300">Telegram</span>
-              <span x-text="configStatus.telegram ? '✅ Set' : '❌ Not set'" class="text-xs text-gray-500"></span>
+              <span class="text-gray-300 text-xs">Telegram</span>
+              <span x-text="configStatus.telegram ? '✅' : '❌'" class="text-xs"></span>
             </div>
             <div class="flex items-center gap-2">
               <div :class="configStatus.email ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
-              <span class="text-gray-300">Email</span>
-              <span x-text="configStatus.email ? '✅ Set' : '❌ Not set'" class="text-xs text-gray-500"></span>
+              <span class="text-gray-300 text-xs">Email</span>
+              <span x-text="configStatus.email ? '✅' : '❌'" class="text-xs"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div :class="configStatus.ntfy ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
+              <span class="text-gray-300 text-xs">ntfy</span>
+              <span x-text="configStatus.ntfy ? '✅' : '❌'" class="text-xs"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div :class="configStatus.pushover ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
+              <span class="text-gray-300 text-xs">Pushover</span>
+              <span x-text="configStatus.pushover ? '✅' : '❌'" class="text-xs"></span>
             </div>
           </div>
           <div>
@@ -765,6 +775,62 @@
           <p class="text-xs text-gray-600">
             Email via <a href="https://resend.com" target="_blank" class="text-blue-400 hover:underline">Resend.com</a> — free tier: 100 emails/day. Get an API key at resend.com.
           </p>
+
+          <!-- ntfy -->
+          <div class="border-t border-gray-700 pt-3">
+            <p class="text-xs text-gray-400 font-medium mb-2">ntfy — instant push to phone/desktop, no account needed</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-gray-400 block mb-1">ntfy Topic <span class="text-gray-600">(pick anything unique)</span></label>
+                <input x-model="notifNtfyTopic" type="text"
+                       placeholder="my-pc-price-alerts"
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                              placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="text-xs text-gray-400 block mb-1">ntfy Server <span class="text-gray-600">(blank = ntfy.sh)</span></label>
+                <input x-model="notifNtfyServer" type="text"
+                       placeholder="https://ntfy.sh"
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                              placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+            <p class="text-xs text-gray-600 mt-1">
+              Subscribe at <span class="text-blue-400">ntfy.sh/[your-topic]</span> or in the ntfy app. Free, open-source, self-hostable.
+            </p>
+          </div>
+
+          <!-- Pushover -->
+          <div class="border-t border-gray-700 pt-3">
+            <p class="text-xs text-gray-400 font-medium mb-2">Pushover — rich mobile push notifications (one-time $5 app purchase)</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-gray-400 block mb-1">Pushover App Token</label>
+                <div class="flex gap-1">
+                  <input x-model="notifPushoverToken" :type="showSecrets.pushoverToken ? 'text' : 'password'"
+                         placeholder="a…"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.pushoverToken = !showSecrets.pushoverToken"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.pushoverToken ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-gray-400 block mb-1">Pushover User Key</label>
+                <div class="flex gap-1">
+                  <input x-model="notifPushoverUser" :type="showSecrets.pushoverUser ? 'text' : 'password'"
+                         placeholder="u…"
+                         class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                                placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <button @click="showSecrets.pushoverUser = !showSecrets.pushoverUser"
+                          class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                          x-text="showSecrets.pushoverUser ? '🙈' : '👁'"></button>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div>
             <label class="text-xs text-gray-400 block mb-1">Minimum drop % to notify</label>
             <input x-model="notifDropPct" type="number" min="0" max="100"
@@ -803,6 +869,7 @@
               ['Reddit',    apiKeyStatus.reddit],
               ['YouTube',   apiKeyStatus.youtube],
               ['Bing',      apiKeyStatus.bing],
+              ['Anthropic', apiKeyStatus.anthropic],
             ]" :key="label">
               <div class="flex items-center gap-1.5">
                 <span :class="ok ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full flex-shrink-0"></span>
@@ -1001,6 +1068,20 @@
               <button @click="showSecrets.bing = !showSecrets.bing"
                       class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
                       x-text="showSecrets.bing ? '🙈' : '👁'"></button>
+            </div>
+          </div>
+
+          <!-- Anthropic API Key (for AI-assisted scraping fallback) -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Anthropic API Key <span class="text-gray-600">(AI scraping fallback — used when all other methods fail)</span></label>
+            <div class="flex gap-1">
+              <input x-model="apiKeyAnthropic" :type="showSecrets.anthropic ? 'text' : 'password'"
+                     placeholder="sk-ant-…"
+                     class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <button @click="showSecrets.anthropic = !showSecrets.anthropic"
+                      class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                      x-text="showSecrets.anthropic ? '🙈' : '👁'"></button>
             </div>
           </div>
 
@@ -1798,7 +1879,7 @@ function app() {
     selectedBuild: null,
     selectedBuildDetail: null,
     vatMode: 'inc_vat',
-    configStatus: { discord: false, slack: false, telegram: false, email: false },
+    configStatus: { discord: false, slack: false, telegram: false, email: false, ntfy: false, pushover: false },
 
     // Search
     searchQuery: '',
@@ -1861,13 +1942,18 @@ function app() {
     notifTelegramChat: '',
     notifResend: '',
     notifEmail: '',
+    notifNtfyTopic: '',
+    notifNtfyServer: '',
+    notifPushoverToken: '',
+    notifPushoverUser: '',
     notifDropPct: '5',
     showSecrets: { discord: false, slack: false, telegram: false, resend: false,
+                   pushoverToken: false, pushoverUser: false,
                    pricesapi: false, ebayId: false, ebaySec: false, keepa: false,
                    amzAccess: false, amzSecret: false, amzTag: false,
                    awinId: false, awinKey: false,
                    redditId: false, redditSec: false,
-                   youtube: false, bing: false },
+                   youtube: false, bing: false, anthropic: false },
 
     // API keys
     apiKeyPricesApi: '',
@@ -1878,6 +1964,7 @@ function app() {
     apiKeyRedditId: '', apiKeyRedditSec: '',
     apiKeyYoutube: '',
     apiKeyBing: '',
+    apiKeyAnthropic: '',
     apiKeyStatus: {},
 
     // Saved searches
@@ -1978,17 +2065,23 @@ function app() {
       this.vatMode = cfg.vat_mode ?? 'inc_vat';
       this.schedulerInterval = cfg.auto_refresh_interval_minutes ?? '';
       this.notifDropPct = cfg.notify_drop_percent ?? '5';
-      this.notifDiscord      = cfg.discord_webhook_url ?? '';
-      this.notifSlack        = cfg.slack_webhook_url   ?? '';
-      this.notifTelegram     = cfg.telegram_bot_token  ?? '';
-      this.notifTelegramChat = cfg.telegram_chat_id    ?? '';
-      this.notifResend       = cfg.resend_api_key      ?? '';
-      this.notifEmail        = cfg.alert_email         ?? '';
+      this.notifDiscord        = cfg.discord_webhook_url  ?? '';
+      this.notifSlack          = cfg.slack_webhook_url    ?? '';
+      this.notifTelegram       = cfg.telegram_bot_token   ?? '';
+      this.notifTelegramChat   = cfg.telegram_chat_id     ?? '';
+      this.notifResend         = cfg.resend_api_key       ?? '';
+      this.notifEmail          = cfg.alert_email          ?? '';
+      this.notifNtfyTopic      = cfg.ntfy_topic           ?? '';
+      this.notifNtfyServer     = cfg.ntfy_server          ?? '';
+      this.notifPushoverToken  = cfg.pushover_app_token   ?? '';
+      this.notifPushoverUser   = cfg.pushover_user_key    ?? '';
       this.configStatus = {
         discord:  !!cfg.discord_webhook_url,
         slack:    !!cfg.slack_webhook_url,
         telegram: !!(cfg.telegram_bot_token && cfg.telegram_chat_id),
         email:    !!(cfg.resend_api_key && cfg.alert_email),
+        ntfy:     !!cfg.ntfy_topic,
+        pushover: !!(cfg.pushover_app_token && cfg.pushover_user_key),
       };
       // API keys
       this.apiKeyPricesApi  = cfg.prices_api_key       ?? '';
@@ -2004,6 +2097,7 @@ function app() {
       this.apiKeyRedditSec  = cfg.reddit_client_secret  ?? '';
       this.apiKeyYoutube    = cfg.youtube_api_key       ?? '';
       this.apiKeyBing       = cfg.bing_api_key          ?? '';
+      this.apiKeyAnthropic  = cfg.anthropic_api_key     ?? '';
       this.apiKeyStatus = {
         pricesapi: !!cfg.prices_api_key,
         ebay:      !!(cfg.ebay_client_id && cfg.ebay_client_secret),
@@ -2013,6 +2107,7 @@ function app() {
         reddit:    !!(cfg.reddit_client_id && cfg.reddit_client_secret),
         youtube:   !!cfg.youtube_api_key,
         bing:      !!cfg.bing_api_key,
+        anthropic: !!cfg.anthropic_api_key,
       };
     },
 
@@ -2311,6 +2406,10 @@ function app() {
         { key: 'telegram_chat_id',    value: this.notifTelegramChat },
         { key: 'resend_api_key',      value: this.notifResend },
         { key: 'alert_email',         value: this.notifEmail },
+        { key: 'ntfy_topic',          value: this.notifNtfyTopic },
+        { key: 'ntfy_server',         value: this.notifNtfyServer },
+        { key: 'pushover_app_token',  value: this.notifPushoverToken },
+        { key: 'pushover_user_key',   value: this.notifPushoverUser },
       ];
       await Promise.all(fields.map(f =>
         fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
@@ -2333,6 +2432,7 @@ function app() {
         { key: 'reddit_client_secret', value: this.apiKeyRedditSec },
         { key: 'youtube_api_key',      value: this.apiKeyYoutube },
         { key: 'bing_api_key',         value: this.apiKeyBing },
+        { key: 'anthropic_api_key',    value: this.apiKeyAnthropic },
       ];
       await Promise.all(fields.map(f =>
         fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
@@ -2348,7 +2448,9 @@ function app() {
       if (d.slack    !== undefined) parts.push('Slack '    + (d.slack    ? '✅' : '❌'));
       if (d.telegram !== undefined) parts.push('Telegram ' + (d.telegram ? '✅' : '❌'));
       if (d.email    !== undefined) parts.push('Email '    + (d.email    ? '✅' : '❌'));
-      const ok = d.discord || d.slack || d.telegram || d.email;
+      if (d.ntfy     !== undefined) parts.push('ntfy '     + (d.ntfy     ? '✅' : '❌'));
+      if (d.pushover !== undefined) parts.push('Pushover ' + (d.pushover ? '✅' : '❌'));
+      const ok = d.discord || d.slack || d.telegram || d.email || d.ntfy || d.pushover;
       this.showToast(parts.join(' · ') || 'No notifications configured', ok ? 'success' : 'error');
     },
     async setVatMode(mode) {

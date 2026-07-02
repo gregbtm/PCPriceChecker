@@ -171,22 +171,85 @@ export async function sendEmail(resendApiKey: string, toEmail: string, payload: 
   } catch { return false; }
 }
 
+// ── ntfy (simple HTTP push) ────────────────────────────────────────────────
+
+export async function sendNtfy(topic: string, server: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  let body = payload.componentName;
+  if (payload.price != null) body += ` — ${sym}${payload.price.toFixed(2)}`;
+  if (payload.retailer) body += ` at ${payload.retailer}`;
+  if (payload.dropAmount != null && payload.dropPercent != null) body += ` (${payload.dropPercent.toFixed(1)}% off)`;
+  if (payload.message) body += `\n${payload.message}`;
+
+  const headers: Record<string, string> = {
+    Title: DISCORD_TITLES[payload.type],
+    Tags: payload.type === 'price_drop' ? 'chart_with_downwards_trend' : (payload.type === 'restock' ? 'package' : 'bell'),
+    Priority: payload.type === 'price_alert' ? 'high' : 'default',
+  };
+  if (payload.url) headers['Click'] = payload.url;
+
+  try {
+    const res = await fetch(`${server.replace(/\/$/, '')}/${topic}`, {
+      method: 'POST', body,
+      headers: { 'Content-Type': 'text/plain', ...headers },
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+// ── Pushover ───────────────────────────────────────────────────────────────
+
+export async function sendPushover(appToken: string, userKey: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  let message = `<b>${payload.componentName}</b>`;
+  if (payload.price != null) message += `\nPrice: <b>${sym}${payload.price.toFixed(2)}</b>`;
+  if (payload.retailer) message += ` at ${payload.retailer}`;
+  if (payload.dropAmount != null && payload.dropPercent != null) message += `\nSaving: ${sym}${payload.dropAmount.toFixed(2)} (${payload.dropPercent.toFixed(1)}% off)`;
+  if (payload.alertThreshold != null) message += `\nYour target: ${sym}${payload.alertThreshold.toFixed(2)}`;
+  if (payload.message) message += `\n${payload.message}`;
+
+  const body: Record<string, string> = {
+    token: appToken, user: userKey,
+    title: DISCORD_TITLES[payload.type],
+    message, html: '1',
+    priority: payload.type === 'price_alert' ? '1' : '0',
+  };
+  if (payload.url) { body.url = payload.url; body.url_title = 'View Product'; }
+
+  try {
+    const res = await fetch('https://api.pushover.net/1/messages.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 // ── notifyAll ───────────────────────────────────────────────────────────────
 
-export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean; telegram: boolean; email: boolean }> {
+export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean; telegram: boolean; email: boolean; ntfy: boolean; pushover: boolean }> {
   const discordUrl    = db.getConfig('discord_webhook_url');
   const slackUrl      = db.getConfig('slack_webhook_url');
   const tgToken       = db.getConfig('telegram_bot_token');
   const tgChatId      = db.getConfig('telegram_chat_id');
   const resendKey     = db.getConfig('resend_api_key');
   const alertEmail    = db.getConfig('alert_email');
+  const ntfyTopic     = db.getConfig('ntfy_topic');
+  const ntfyServer    = db.getConfig('ntfy_server') ?? 'https://ntfy.sh';
+  const pushToken     = db.getConfig('pushover_app_token');
+  const pushUser      = db.getConfig('pushover_user_key');
 
-  const [discord, slack, telegram, email] = await Promise.all([
-    discordUrl              ? sendDiscord(discordUrl, payload)              : Promise.resolve(false),
-    slackUrl                ? sendSlack(slackUrl, payload)                  : Promise.resolve(false),
-    tgToken && tgChatId     ? sendTelegram(tgToken, tgChatId, payload)      : Promise.resolve(false),
-    resendKey && alertEmail ? sendEmail(resendKey, alertEmail, payload)     : Promise.resolve(false),
+  const [discord, slack, telegram, email, ntfy, pushover] = await Promise.all([
+    discordUrl              ? sendDiscord(discordUrl, payload)                          : Promise.resolve(false),
+    slackUrl                ? sendSlack(slackUrl, payload)                              : Promise.resolve(false),
+    tgToken && tgChatId     ? sendTelegram(tgToken, tgChatId, payload)                 : Promise.resolve(false),
+    resendKey && alertEmail ? sendEmail(resendKey, alertEmail, payload)                 : Promise.resolve(false),
+    ntfyTopic               ? sendNtfy(ntfyTopic, ntfyServer, payload)                 : Promise.resolve(false),
+    pushToken && pushUser   ? sendPushover(pushToken, pushUser, payload)               : Promise.resolve(false),
   ]);
 
-  return { discord, slack, telegram, email };
+  return { discord, slack, telegram, email, ntfy, pushover };
 }

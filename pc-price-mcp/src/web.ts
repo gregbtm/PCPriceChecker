@@ -55,6 +55,7 @@ const DB_KEY_TO_ENV: Record<string, string> = {
   reddit_client_secret: 'REDDIT_CLIENT_SECRET',
   youtube_api_key:      'YOUTUBE_API_KEY',
   bing_api_key:         'BING_API_KEY',
+  anthropic_api_key:    'ANTHROPIC_API_KEY',
 };
 
 function syncEnvFromDb(): void {

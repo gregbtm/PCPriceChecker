@@ -11,6 +11,18 @@ export interface TrackedComponent {
   id: number; name: string; category: string; search_query: string;
   alert_price: number | null; notes: string | null;
   created_at: string; last_checked: string | null;
+  source_url: string | null;
+}
+
+export interface ScrapeRule {
+  domain: string;
+  name_selector: string | null;
+  price_selector: string | null;
+  avail_selector: string | null;
+  price_attribute: string | null;
+  price_regex: string | null;
+  notes: string | null;
+  updated_at: string;
 }
 export interface PriceRecord {
   id: number; component_id: number; source: string; price: number;
@@ -201,20 +213,28 @@ function initSchema(db: Database.Database): void {
       last_checked       TEXT,
       last_result_count  INTEGER NOT NULL DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS scrape_rules (
+      domain           TEXT PRIMARY KEY,
+      name_selector    TEXT,
+      price_selector   TEXT,
+      avail_selector   TEXT,
+      price_attribute  TEXT,
+      price_regex      TEXT,
+      notes            TEXT,
+      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 }
 
 function runMigrations(db: Database.Database): void {
-  const cols = (db.prepare('PRAGMA table_info(price_records)').all() as Array<{ name: string }>).map(c => c.name);
-  if (!cols.includes('is_outlier')) {
-    db.exec('ALTER TABLE price_records ADD COLUMN is_outlier INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!cols.includes('confidence')) {
-    db.exec('ALTER TABLE price_records ADD COLUMN confidence REAL DEFAULT 1.0');
-  }
-  if (!cols.includes('z_score')) {
-    db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
-  }
+  const prCols = (db.prepare('PRAGMA table_info(price_records)').all() as Array<{ name: string }>).map(c => c.name);
+  if (!prCols.includes('is_outlier')) db.exec('ALTER TABLE price_records ADD COLUMN is_outlier INTEGER NOT NULL DEFAULT 0');
+  if (!prCols.includes('confidence'))  db.exec('ALTER TABLE price_records ADD COLUMN confidence REAL DEFAULT 1.0');
+  if (!prCols.includes('z_score'))     db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
+
+  const tcCols = (db.prepare('PRAGMA table_info(tracked_components)').all() as Array<{ name: string }>).map(c => c.name);
+  if (!tcCols.includes('source_url'))  db.exec('ALTER TABLE tracked_components ADD COLUMN source_url TEXT');
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -244,12 +264,12 @@ export function getAllConfig(): Record<string, string> {
 
 export function addTrackedComponent(
   name: string, category: string, searchQuery: string,
-  alertPrice?: number | null, notes?: string | null,
+  alertPrice?: number | null, notes?: string | null, sourceUrl?: string | null,
 ): TrackedComponent {
   return getDb().prepare(`
-    INSERT INTO tracked_components (name, category, search_query, alert_price, notes)
-    VALUES (?, ?, ?, ?, ?) RETURNING *
-  `).get(name, category, searchQuery, alertPrice ?? null, notes ?? null) as TrackedComponent;
+    INSERT INTO tracked_components (name, category, search_query, alert_price, notes, source_url)
+    VALUES (?, ?, ?, ?, ?, ?) RETURNING *
+  `).get(name, category, searchQuery, alertPrice ?? null, notes ?? null, sourceUrl ?? null) as TrackedComponent;
 }
 
 export function getTrackedComponents(): TrackedComponent[] {
@@ -769,4 +789,45 @@ export function getBatchDealRatios(componentIds: number[]): Map<number, DealRati
     });
   }
   return result;
+}
+
+// ── Scrape rules ───────────────────────────────────────────────────────────
+
+export function setScrapeRule(
+  domain: string,
+  rule: Omit<ScrapeRule, 'domain' | 'updated_at'>,
+): ScrapeRule {
+  return getDb().prepare(`
+    INSERT INTO scrape_rules (domain, name_selector, price_selector, avail_selector, price_attribute, price_regex, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(domain) DO UPDATE SET
+      name_selector  = excluded.name_selector,
+      price_selector = excluded.price_selector,
+      avail_selector = excluded.avail_selector,
+      price_attribute = excluded.price_attribute,
+      price_regex    = excluded.price_regex,
+      notes          = excluded.notes,
+      updated_at     = datetime('now')
+    RETURNING *
+  `).get(
+    domain,
+    rule.name_selector ?? null,
+    rule.price_selector ?? null,
+    rule.avail_selector ?? null,
+    rule.price_attribute ?? null,
+    rule.price_regex ?? null,
+    rule.notes ?? null,
+  ) as ScrapeRule;
+}
+
+export function getScrapeRule(domain: string): ScrapeRule | undefined {
+  return getDb().prepare('SELECT * FROM scrape_rules WHERE domain = ?').get(domain) as ScrapeRule | undefined;
+}
+
+export function deleteScrapeRule(domain: string): boolean {
+  return getDb().prepare('DELETE FROM scrape_rules WHERE domain = ?').run(domain).changes > 0;
+}
+
+export function getAllScrapeRules(): ScrapeRule[] {
+  return getDb().prepare('SELECT * FROM scrape_rules ORDER BY domain ASC').all() as ScrapeRule[];
 }

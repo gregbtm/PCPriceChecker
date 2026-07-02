@@ -44,7 +44,8 @@ import {
 import { startScheduler, stopScheduler, restartScheduler, getSchedulerStatus } from './scheduler.js';
 import { startWebServer } from './web.js';
 import { searchCex, getCexProduct, formatCexProduct } from './sources/cex.js';
-import { sendTelegram, sendEmail } from './notifications.js';
+import { sendTelegram, sendEmail, sendNtfy, sendPushover } from './notifications.js';
+import { scrapeProductUrl } from './sources/url-scraper.js';
 
 // ── Argument schemas ───────────────────────────────────────────────────────
 
@@ -745,6 +746,59 @@ const TOOLS = [
       required: ['url'],
     },
   },
+  // ── URL-based product tracking (PriceBuddy-style) ────────────────────────
+  {
+    name: 'track_url',
+    description:
+      'Paste any product URL from any retailer — scrapes name, price and availability ' +
+      'then adds it to your watchlist. Falls back through JSON-LD → meta tags → CSS rules → Playwright → AI extraction. ' +
+      'Set a scrape rule first with set_scrape_rule if automatic extraction fails for a site.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        url: { type: 'string', description: 'Full product page URL to track (e.g. https://www.ebuyer.com/product/123)' },
+        category: { type: 'string', description: 'Component category: cpu, gpu, ram, motherboard, storage, psu, case, cooling, monitor, other' },
+        alert_price: { type: 'number', description: 'Optional GBP price to alert at or below' },
+        notes: { type: 'string', description: 'Optional notes about this product' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'set_scrape_rule',
+    description:
+      'Set CSS selector rules for a domain to help the URL scraper reliably extract price and name. ' +
+      'Use this when track_url fails on a specific site. Selectors are applied to the raw HTML.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        domain: { type: 'string', description: 'Domain to apply rule to, e.g. "ebuyer.com" or "scan.co.uk"' },
+        price_selector: { type: 'string', description: 'CSS selector for the price element, e.g. ".product-price" or "#ctl00_ContentMainPage_lblPrice"' },
+        name_selector: { type: 'string', description: 'CSS selector for the product name element' },
+        avail_selector: { type: 'string', description: 'CSS selector for the availability/stock element' },
+        price_attribute: { type: 'string', description: 'If price is in an attribute rather than text, specify it here (e.g. "content", "data-price")' },
+        price_regex: { type: 'string', description: 'Optional regex to extract the number from the price element text, e.g. "(\\\\d+\\\\.\\\\d{2})"' },
+        notes: { type: 'string', description: 'Notes about this rule' },
+      },
+      required: ['domain'],
+    },
+  },
+  {
+    name: 'delete_scrape_rule',
+    description: 'Delete a scrape rule for a domain.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        domain: { type: 'string', description: 'Domain to remove rule for' },
+      },
+      required: ['domain'],
+    },
+  },
+  {
+    name: 'list_scrape_rules',
+    description: 'List all saved per-domain CSS scrape rules.',
+    inputSchema: { type: 'object' as const, properties: {} },
+  },
   // ── PCPartPicker export ───────────────────────────────────────────────────
   {
     name: 'export_to_pcpartpicker',
@@ -763,24 +817,32 @@ const TOOLS = [
   {
     name: 'configure_notifications',
     description:
-      'Set Discord and/or Slack webhook URLs for price drop and restock alerts. ' +
-      'Also configure the minimum drop percentage that triggers a notification.',
+      'Configure notification channels for price drop and restock alerts. ' +
+      'Supports Discord, Slack, Telegram, email (Resend), ntfy (simple push — no bot needed), and Pushover.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        discord_webhook_url: { type: ['string', 'null'], description: 'Discord webhook URL, or null to remove' },
-        slack_webhook_url: { type: ['string', 'null'], description: 'Slack webhook URL, or null to remove' },
-        notify_drop_percent: { type: 'number', description: 'Minimum % drop to trigger notification (default: 5)' },
+        discord_webhook_url:  { type: ['string', 'null'], description: 'Discord webhook URL, or null to remove' },
+        slack_webhook_url:    { type: ['string', 'null'], description: 'Slack webhook URL, or null to remove' },
+        telegram_bot_token:   { type: ['string', 'null'], description: 'Telegram bot token' },
+        telegram_chat_id:     { type: ['string', 'null'], description: 'Telegram chat ID' },
+        resend_api_key:       { type: ['string', 'null'], description: 'Resend API key for email alerts' },
+        alert_email:          { type: ['string', 'null'], description: 'Email address for alerts' },
+        ntfy_topic:           { type: ['string', 'null'], description: 'ntfy topic name (e.g. "my-pc-alerts") — subscribe at ntfy.sh/my-pc-alerts or the ntfy app' },
+        ntfy_server:          { type: ['string', 'null'], description: 'ntfy server URL (default: https://ntfy.sh, or your self-hosted instance)' },
+        pushover_app_token:   { type: ['string', 'null'], description: 'Pushover application token' },
+        pushover_user_key:    { type: ['string', 'null'], description: 'Pushover user/group key' },
+        notify_drop_percent:  { type: 'number', description: 'Minimum % drop to trigger notification (default: 5)' },
       },
     },
   },
   {
     name: 'test_notification',
-    description: 'Send a test notification to configured Discord and/or Slack webhooks.',
+    description: 'Send a test notification to all configured channels (Discord, Slack, Telegram, email, ntfy, Pushover).',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        channel: { type: 'string', enum: ['discord', 'slack', 'all'], default: 'all' },
+        channel: { type: 'string', enum: ['discord', 'slack', 'telegram', 'ntfy', 'pushover', 'all'], default: 'all' },
       },
     },
   },
@@ -2350,6 +2412,91 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return ok(`✅ Exported to: \`${filePath}\``);
       }
 
+      // ── track_url ────────────────────────────────────────────────────────
+      case 'track_url': {
+        const a = args as Record<string, unknown>;
+        const url = String(a.url ?? '');
+        if (!url.startsWith('http')) throw new McpError(ErrorCode.InvalidParams, 'url must be a full https:// URL');
+
+        const scraped = await scrapeProductUrl(url);
+        const category = String(a.category ?? 'general');
+        const alertPrice = a.alert_price != null ? Number(a.alert_price) : undefined;
+        const notes = a.notes != null ? String(a.notes) : undefined;
+
+        const component = db.addTrackedComponent(
+          scraped.name,
+          category,
+          url,  // search_query = the URL, so refresh_prices knows where to rescrape
+          alertPrice,
+          notes,
+          url,  // source_url
+        );
+
+        // Record initial price snapshot if we got one
+        if (scraped.price != null) {
+          const domain = new URL(url).hostname.replace(/^www\./, '');
+          db.savePriceSnapshots(component.id, [{
+            source: 'url-scraper',
+            price: scraped.price,
+            currency: scraped.currency,
+            retailer: domain,
+            url,
+            inStock: scraped.inStock,
+          }]);
+        }
+
+        const lines = [
+          `## ✅ Now tracking: ${scraped.name}`,
+          `**ID:** ${component.id} | **Method:** ${scraped.method}`,
+        ];
+        if (scraped.price != null) lines.push(`**Current price:** ${fmtRaw(scraped.price)} ${scraped.inStock ? '(In stock)' : '(Out of stock)'}`);
+        else lines.push(`⚠️ Could not extract price — try running \`set_scrape_rule\` for \`${new URL(url).hostname.replace(/^www\./, '')}\` with the correct price CSS selector.`);
+        if (alertPrice) lines.push(`**Alert when price ≤** ${fmtRaw(alertPrice)}`);
+        lines.push(`\n*Run \`refresh_prices\` to update, or the scheduler will update on its next cycle.*`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── set_scrape_rule ──────────────────────────────────────────────────
+      case 'set_scrape_rule': {
+        const a = args as Record<string, unknown>;
+        const domain = String(a.domain ?? '').replace(/^https?:\/\/(?:www\.)?/, '').split('/')[0];
+        if (!domain) throw new McpError(ErrorCode.InvalidParams, 'domain is required');
+        const rule = db.setScrapeRule(domain, {
+          name_selector:  a.name_selector  != null ? String(a.name_selector)  : null,
+          price_selector: a.price_selector != null ? String(a.price_selector) : null,
+          avail_selector: a.avail_selector != null ? String(a.avail_selector) : null,
+          price_attribute:a.price_attribute != null ? String(a.price_attribute): null,
+          price_regex:    a.price_regex    != null ? String(a.price_regex)    : null,
+          notes:          a.notes          != null ? String(a.notes)          : null,
+        });
+        const lines = [`## ✅ Scrape rule saved for \`${rule.domain}\``];
+        if (rule.price_selector)  lines.push(`**Price selector:** \`${rule.price_selector}\``);
+        if (rule.name_selector)   lines.push(`**Name selector:** \`${rule.name_selector}\``);
+        if (rule.avail_selector)  lines.push(`**Availability selector:** \`${rule.avail_selector}\``);
+        if (rule.price_attribute) lines.push(`**Price attribute:** \`${rule.price_attribute}\``);
+        if (rule.price_regex)     lines.push(`**Price regex:** \`${rule.price_regex}\``);
+        lines.push(`\nNow run \`track_url\` with a URL from this domain to test the rule.`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── delete_scrape_rule ───────────────────────────────────────────────
+      case 'delete_scrape_rule': {
+        const domain = String((args as Record<string, unknown>).domain ?? '').replace(/^https?:\/\/(?:www\.)?/, '').split('/')[0];
+        const deleted = db.deleteScrapeRule(domain);
+        return ok(deleted ? `✅ Scrape rule for \`${domain}\` deleted.` : `No rule found for \`${domain}\`.`);
+      }
+
+      // ── list_scrape_rules ────────────────────────────────────────────────
+      case 'list_scrape_rules': {
+        const rules = db.getAllScrapeRules();
+        if (rules.length === 0) return ok('No scrape rules saved yet.\nUse `set_scrape_rule` to add a rule for a domain.');
+        const lines = ['## Saved Scrape Rules\n', '| Domain | Price Selector | Name Selector | Notes |', '|--------|----------------|---------------|-------|'];
+        for (const r of rules) {
+          lines.push(`| \`${r.domain}\` | ${r.price_selector ? `\`${r.price_selector}\`` : '—'} | ${r.name_selector ? `\`${r.name_selector}\`` : '—'} | ${r.notes ?? ''} |`);
+        }
+        return ok(lines.join('\n'));
+      }
+
       // ── export_to_pcpartpicker ───────────────────────────────────────────
       case 'export_to_pcpartpicker': {
         const buildId = Number((args as Record<string, unknown>).build_id);
@@ -2455,6 +2602,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           { arg: 'telegram_chat_id',     key: 'telegram_chat_id',     label: 'Telegram chat ID' },
           { arg: 'resend_api_key',       key: 'resend_api_key',       label: 'Resend API key' },
           { arg: 'alert_email',          key: 'alert_email',          label: 'Alert email' },
+          { arg: 'ntfy_topic',           key: 'ntfy_topic',           label: 'ntfy topic' },
+          { arg: 'ntfy_server',          key: 'ntfy_server',          label: 'ntfy server' },
+          { arg: 'pushover_app_token',   key: 'pushover_app_token',   label: 'Pushover app token' },
+          { arg: 'pushover_user_key',    key: 'pushover_user_key',    label: 'Pushover user key' },
         ];
 
         for (const f of notifFields) {
@@ -2484,6 +2635,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             `- Slack:    ${cfg.slack_webhook_url    ? '✅ Configured' : '❌ Not set'}\n` +
             `- Telegram: ${cfg.telegram_bot_token && cfg.telegram_chat_id ? '✅ Configured' : '❌ Not set'}\n` +
             `- Email:    ${cfg.resend_api_key && cfg.alert_email ? '✅ Configured' : '❌ Not set'}\n` +
+            `- ntfy:     ${cfg.ntfy_topic ? `✅ Topic: ${cfg.ntfy_topic} (${cfg.ntfy_server ?? 'https://ntfy.sh'})` : '❌ Not set'}\n` +
+            `- Pushover: ${cfg.pushover_app_token && cfg.pushover_user_key ? '✅ Configured' : '❌ Not set'}\n` +
             `- Drop threshold: ${threshold}%\n\n` +
             `Use \`test_notification\` to verify channels are working.`,
           );
@@ -2494,41 +2647,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // ── test_notification ────────────────────────────────────────────────
       case 'test_notification': {
-        const { channel } = TestNotificationSchema.parse(args);
-        const discordUrl = db.getConfig('discord_webhook_url');
-        const slackUrl = db.getConfig('slack_webhook_url');
-
-        if (!discordUrl && !slackUrl) {
-          return ok(
-            '⚠️ No webhooks configured.\nUse `configure_notifications` to set Discord and/or Slack webhook URLs.',
-          );
-        }
+        const a = args as Record<string, unknown>;
+        const channel = String(a.channel ?? 'all');
+        const cfg = db.getAllConfig();
 
         const payload = {
           type: 'test' as const,
           componentName: 'Test Component',
-          message: 'This is a test notification from UK PC Price MCP.',
+          message: 'Test notification from UK PC Price MCP.',
         };
 
+        const anyConfigured = cfg.discord_webhook_url || cfg.slack_webhook_url || cfg.telegram_bot_token
+          || cfg.resend_api_key || cfg.ntfy_topic || cfg.pushover_app_token;
+        if (!anyConfigured) {
+          return ok('⚠️ No notification channels configured.\nUse `configure_notifications` to add one.');
+        }
+
         const lines = ['## Test Notification Results\n'];
+        const test = async (name: string, active: boolean, fn: () => Promise<boolean>) => {
+          if (channel !== 'all' && channel !== name.toLowerCase()) return;
+          if (!active) { lines.push(`${name}: ⚠️ Not configured`); return; }
+          const sent = await fn();
+          lines.push(`${name}: ${sent ? '✅ Sent' : '❌ Failed'}`);
+        };
 
-        if (channel === 'discord' || channel === 'all') {
-          if (discordUrl) {
-            const ok2 = await sendDiscord(discordUrl, payload);
-            lines.push(`Discord: ${ok2 ? '✅ Sent successfully' : '❌ Failed — check your webhook URL'}`);
-          } else {
-            lines.push('Discord: ⚠️ Not configured');
-          }
-        }
-
-        if (channel === 'slack' || channel === 'all') {
-          if (slackUrl) {
-            const ok2 = await sendSlack(slackUrl, payload);
-            lines.push(`Slack: ${ok2 ? '✅ Sent successfully' : '❌ Failed — check your webhook URL'}`);
-          } else {
-            lines.push('Slack: ⚠️ Not configured');
-          }
-        }
+        await test('Discord',  !!cfg.discord_webhook_url,   () => sendDiscord(cfg.discord_webhook_url!, payload));
+        await test('Slack',    !!cfg.slack_webhook_url,      () => sendSlack(cfg.slack_webhook_url!, payload));
+        await test('Telegram', !!(cfg.telegram_bot_token && cfg.telegram_chat_id), () => sendTelegram(cfg.telegram_bot_token!, cfg.telegram_chat_id!, payload));
+        await test('Email',    !!(cfg.resend_api_key && cfg.alert_email), () => sendEmail(cfg.resend_api_key!, cfg.alert_email!, payload));
+        await test('ntfy',     !!cfg.ntfy_topic, () => sendNtfy(cfg.ntfy_topic!, cfg.ntfy_server ?? 'https://ntfy.sh', payload));
+        await test('Pushover', !!(cfg.pushover_app_token && cfg.pushover_user_key), () => sendPushover(cfg.pushover_app_token!, cfg.pushover_user_key!, payload));
 
         return ok(lines.join('\n'));
       }
