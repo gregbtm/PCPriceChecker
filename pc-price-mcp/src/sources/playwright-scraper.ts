@@ -21,20 +21,19 @@ async function loadPlaywright(): Promise<object | null> {
   return _pw;
 }
 
-async function getBrowser(): Promise<AnyBrowser | null> {
+export async function getBrowser(): Promise<AnyBrowser | null> {
   const pw = await loadPlaywright();
   if (!pw) return null;
   try {
     if (_browser?.isConnected()) return _browser;
-    const executablePath =
-      process.env.PLAYWRIGHT_CHROMIUM_PATH ??
-      '/usr/bin/chromium-browser';
-    // @ts-ignore
-    _browser = await pw.chromium.launch({
-      executablePath,
+    const launchOpts: Record<string, unknown> = {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
-    });
+    };
+    const customPath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
+    if (customPath) launchOpts.executablePath = customPath;
+    // @ts-ignore
+    _browser = await pw.chromium.launch(launchOpts);
     return _browser;
   } catch {
     return null;
@@ -216,6 +215,165 @@ export async function scrapeVery(query: string): Promise<BrowserScrapeResult> {
     '[class*="product"], article',
     false,
     ['[class*="product-card"]', '[class*="product-item"]', 'article'],
+  );
+}
+
+// ── Prebuilt-oriented scrapers (return richer product data for Dell / HP) ──
+
+export interface BrowserPrebuiltItem {
+  retailer: string;
+  name: string;
+  price: number;
+  currency: string;
+  inStock: boolean;
+  url: string;
+  brand?: string;
+  cpu?: string;
+  gpu?: string;
+  ram?: string;
+  storage?: string;
+  os?: string;
+  formFactor?: string;
+}
+
+function extractSpecsFromText(text: string): Partial<BrowserPrebuiltItem> {
+  const specs: Partial<BrowserPrebuiltItem> = {};
+  const cpuM = text.match(/(?:Intel\s+Core(?:\s+Ultra)?\s+(?:i[3579]-\d{4,5}[A-Z0-9]*|\d{3,4}[A-Z0-9]*)|AMD\s+Ryzen\s+[3579]\s+\d{4,5}[A-Z0-9]*)/i);
+  if (cpuM) specs.cpu = cpuM[0].trim();
+  const gpuM = text.match(/(?:NVIDIA\s+(?:GeForce\s+)?RTX\s*\d{4}(?:\s*Ti|\s*Super)?|AMD\s+Radeon\s+RX\s*\d{4}(?:\s*XT|XTX)?|Intel\s+Arc\s+[A-Z]\d+)/i);
+  if (gpuM) specs.gpu = gpuM[0].trim();
+  const ramM = text.match(/(\d+)\s*GB\s*(?:DDR[45X]?|LPDDR[45]?|RAM)/i);
+  if (ramM) specs.ram = ramM[0].trim();
+  const storeM = text.match(/(\d+)\s*(?:GB|TB)\s*(?:NVMe|SSD|HDD|M\.2)/i);
+  if (storeM) specs.storage = storeM[0].trim();
+  const lo = text.toLowerCase();
+  if (lo.includes('windows 11')) specs.os = 'Windows 11';
+  else if (lo.includes('windows 10')) specs.os = 'Windows 10';
+  if (lo.includes('all-in-one') || lo.includes(' aio ')) specs.formFactor = 'All-in-One';
+  else if (lo.includes('mini pc') || lo.includes('mini-pc')) specs.formFactor = 'Mini PC';
+  else if (lo.includes('tower')) specs.formFactor = 'Tower';
+  return specs;
+}
+
+async function scrapePrebuiltPage(
+  url: string,
+  retailer: string,
+  brand: string,
+  waitFor: string,
+  cardSelectors: string[],
+): Promise<{ items: BrowserPrebuiltItem[]; durationMs: number; error?: string }> {
+  const t0 = Date.now();
+  const browser = await getBrowser();
+  if (!browser) return { items: [], durationMs: 0, error: 'Playwright/Chromium not available' };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const page: any = await browser.newPage();
+  try {
+    await page.setExtraHTTPHeaders({
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-GB,en;q=0.9',
+    });
+    await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
+    await page.waitForSelector(waitFor, { timeout: 10_000 }).catch(() => {});
+
+    // 1. Try JSON-LD first
+    const ldTexts: string[] = await page.$$eval(
+      'script[type="application/ld+json"]',
+      (els: Element[]) => els.map(el => el.textContent ?? ''),
+    );
+    const items: BrowserPrebuiltItem[] = [];
+    for (const text of ldTexts) {
+      try {
+        const data = JSON.parse(text);
+        const entries: Record<string, unknown>[] = Array.isArray(data) ? data : [data];
+        for (const entry of entries) {
+          if (entry['@type'] !== 'Product') continue;
+          const offer = (Array.isArray(entry.offers) ? (entry.offers as Record<string, unknown>[])[0] : entry.offers) as Record<string, unknown> | undefined;
+          const price = offer?.price != null ? Number(offer.price) : 0;
+          if (price <= 0) continue;
+          const name = String(entry.name ?? 'Unknown');
+          items.push({
+            retailer, name, price,
+            currency: String(offer?.priceCurrency ?? 'GBP'),
+            inStock: !/OutOfStock/i.test(String(offer?.availability ?? '')),
+            url: String(entry.url ?? url),
+            brand,
+            ...extractSpecsFromText(name),
+          });
+        }
+      } catch { /* skip */ }
+    }
+    if (items.length > 0) return { items: items.slice(0, 10), durationMs: Date.now() - t0 };
+
+    // 2. DOM fallback: broad product card selectors
+    for (const selector of cardSelectors) {
+      const cards: Array<{ name: string; price: number; href: string }> = await page.$$eval(
+        selector,
+        (els: Element[], baseUrl: string) => els.slice(0, 10).flatMap((el): Array<{ name: string; price: number; href: string }> => {
+          const nameEl =
+            el.querySelector('[data-testid*="name"],[data-testid*="title"],[class*="product-name"],[class*="product-title"],[class*="ProductName"]') ??
+            el.querySelector('h2,h3,h4');
+          const priceEl =
+            el.querySelector('[data-testid*="price"],[class*="price"],[aria-label*="£"]') ??
+            el.querySelector('[class*="Price"]');
+          const linkEl = (el.closest('a') ?? el.querySelector('a')) as HTMLAnchorElement | null;
+          const name = nameEl?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+          const priceText = priceEl?.textContent ?? el.textContent ?? '';
+          const m = priceText.match(/£\s*([\d,]+\.?\d*)/);
+          const price = m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+          const href = linkEl?.href ?? baseUrl;
+          if (name.length > 4 && price > 50 && price < 20000) {
+            return [{ name, price, href }];
+          }
+          return [];
+        }),
+        url,
+      ).catch(() => []);
+
+      if (cards.length > 0) {
+        return {
+          items: cards.slice(0, 10).map(c => ({
+            retailer, name: c.name, price: c.price, currency: 'GBP',
+            inStock: true, url: c.href, brand, ...extractSpecsFromText(c.name),
+          })),
+          durationMs: Date.now() - t0,
+        };
+      }
+    }
+
+    return { items: [], durationMs: Date.now() - t0, error: `No products parsed from ${retailer} — page structure may have changed` };
+  } catch (err) {
+    return { items: [], durationMs: Date.now() - t0, error: (err as Error).message };
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+export async function scrapeDellPrebuilt(query: string): Promise<{ items: BrowserPrebuiltItem[]; durationMs: number; error?: string }> {
+  return scrapePrebuiltPage(
+    `https://www.dell.com/en-gb/shop/desktop-computers/sc/desktops?q=${encodeURIComponent(query)}`,
+    'Dell UK',
+    'Dell',
+    '[data-testid*="product"], .ps-product-card, [class*="product-card"]',
+    [
+      '[data-testid*="product-card"], .ps-product-card',
+      '[class*="product-card"], [class*="ProductCard"]',
+      'article[class*="product"], li[class*="product"]',
+    ],
+  );
+}
+
+export async function scrapeHpPrebuilt(query: string): Promise<{ items: BrowserPrebuiltItem[]; durationMs: number; error?: string }> {
+  return scrapePrebuiltPage(
+    `https://www.hp.com/gb-en/shop/discover/desktop-computers?q=${encodeURIComponent(query)}`,
+    'HP UK',
+    'HP',
+    '[data-testid*="product"], [class*="product-card"], [class*="ProductCard"]',
+    [
+      '[data-testid*="product-card"]',
+      '[class*="product-card"], [class*="ProductCard"]',
+      'section[class*="product"], li[class*="product"]',
+    ],
   );
 }
 

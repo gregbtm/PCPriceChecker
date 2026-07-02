@@ -745,6 +745,20 @@ const TOOLS = [
       required: ['url'],
     },
   },
+  // ── PCPartPicker export ───────────────────────────────────────────────────
+  {
+    name: 'export_to_pcpartpicker',
+    description:
+      'Export a tracked build to PCPartPicker by generating a search link for each component. ' +
+      'Returns a formatted summary with PCPartPicker search URLs you can use to find and add each part to a PCPartPicker list.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        build_id: { type: 'number', description: 'Build ID to export (from list_builds)' },
+      },
+      required: ['build_id'],
+    },
+  },
   // ── Notifications ─────────────────────────────────────────────────────────
   {
     name: 'configure_notifications',
@@ -2334,6 +2348,53 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
 
         return ok(`✅ Exported to: \`${filePath}\``);
+      }
+
+      // ── export_to_pcpartpicker ───────────────────────────────────────────
+      case 'export_to_pcpartpicker': {
+        const buildId = Number((args as Record<string, unknown>).build_id);
+        if (!buildId) throw new McpError(ErrorCode.InvalidParams, 'build_id is required');
+
+        const summary = db.getBuildSummary(buildId);
+        if (!summary) throw new McpError(ErrorCode.InvalidParams, `Build ${buildId} not found`);
+
+        // PCPartPicker category slugs for search URLs
+        const PCP_CATEGORY_SLUG: Record<string, string> = {
+          cpu: 'cpu', gpu: 'video-card', ram: 'memory', motherboard: 'motherboard',
+          storage: 'internal-hard-drive', psu: 'power-supply', case: 'case',
+          cooling: 'cpu-cooler', monitor: 'monitor', other: 'all',
+        };
+
+        const lines: string[] = [
+          `## PCPartPicker Export: "${summary.build.name}"`,
+          `*Build ID: ${buildId} | ${summary.items.length} component(s)*\n`,
+          `Use the links below to find each part on PCPartPicker UK, then click **[+ Add]** to build your list.\n`,
+          `> Open this link to start a new list: **<https://uk.pcpartpicker.com/list/>**\n`,
+          `| Category | Component | PCPartPicker Search |`,
+          `|----------|-----------|---------------------|`,
+        ];
+
+        for (const item of summary.items) {
+          const cat = item.component_category ?? 'other';
+          const pcpSlug = PCP_CATEGORY_SLUG[cat] ?? 'all';
+          const searchUrl = `https://uk.pcpartpicker.com/search/#g=${pcpSlug}&query=${encodeURIComponent(item.component_name)}`;
+          const qty = item.quantity > 1 ? ` ×${item.quantity}` : '';
+          const best = summary.bestPrices.get(item.component_id);
+          const priceStr = best ? ` — ${fmtRaw(best.price)}` : '';
+          lines.push(`| ${cat} | **${item.component_name}**${qty}${priceStr} | [Search PCPartPicker ↗](${searchUrl}) |`);
+        }
+
+        if (summary.totalCost > 0) {
+          lines.push(`\n**Tracked total: ${fmtRaw(summary.totalCost)}**`);
+          if (summary.missingPrices > 0) {
+            lines.push(`*(${summary.missingPrices} component(s) have no tracked price yet — run \`refresh_prices\` to fetch)*`);
+          }
+        }
+
+        lines.push(`\n---`);
+        lines.push(`*PCPartPicker prices may differ from UK retail. After adding all parts, save your list to get a shareable URL.*`);
+
+        return ok(lines.join('\n'));
       }
 
       // ── import_pcpartpicker ──────────────────────────────────────────────

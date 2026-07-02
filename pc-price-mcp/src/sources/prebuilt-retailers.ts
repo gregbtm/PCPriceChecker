@@ -9,6 +9,7 @@
  */
 
 import { searchWithRetry } from './pricesapi.js';
+import { scrapeDellPrebuilt, scrapeHpPrebuilt } from './playwright-scraper.js';
 
 export interface PrebuiltResult {
   retailer: string;
@@ -423,13 +424,24 @@ export async function chillblastPrebuiltSearch(query: string): Promise<PrebuiltS
 }
 
 export async function dellPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  const t0 = Date.now();
+  const { items, error } = await scrapeDellPrebuilt(query);
+  if (items.length > 0) {
+    return {
+      retailer: 'Dell UK',
+      results: items as PrebuiltResult[],
+      scrapedAt: new Date().toISOString(),
+      durationMs: Date.now() - t0,
+    };
+  }
+
+  // Playwright failed or unavailable — fall back to plain fetch + JSON-LD extraction
   return scrapePrebuiltRetailer('Dell UK',
     `https://www.dell.com/en-gb/shop/desktop-computers/sc/desktops?q=${encodeURIComponent(query)}`,
     'dell.com',
     (html, url) => {
       const results = extractJsonLd(html, 'Dell UK', url);
       if (results.length > 0) return results;
-      // Dell sometimes uses data-product attributes
       for (const [, raw] of html.matchAll(/data-product-json="([^"]+)"/g)) {
         try {
           const p = JSON.parse(raw.replace(/&quot;/g, '"').replace(/&amp;/g, '&')) as Record<string, unknown>;
@@ -449,10 +461,22 @@ export async function dellPrebuiltSearch(query: string): Promise<PrebuiltSearchR
       }
       return results;
     },
-  );
+  ).then(r => error ? { ...r, error: r.error ?? error } : r);
 }
 
 export async function hpPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  const t0 = Date.now();
+  const { items, error } = await scrapeHpPrebuilt(query);
+  if (items.length > 0) {
+    return {
+      retailer: 'HP UK',
+      results: items as PrebuiltResult[],
+      scrapedAt: new Date().toISOString(),
+      durationMs: Date.now() - t0,
+    };
+  }
+
+  // Playwright failed or unavailable — plain fetch fallback
   return scrapePrebuiltRetailer('HP UK',
     `https://www.hp.com/gb-en/shop/discover/desktop-computers?q=${encodeURIComponent(query)}`,
     'hp.com',
@@ -468,7 +492,7 @@ export async function hpPrebuiltSearch(query: string): Promise<PrebuiltSearchRes
         scraperNote: 'HP product listing — visit site for individual specs', brand: 'HP',
       }];
     },
-  );
+  ).then(r => error ? { ...r, error: r.error ?? error } : r);
 }
 
 // ── Specialist PC retailer scrapers ────────────────────────────────────────
