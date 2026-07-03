@@ -57,11 +57,12 @@ export async function newPageWithProxy(proxy?: string): Promise<AnyPage | null> 
   const browser = await getBrowser();
   if (!browser) return null;
   try {
+    const ctxOpts: Record<string, unknown> = { locale: 'en-GB', timezoneId: 'Europe/London' };
+    if (proxy) ctxOpts.proxy = { server: proxy };
     // @ts-ignore
-    const ctx = proxy ? await browser.newContext({ proxy: { server: proxy } }) : await browser.newContext();
+    const ctx = await browser.newContext(ctxOpts);
     // @ts-ignore
     const page = await ctx.newPage();
-    // Attach context to page so we can close it
     (page as any).__ctx = ctx;
     return page;
   } catch { return null; }
@@ -170,13 +171,13 @@ async function doScrape(
   domSelectors: string[],
 ): Promise<BrowserScrapeResult> {
   const t0 = Date.now();
-  const page: AnyPage = await browser.newPage();
+  // @ts-ignore
+  const ctx = await browser.newContext({ locale: 'en-GB', timezoneId: 'Europe/London', userAgent: randomUA() });
+  // @ts-ignore
+  const page: AnyPage = await ctx.newPage();
   try {
-    await page.setExtraHTTPHeaders({
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-GB,en;q=0.9',
-    });
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-GB,en;q=0.9' });
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico,css}', (r: AnyPage) => r.abort());
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForSelector(waitForSelector, { timeout: 8000 }).catch(() => {});
 
@@ -189,7 +190,7 @@ async function doScrape(
   } catch (err) {
     return { retailer, results: [], error: (err as Error).message, durationMs: Date.now() - t0 };
   } finally {
-    await page.close().catch(() => {});
+    await ctx.close().catch(() => {});
   }
 }
 
@@ -293,14 +294,15 @@ async function scrapePrebuiltPage(
   const browser = await getBrowser();
   if (!browser) return { items: [], durationMs: 0, error: 'Playwright/Chromium not available' };
 
+  // @ts-ignore
+  const ctx = await browser.newContext({ locale: 'en-GB', timezoneId: 'Europe/London', userAgent: randomUA() }).catch(() => null);
+  if (!ctx) return { items: [], durationMs: 0, error: 'Could not create browser context' };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const page: any = await browser.newPage();
+  const page: any = await ctx.newPage();
   try {
-    await page.setExtraHTTPHeaders({
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-GB,en;q=0.9',
-    });
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 30_000 });
+    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-GB,en;q=0.9' });
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico,css}', (r: any) => r.abort());
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForSelector(waitFor, { timeout: 10_000 }).catch(() => {});
 
     // 1. Try JSON-LD first
@@ -372,7 +374,7 @@ async function scrapePrebuiltPage(
   } catch (err) {
     return { items: [], durationMs: Date.now() - t0, error: (err as Error).message };
   } finally {
-    await page.close().catch(() => {});
+    await ctx.close().catch(() => {});
   }
 }
 

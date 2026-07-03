@@ -161,8 +161,9 @@ async function tryPlaywright(url: string): Promise<Partial<ScrapedProduct> | nul
   if (!page) return null;
   try {
     await page.setExtraHTTPHeaders({ 'User-Agent': randomUA(), 'Accept-Language': BROWSER_HEADERS['Accept-Language'] });
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 25_000 });
-    await page.waitForTimeout(1000);
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico,css}', (r: any) => r.abort());
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25_000 });
+    await page.waitForTimeout(800);
 
     const renderedHtml: string = await page.content();
     const jld = tryJsonLd(renderedHtml); if (jld?.price) return { ...jld, method: 'playwright' };
