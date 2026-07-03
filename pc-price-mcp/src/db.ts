@@ -338,6 +338,82 @@ export function updateAlertPrice(id: number, alertPrice: number | null): boolean
   return getDb().prepare('UPDATE tracked_components SET alert_price = ? WHERE id = ?').run(alertPrice, id).changes > 0;
 }
 
+export interface BulkImportRow {
+  name: string; category?: string; search_query: string;
+  alert_price?: number | null; notes?: string | null; source_url?: string | null;
+}
+
+export function bulkImportComponents(rows: BulkImportRow[]): { imported: number; skipped: number } {
+  const db = getDb();
+  let imported = 0; let skipped = 0;
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO tracked_components (name, category, search_query, alert_price, notes, source_url)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  db.transaction(() => {
+    for (const r of rows) {
+      if (!r.name?.trim() || !r.search_query?.trim()) { skipped++; continue; }
+      const changes = insert.run(
+        r.name.trim(), r.category?.trim() || 'other', r.search_query.trim(),
+        r.alert_price ?? null, r.notes ?? null, r.source_url ?? null,
+      ).changes;
+      if (changes > 0) imported++; else skipped++;
+    }
+  })();
+  return { imported, skipped };
+}
+
+export function exportFullBackupJson(): object {
+  const db = getDb();
+  return {
+    version: 1,
+    exported_at: new Date().toISOString(),
+    components: db.prepare('SELECT * FROM tracked_components').all(),
+    tags: db.prepare('SELECT * FROM tags').all(),
+    component_tags: db.prepare('SELECT * FROM component_tags').all(),
+    component_urls: db.prepare('SELECT * FROM component_urls').all(),
+    scrape_rules: db.prepare('SELECT * FROM scrape_rules').all(),
+    config: db.prepare("SELECT key, value FROM config WHERE key NOT LIKE '%_key%' AND key NOT LIKE '%_token%' AND key NOT LIKE '%_secret%' AND key NOT LIKE '%_password%'").all(),
+  };
+}
+
+export function importFullBackupJson(data: Record<string, unknown>): { components: number; tags: number; rules: number } {
+  const db = getDb();
+  let components = 0; let tags = 0; let rules = 0;
+
+  db.transaction(() => {
+    if (Array.isArray(data.components)) {
+      const ins = db.prepare(`
+        INSERT OR IGNORE INTO tracked_components (name, category, search_query, alert_price, notes, source_url)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const c of data.components as any[]) {
+        if (!c.name || !c.search_query) continue;
+        if (ins.run(c.name, c.category ?? 'other', c.search_query, c.alert_price ?? null, c.notes ?? null, c.source_url ?? null).changes > 0) components++;
+      }
+    }
+    if (Array.isArray(data.tags)) {
+      const ins = db.prepare('INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)');
+      for (const t of data.tags as any[]) {
+        if (!t.name) continue;
+        if (ins.run(t.name, t.color ?? '#6366f1').changes > 0) tags++;
+      }
+    }
+    if (Array.isArray(data.scrape_rules)) {
+      const ins = db.prepare(`
+        INSERT OR IGNORE INTO scrape_rules (domain, name_selector, price_selector, avail_selector, price_attribute, price_regex, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const r of data.scrape_rules as any[]) {
+        if (!r.domain) continue;
+        if (ins.run(r.domain, r.name_selector ?? null, r.price_selector ?? null, r.avail_selector ?? null, r.price_attribute ?? null, r.price_regex ?? null, r.notes ?? null).changes > 0) rules++;
+      }
+    }
+  })();
+
+  return { components, tags, rules };
+}
+
 export function markLastChecked(id: number): void {
   getDb().prepare("UPDATE tracked_components SET last_checked = datetime('now') WHERE id = ?").run(id);
 }

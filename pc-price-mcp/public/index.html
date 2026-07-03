@@ -373,6 +373,11 @@
                   class="px-4 py-1.5 rounded-lg text-sm font-medium">
             CeX (used/refurb)
           </button>
+          <button @click="searchSource = 'pcpartpicker'"
+                  :class="searchSource === 'pcpartpicker' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'"
+                  class="px-4 py-1.5 rounded-lg text-sm font-medium">
+            PCPartPicker UK
+          </button>
         </div>
 
         <!-- Search bar -->
@@ -381,7 +386,7 @@
                  placeholder="e.g. RTX 5080, Ryzen 7 9800X3D, 32GB DDR5 6000…"
                  class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-4 py-2 text-sm text-white
                         placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500">
-          <button @click="doSearch()" :disabled="searchLoading || !searchQuery"
+          <button @click="doSearch()" :disabled="searchLoading || (!searchQuery && searchSource !== 'pcpartpicker')"
                   class="px-5 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium disabled:opacity-40">
             <span x-text="searchLoading ? 'Searching…' : 'Search'"></span>
           </button>
@@ -405,12 +410,25 @@
           <label for="cexInStock" class="text-sm text-gray-300 cursor-pointer">In stock online only</label>
         </div>
 
+        <!-- PCPartPicker category filter -->
+        <div x-show="searchSource === 'pcpartpicker'" class="flex items-center gap-3 mt-2">
+          <label class="text-xs text-gray-400">Category:</label>
+          <select x-model="pcppCategory"
+                  class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
+            <template x-for="cat in pcppCategories" :key="cat">
+              <option :value="cat" x-text="cat.toUpperCase()"></option>
+            </template>
+          </select>
+          <span class="text-xs text-gray-500">Leave keyword blank to browse category</span>
+        </div>
+
         <!-- Loading state -->
         <div x-show="searchLoading" class="mt-6 text-center py-8">
           <div class="text-4xl mb-3">⏳</div>
           <p class="text-gray-400 text-sm" x-text="searchSource === 'api'
             ? 'Querying PricesAPI.io — cold searches take 30–90 seconds…'
             : searchSource === 'cex' ? 'Querying CeX UK…'
+            : searchSource === 'pcpartpicker' ? 'Scraping PCPartPicker UK — may take 10–30 seconds…'
             : 'Scraping retailers in parallel…'"></p>
         </div>
       </div>
@@ -585,6 +603,63 @@
                       </button>
                     </div>
                   </div>
+                </template>
+              </div>
+            </div>
+          </template>
+
+          <!-- PCPartPicker UK results -->
+          <template x-if="searchSource === 'pcpartpicker' && searchResults?.products">
+            <div>
+              <div class="px-4 py-2 bg-purple-900/20 text-xs text-purple-300 flex gap-4 border-b border-gray-700">
+                <span x-text="(searchResults.products?.length ?? 0) + ' products from uk.pcpartpicker.com'"></span>
+                <span class="text-gray-500" x-text="'Category: ' + (searchResults.category ?? '')"></span>
+              </div>
+              <div class="divide-y divide-gray-700/50">
+                <template x-for="(p, pi) in (searchResults.products ?? [])" :key="pi">
+                  <div class="p-4">
+                    <div class="flex items-start justify-between gap-3 mb-2">
+                      <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium text-white" x-text="p.name"></div>
+                        <div class="flex items-center gap-2 mt-0.5">
+                          <span class="text-xs bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded" x-text="p.category"></span>
+                          <template x-if="p.partUrl">
+                            <a :href="p.partUrl" target="_blank" rel="noopener"
+                               class="text-xs text-purple-400 hover:underline">PCPartPicker →</a>
+                          </template>
+                        </div>
+                      </div>
+                      <button @click="prefillAdd(p.name, 'PCPartPicker')"
+                              class="flex-shrink-0 px-2 py-1 bg-purple-700/80 hover:bg-purple-700 rounded text-xs">
+                        + Track
+                      </button>
+                    </div>
+                    <template x-if="p.prices && p.prices.length > 0">
+                      <div class="space-y-1">
+                        <template x-for="(pr, pri) in p.prices" :key="pri">
+                          <div class="flex items-center justify-between bg-gray-700/30 rounded px-3 py-1.5">
+                            <div class="flex items-center gap-2">
+                              <span class="text-xs" x-text="pr.inStock ? '✅' : '❌'"></span>
+                              <span class="text-sm text-gray-200" x-text="pr.retailer"></span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                              <span class="font-semibold text-white text-sm" x-text="fmtPrice(pr.price, pr.currency)"></span>
+                              <template x-if="pr.url">
+                                <a :href="pr.url" target="_blank" rel="noopener"
+                                   class="text-xs text-blue-400 hover:underline">Buy →</a>
+                              </template>
+                            </div>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                    <template x-if="!p.prices || p.prices.length === 0">
+                      <p class="text-xs text-gray-600 italic">No UK prices found for this product</p>
+                    </template>
+                  </div>
+                </template>
+                <template x-if="searchResults.products.length === 0">
+                  <div class="p-6 text-center text-gray-600 text-sm">No products found. Try a different category or keyword.</div>
                 </template>
               </div>
             </div>
@@ -987,6 +1062,8 @@
               ['YouTube',   apiKeyStatus.youtube],
               ['Bing',      apiKeyStatus.bing],
               ['Anthropic', apiKeyStatus.anthropic],
+              ['OpenAI',    apiKeyStatus.openai],
+              ['Apify',     apiKeyStatus.apify],
             ]" :key="label">
               <div class="flex items-center gap-1.5">
                 <span :class="ok ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full flex-shrink-0"></span>
@@ -1202,6 +1279,35 @@
             </div>
           </div>
 
+          <!-- OpenAI API Key (alternative AI for extraction + selector healing) -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">OpenAI API Key <span class="text-gray-600">(alternative AI fallback — gpt-4o-mini for price extraction &amp; self-healing)</span></label>
+            <div class="flex gap-1">
+              <input x-model="apiKeyOpenAI" :type="showSecrets.openai ? 'text' : 'password'"
+                     placeholder="sk-…"
+                     class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <button @click="showSecrets.openai = !showSecrets.openai"
+                      class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                      x-text="showSecrets.openai ? '🙈' : '👁'"></button>
+            </div>
+          </div>
+
+          <!-- Apify API Token (cloud scraping for PCPartPicker via actor) -->
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Apify API Token <span class="text-gray-600">(optional — enables cloud PCPartPicker scraping via apify.com actor)</span></label>
+            <div class="flex gap-1">
+              <input x-model="apiKeyApify" :type="showSecrets.apify ? 'text' : 'password'"
+                     placeholder="apify_api_…"
+                     class="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <button @click="showSecrets.apify = !showSecrets.apify"
+                      class="px-2.5 bg-gray-700 border border-gray-600 rounded-lg text-gray-400 hover:text-white text-xs"
+                      x-text="showSecrets.apify ? '🙈' : '👁'"></button>
+            </div>
+            <p class="text-xs text-gray-600 mt-1">Used for POST /api/pcpartpicker/apify — optional, the Playwright scraper works without it.</p>
+          </div>
+
           <button @click="saveApiKeys()"
                   class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium">
             Save API Keys
@@ -1336,16 +1442,59 @@
           <h3 class="font-semibold text-white">📤 Export</h3>
         </div>
         <div class="p-4 space-y-3">
-          <div class="flex items-center gap-3">
+          <div class="flex flex-wrap items-center gap-3">
             <span class="text-sm text-gray-300 w-44">Full watchlist</span>
             <a href="/api/export?type=tracked_components&format=csv"
                class="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs text-gray-300">
               Download CSV
             </a>
           </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="text-sm text-gray-300 w-44">Full backup</span>
+            <a href="/api/export/backup"
+               class="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-600 rounded text-xs text-white">
+              Download JSON backup
+            </a>
+            <span class="text-xs text-gray-500">Includes components, tags, scrape rules (no API keys)</span>
+          </div>
           <p class="text-xs text-gray-600">
             Per-component and per-build exports are available from the Watchlist and Builds tabs.
           </p>
+        </div>
+      </div>
+
+      <!-- Import -->
+      <div class="bg-gray-800 rounded-xl border border-gray-700">
+        <div class="px-4 py-3 border-b border-gray-700">
+          <h3 class="font-semibold text-white">📥 Import</h3>
+        </div>
+        <div class="p-4 space-y-5">
+
+          <!-- CSV import -->
+          <div>
+            <p class="text-xs text-gray-400 font-medium mb-2">Bulk CSV Import</p>
+            <p class="text-xs text-gray-600 mb-2">Required column: <code class="text-gray-400">name</code> — Optional: <code class="text-gray-400">search_query, category, alert_price, notes, source_url</code></p>
+            <textarea x-model="importCsv" rows="5" placeholder="name,search_query,category,alert_price&#10;RTX 5080,RTX 5080 founders,gpu,1100&#10;Ryzen 9 9950X,Ryzen 9 9950X,cpu,"
+                      class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                             placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 mono text-xs resize-none"></textarea>
+            <button @click="importFromCsv()" :disabled="importCsvLoading || !importCsv.trim()"
+                    class="mt-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg text-sm font-medium">
+              <span x-text="importCsvLoading ? '⏳ Importing…' : 'Import CSV'"></span>
+            </button>
+          </div>
+
+          <!-- JSON restore -->
+          <div class="border-t border-gray-700 pt-4">
+            <p class="text-xs text-gray-400 font-medium mb-2">Restore from JSON Backup</p>
+            <p class="text-xs text-gray-600 mb-2">Paste the contents of a previously exported JSON backup. Existing items with the same name are skipped.</p>
+            <textarea x-model="importJson" rows="4" placeholder='{"components":[…],"tags":[…],"rules":[…]}'
+                      class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                             placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 mono text-xs resize-none"></textarea>
+            <button @click="importFromJson()" :disabled="importJsonLoading || !importJson.trim()"
+                    class="mt-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 rounded-lg text-sm font-medium">
+              <span x-text="importJsonLoading ? '⏳ Restoring…' : 'Restore JSON Backup'"></span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -2211,7 +2360,8 @@ function app() {
                    amzAccess: false, amzSecret: false, amzTag: false,
                    awinId: false, awinKey: false,
                    redditId: false, redditSec: false,
-                   youtube: false, bing: false, anthropic: false },
+                   youtube: false, bing: false, anthropic: false,
+                   openai: false, apify: false },
 
     // API keys
     apiKeyPricesApi: '',
@@ -2223,6 +2373,8 @@ function app() {
     apiKeyYoutube: '',
     apiKeyBing: '',
     apiKeyAnthropic: '',
+    apiKeyOpenAI: '',
+    apiKeyApify: '',
     apiKeyStatus: {},
 
     // Sparklines (keyed by component id)
@@ -2301,6 +2453,16 @@ function app() {
     prebuiltHistoryStats: null,
     prebuiltHistoryDays: 30,
     prebuiltHistoryChart: null,
+
+    // PCPartPicker search
+    pcppCategory: 'gpu',
+    pcppCategories: ['gpu', 'cpu', 'ram', 'motherboard', 'storage', 'psu', 'case', 'cooling', 'monitor'],
+
+    // Import
+    importCsv: '',
+    importCsvLoading: false,
+    importJson: '',
+    importJsonLoading: false,
 
     // UI state
     refreshingAll: false,
@@ -2396,6 +2558,8 @@ function app() {
       this.apiKeyYoutube    = cfg.youtube_api_key       ?? '';
       this.apiKeyBing       = cfg.bing_api_key          ?? '';
       this.apiKeyAnthropic  = cfg.anthropic_api_key     ?? '';
+      this.apiKeyOpenAI     = cfg.openai_api_key        ?? '';
+      this.apiKeyApify      = cfg.apify_api_token       ?? '';
       this.apiKeyStatus = {
         pricesapi: !!cfg.prices_api_key,
         ebay:      !!(cfg.ebay_client_id && cfg.ebay_client_secret),
@@ -2406,6 +2570,8 @@ function app() {
         youtube:   !!cfg.youtube_api_key,
         bing:      !!cfg.bing_api_key,
         anthropic: !!cfg.anthropic_api_key,
+        openai:    !!cfg.openai_api_key,
+        apify:     !!cfg.apify_api_token,
       };
       // Scraper settings
       this.scraperCamofoxUrl = cfg.camofox_url     ?? '';
@@ -2751,6 +2917,11 @@ function app() {
           if (this.cexInStockOnly) p.set('in_stock', '1');
           const r = await fetch(`/api/cex/search?${p}`);
           this.searchResults = await r.json();
+        } else if (this.searchSource === 'pcpartpicker') {
+          const p = new URLSearchParams({ category: this.pcppCategory, limit: '30' });
+          if (this.searchQuery) p.set('q', this.searchQuery);
+          const r = await fetch(`/api/pcpartpicker/search?${p}`);
+          this.searchResults = await r.json();
         } else {
           const p = new URLSearchParams({ q: this.searchQuery, country: 'gb' });
           const r = await fetch(`/api/search/api?${p}`);
@@ -2863,6 +3034,8 @@ function app() {
         { key: 'youtube_api_key',      value: this.apiKeyYoutube },
         { key: 'bing_api_key',         value: this.apiKeyBing },
         { key: 'anthropic_api_key',    value: this.apiKeyAnthropic },
+        { key: 'openai_api_key',       value: this.apiKeyOpenAI },
+        { key: 'apify_api_token',      value: this.apiKeyApify },
       ];
       await Promise.all(fields.map(f =>
         fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
@@ -3048,6 +3221,50 @@ function app() {
       await fetch(`/api/saved-searches/${id}`, { method: 'DELETE' });
       this.showToast('🗑️ Saved search removed');
       await this.loadSavedSearches();
+    },
+
+    // ── Import ─────────────────────────────────────────────────────────────
+    async importFromCsv() {
+      if (!this.importCsv.trim()) return;
+      this.importCsvLoading = true;
+      try {
+        const r = await fetch('/api/import/csv', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ csv: this.importCsv }),
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.showToast(`✅ Imported ${d.imported} components, skipped ${d.skipped}`);
+          this.importCsv = '';
+          await this.loadComponents();
+        } else {
+          this.showToast('❌ ' + (d.error ?? 'Import failed'), 'error');
+        }
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
+      finally { this.importCsvLoading = false; }
+    },
+
+    async importFromJson() {
+      if (!this.importJson.trim()) return;
+      this.importJsonLoading = true;
+      try {
+        let parsed;
+        try { parsed = JSON.parse(this.importJson); }
+        catch { this.showToast('❌ Invalid JSON', 'error'); this.importJsonLoading = false; return; }
+        const r = await fetch('/api/import/json', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(parsed),
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.showToast(`✅ Restored: ${d.components} components, ${d.tags} tags, ${d.rules} scrape rules`);
+          this.importJson = '';
+          await Promise.all([this.loadComponents(), this.loadTags()]);
+        } else {
+          this.showToast('❌ ' + (d.error ?? 'Restore failed'), 'error');
+        }
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
+      finally { this.importJsonLoading = false; }
     },
 
     // ── Parts DB ───────────────────────────────────────────────────────────

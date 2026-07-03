@@ -22,6 +22,8 @@ import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
   exportBuildCsv, exportBuildJson, exportTrackedComponentsCsv,
 } from './export.js';
+import { searchPcPartPicker, getPcPartPickerProductPrices } from './sources/pcpartpicker-live.js';
+import { apifyScrapePcPartPicker, isApifyConfigured } from './sources/apify.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -60,6 +62,8 @@ const DB_KEY_TO_ENV: Record<string, string> = {
   gotify_server_url:    'GOTIFY_SERVER_URL',
   gotify_app_token:     'GOTIFY_APP_TOKEN',
   apprise_url:          'APPRISE_URL',
+  openai_api_key:       'OPENAI_API_KEY',
+  apify_api_token:      'APIFY_API_TOKEN',
 };
 
 function syncEnvFromDb(): void {
@@ -657,6 +661,108 @@ export function startWebServer(port: number): void {
     const domain = (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } })();
     const existing = db.getScrapeRule(domain);
     res.json({ scraped: result, domain, rule: existing ?? null });
+  }));
+
+  // ── PCPartPicker live search ──────────────────────────────────────────────
+
+  app.get('/api/pcpartpicker/search', h(async (req, res) => {
+    const { category = 'gpu', q, limit = '20' } = req.query as Record<string, string>;
+    const products = await searchPcPartPicker(category, q || undefined, Math.min(parseInt(limit) || 20, 50));
+    res.json({ products, category, query: q ?? null, source: 'pcpartpicker-live' });
+  }));
+
+  app.get('/api/pcpartpicker/product', h(async (req, res) => {
+    const { url } = req.query as Record<string, string>;
+    if (!url) { res.status(400).json({ error: 'url is required' }); return; }
+    const product = await getPcPartPickerProductPrices(url);
+    if (!product) { res.status(404).json({ error: 'Product not found or scrape failed' }); return; }
+    res.json(product);
+  }));
+
+  app.post('/api/pcpartpicker/apify', h(async (req, res) => {
+    const { startUrls } = req.body;
+    if (!Array.isArray(startUrls) || startUrls.length === 0) {
+      res.status(400).json({ error: 'startUrls array is required' }); return;
+    }
+    if (!isApifyConfigured()) {
+      res.status(400).json({ error: 'APIFY_API_TOKEN not configured — add it in Settings → API Keys' }); return;
+    }
+    const items = await apifyScrapePcPartPicker(startUrls.map(String));
+    res.json({ items, count: items.length });
+  }));
+
+  // ── Import / export ───────────────────────────────────────────────────────
+
+  app.post('/api/import/csv', h(async (req, res) => {
+    const { csv } = req.body;
+    if (typeof csv !== 'string' || !csv.trim()) {
+      res.status(400).json({ error: 'csv string body field is required' }); return;
+    }
+    const lines = csv.trim().split('\n').filter(l => l.trim());
+    if (lines.length < 2) {
+      res.status(400).json({ error: 'CSV must have a header row and at least one data row' }); return;
+    }
+
+    const parseRow = (line: string): string[] => {
+      const result: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+          else { inQuotes = !inQuotes; }
+        } else if (ch === ',' && !inQuotes) {
+          result.push(current.trim()); current = '';
+        } else { current += ch; }
+      }
+      result.push(current.trim());
+      return result;
+    };
+
+    const headers = parseRow(lines[0]).map(h => h.toLowerCase());
+    const idx = (names: string[]) => names.map(n => headers.indexOf(n)).find(i => i >= 0) ?? -1;
+    const nameIdx   = idx(['name']);
+    const queryIdx  = idx(['search_query', 'query', 'search']);
+    const catIdx    = idx(['category']);
+    const alertIdx  = idx(['alert_price', 'alert']);
+    const notesIdx  = idx(['notes']);
+    const urlIdx    = idx(['source_url', 'url']);
+
+    if (nameIdx === -1) { res.status(400).json({ error: 'CSV must have a "name" column' }); return; }
+
+    const rows: db.BulkImportRow[] = [];
+    for (const line of lines.slice(1)) {
+      const cols = parseRow(line);
+      const name = cols[nameIdx]?.trim();
+      if (!name) continue;
+      rows.push({
+        name,
+        search_query: queryIdx >= 0 ? cols[queryIdx]?.trim() || name : name,
+        category:     catIdx   >= 0 ? cols[catIdx]?.trim()   || 'other' : 'other',
+        alert_price:  alertIdx >= 0 && cols[alertIdx] ? parseFloat(cols[alertIdx]) || null : null,
+        notes:        notesIdx >= 0 ? cols[notesIdx]?.trim() || null : null,
+        source_url:   urlIdx   >= 0 ? cols[urlIdx]?.trim()   || null : null,
+      });
+    }
+
+    res.json(db.bulkImportComponents(rows));
+  }));
+
+  app.post('/api/import/json', h(async (req, res) => {
+    const data = req.body;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      res.status(400).json({ error: 'A JSON backup object is required' }); return;
+    }
+    const result = db.importFullBackupJson(data as Record<string, unknown>);
+    res.json(result);
+  }));
+
+  app.get('/api/export/backup', h(async (_req, res) => {
+    const backup = db.exportFullBackupJson();
+    const filename = `pc-price-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.json(backup);
   }));
 
   // ── Health check ──────────────────────────────────────────────────────────

@@ -6,10 +6,11 @@
  *   4. Generic DOM price heuristics
  *   5. Playwright headless browser (JS-rendered pages)
  *   5b. Camofox stealth browser (Cloudflare bypass — optional, requires running server)
- *   6. AI extraction via Claude API (last resort, requires ANTHROPIC_API_KEY)
+ *   6. AI extraction — Claude (ANTHROPIC_API_KEY) then OpenAI (OPENAI_API_KEY) as fallback
  */
 import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js';
 import { scrapeWithCamofox } from './camofox-client.js';
+import { openaiExtractPrice, openaiHealSelectors } from './openai-client.js';
 import * as db from '../db.js';
 
 export interface ScrapedProduct {
@@ -206,9 +207,6 @@ async function tryCamofox(url: string): Promise<Partial<ScrapedProduct> | null> 
 // ── AI self-healing: propose new selectors when rules fail ────────────────
 
 async function healSelectors(domain: string, html: string): Promise<void> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return;
-
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -216,46 +214,50 @@ async function healSelectors(domain: string, html: string): Promise<void> {
     .replace(/\s{2,}/g, ' ')
     .slice(0, 4000);
 
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
-        messages: [{
-          role: 'user',
-          content: `Given this retail page HTML text for domain "${domain}", propose CSS selectors. Reply ONLY with JSON: {"price_selector":".price","name_selector":"h1","avail_selector":".stock","price_regex":null}. Use null for any you can't determine.\n\n${text}`,
-        }],
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await res.json() as any;
-    const raw: string = data?.content?.[0]?.text ?? '';
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) return;
-    const parsed = JSON.parse(m[0]);
-    if (parsed?.price_selector) {
-      db.setScrapeRule(domain, {
-        price_selector: parsed.price_selector ?? null,
-        name_selector:  parsed.name_selector  ?? null,
-        avail_selector: parsed.avail_selector ?? null,
-        price_attribute: null,
-        price_regex:    parsed.price_regex    ?? null,
-        notes: 'AI self-healed',
+  let parsed: { price_selector?: string | null; name_selector?: string | null; avail_selector?: string | null; price_regex?: string | null } | null = null;
+
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 300,
+          messages: [{ role: 'user', content: `Given this retail page HTML text for domain "${domain}", propose CSS selectors. Reply ONLY with JSON: {"price_selector":".price","name_selector":"h1","avail_selector":".stock","price_regex":null}. Use null for any you can't determine.\n\n${text}` }],
+        }),
+        signal: AbortSignal.timeout(15_000),
       });
-    }
-  } catch { /* ignore */ }
+      if (res.ok) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = await res.json() as any;
+        const raw: string = data?.content?.[0]?.text ?? '';
+        const m = raw.match(/\{[\s\S]*\}/);
+        if (m) parsed = JSON.parse(m[0]);
+      }
+    } catch { /* fall through to OpenAI */ }
+  }
+
+  if (!parsed?.price_selector) {
+    parsed = await openaiHealSelectors(domain, text);
+  }
+
+  if (parsed?.price_selector) {
+    db.setScrapeRule(domain, {
+      price_selector: parsed.price_selector ?? null,
+      name_selector:  parsed.name_selector  ?? null,
+      avail_selector: parsed.avail_selector ?? null,
+      price_attribute: null,
+      price_regex:    parsed.price_regex    ?? null,
+      notes: 'AI self-healed',
+    });
+  }
 }
 
-// ── Step 6: AI extraction (Claude API) ────────────────────────────────────
+// ── Step 6: AI extraction (Claude → OpenAI fallback) ──────────────────────
 
 async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return null;
-
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -263,26 +265,37 @@ async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
     .replace(/\s{2,}/g, ' ')
     .slice(0, 5000);
 
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        messages: [{ role: 'user', content: `Extract product info from this retail page text. Reply ONLY with JSON: {"name":"...","price":123.45,"currency":"GBP","inStock":true}. Return null if no price found.\n\n${text}` }],
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data = await res.json() as any;
-    const raw: string = data?.content?.[0]?.text ?? '';
-    const m = raw.match(/\{[\s\S]*\}/);
-    if (!m) return null;
-    const parsed = JSON.parse(m[0]);
-    if (parsed?.price) return { name: parsed.name, price: Number(parsed.price), currency: parsed.currency ?? 'GBP', inStock: parsed.inStock !== false, method: 'ai' };
-  } catch { /* ignore */ }
+  // Try Claude first
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+          messages: [{ role: 'user', content: `Extract product info from this retail page text. Reply ONLY with JSON: {"name":"...","price":123.45,"currency":"GBP","inStock":true}. Return null if no price found.\n\n${text}` }],
+        }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (res.ok) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = await res.json() as any;
+        const raw: string = data?.content?.[0]?.text ?? '';
+        const m = raw.match(/\{[\s\S]*\}/);
+        if (m) {
+          const parsed = JSON.parse(m[0]);
+          if (parsed?.price) return { name: parsed.name, price: Number(parsed.price), currency: parsed.currency ?? 'GBP', inStock: parsed.inStock !== false, method: 'ai' };
+        }
+      }
+    } catch { /* fall through */ }
+  }
+
+  // Fall back to OpenAI
+  const openai = await openaiExtractPrice(text);
+  if (openai?.price) return { name: openai.name, price: openai.price, currency: openai.currency, inStock: openai.inStock, method: 'ai' };
+
   return null;
 }
 
