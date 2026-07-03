@@ -39,6 +39,17 @@ export async function getBrowser(): Promise<AnyBrowser | null> {
   if (!pw) return null;
   try {
     if (_browser?.isConnected()) return _browser;
+
+    // Use Novada cloud browser when configured — provides stealth, CAPTCHA solving, IP rotation
+    const novadaWs = process.env.NOVADA_BROWSER_WS;
+    if (novadaWs) {
+      try {
+        // @ts-ignore
+        _browser = await pw.chromium.connectOverCDP(novadaWs);
+        return _browser;
+      } catch { /* fall through to local browser */ }
+    }
+
     const launchOpts: Record<string, unknown> = {
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
