@@ -1778,12 +1778,15 @@
     <div x-show="activeTab === 'advisor'" class="p-6 space-y-5">
 
       <!-- Sub-tab nav -->
-      <div class="flex gap-2 border-b border-gray-700 pb-3">
+      <div class="flex flex-wrap gap-2 border-b border-gray-700 pb-3">
         <template x-for="st in [
-          { id:'budget',  label:'💰 Budget Builder' },
-          { id:'upgrade', label:'⚡ Upgrade Advisor' },
-          { id:'bvb',     label:'⚖️ Build vs Buy' },
-          { id:'compat',  label:'🔌 Compatibility' }
+          { id:'budget',    label:'💰 Budget Builder' },
+          { id:'upgrade',   label:'⚡ Upgrade Advisor' },
+          { id:'bvb',       label:'⚖️ Build vs Buy' },
+          { id:'compat',    label:'🔌 Compatibility' },
+          { id:'benchmark', label:'📊 Benchmark Compare' },
+          { id:'deals',     label:'🔥 Deal Scores' },
+          { id:'value',     label:'💎 Best Value/£' }
         ]" :key="st.id">
           <button @click="advisorSubTab = st.id"
                   :class="advisorSubTab === st.id ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'"
@@ -1835,7 +1838,8 @@
                       <th class="pb-2 pr-3 text-right">%</th>
                       <th class="pb-2 pr-3">Suggestion</th>
                       <th class="pb-2 pr-3">Tier</th>
-                      <th class="pb-2">Action</th>
+                      <th class="pb-2 pr-3">Score</th>
+                      <th class="pb-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1844,7 +1848,13 @@
                         <td class="py-2 pr-3 font-medium text-gray-200" x-text="a.label"></td>
                         <td class="py-2 pr-3 text-right text-green-400 font-mono" x-text="'£' + a.budgetPounds"></td>
                         <td class="py-2 pr-3 text-right text-gray-400 font-mono" x-text="a.allocationPercent + '%'"></td>
-                        <td class="py-2 pr-3 text-gray-300 text-xs" x-text="a.suggestion"></td>
+                        <td class="py-2 pr-3 text-xs">
+                          <div class="text-gray-300" x-text="a.suggestion"></div>
+                          <template x-if="a.benchmark">
+                            <div class="text-gray-600 mt-0.5"
+                                 x-text="(a.benchmark.socket ?? a.benchmark.architecture ?? '') + (a.benchmark.cores ? ' · ' + a.benchmark.cores + 'c' : '') + (a.benchmark.vram ? ' · ' + a.benchmark.vram + 'GB VRAM' : '') + ' · ' + a.benchmark.tdp + 'W TDP'"></div>
+                          </template>
+                        </td>
                         <td class="py-2 pr-3">
                           <span class="px-2 py-0.5 rounded text-xs font-medium"
                                 :class="{
@@ -1857,9 +1867,21 @@
                                 }"
                                 x-text="a.tier"></span>
                         </td>
-                        <td class="py-2">
+                        <td class="py-2 pr-3 font-mono text-xs">
+                          <template x-if="a.benchmark">
+                            <div>
+                              <div class="text-blue-400" x-text="a.benchmark.score?.toLocaleString() ?? '—'"></div>
+                              <div class="text-gray-600 text-[10px]"
+                                   x-text="a.benchmark.singleScore ? 'ST: ' + a.benchmark.singleScore?.toLocaleString() : ''"></div>
+                            </div>
+                          </template>
+                          <template x-if="!a.benchmark"><span class="text-gray-700">—</span></template>
+                        </td>
+                        <td class="py-2 flex gap-2 items-center">
                           <button @click="quickSearchFromAdvisor(a.searchQuery)"
-                                  class="text-xs text-blue-400 hover:text-blue-200 underline">Search →</button>
+                                  class="text-xs text-blue-400 hover:text-blue-200 underline">Search</button>
+                          <button @click="quickTrackFromAdvisor(a)"
+                                  class="text-xs text-green-400 hover:text-green-200 underline">Track</button>
                         </td>
                       </tr>
                     </template>
@@ -1957,6 +1979,20 @@
                           <template x-if="rec.gainPercent !== null">
                             <p class="text-xs text-green-400 mt-1"
                                x-text="'+' + rec.gainPercent + '% performance vs current · £' + rec.estimatedCostPounds + ' est.'"></p>
+                          </template>
+                          <template x-if="rec.currentScore !== null && rec.upgradeScore !== null">
+                            <div class="flex items-center gap-3 mt-1.5">
+                              <div class="text-xs text-gray-500 font-mono">
+                                <span class="text-gray-400">Now:</span>
+                                <span x-text="rec.currentScore?.toLocaleString()"></span>
+                              </div>
+                              <div class="text-xs text-gray-500">→</div>
+                              <div class="text-xs text-blue-400 font-mono">
+                                <span class="text-gray-400">Target:</span>
+                                <span x-text="rec.upgradeScore?.toLocaleString()"></span>
+                              </div>
+                              <span class="text-gray-600 text-[10px]">PassMark</span>
+                            </div>
                           </template>
                         </div>
                         <div class="text-right flex-shrink-0">
@@ -2090,6 +2126,294 @@
                 </template>
               </div>
             </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ── Benchmark Compare ─────────────────────────────────────────── -->
+      <div x-show="advisorSubTab === 'benchmark'" class="space-y-4">
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+          <h2 class="font-semibold text-white mb-1">Benchmark Compare</h2>
+          <p class="text-xs text-gray-500 mb-4">Head-to-head PassMark score comparison. Works for any CPU or GPU from the benchmark database — name matching is fuzzy (e.g. "RTX 4070" or "Ryzen 5 7600X").</p>
+          <div class="flex flex-wrap gap-3 items-end mb-4">
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Component A</label>
+              <input x-model="benchmarkA" type="text" placeholder="e.g. RTX 4070 Super"
+                     class="w-52 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="text-gray-500 text-lg pb-2">vs</div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Component B</label>
+              <input x-model="benchmarkB" type="text" placeholder="e.g. RX 7800 XT"
+                     class="w-52 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Type</label>
+              <select x-model="benchmarkType" class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="auto">Auto</option>
+                <option value="cpu">CPU</option>
+                <option value="gpu">GPU</option>
+              </select>
+            </div>
+            <button @click="runBenchmarkCompare()" :disabled="benchmarkLoading || !benchmarkA || !benchmarkB"
+                    class="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg text-sm font-medium">
+              <span x-text="benchmarkLoading ? '⏳…' : 'Compare'"></span>
+            </button>
+          </div>
+
+          <template x-if="benchmarkCompareResult && !benchmarkCompareResult.error">
+            <div class="space-y-3">
+              <!-- Winner banner -->
+              <div class="text-center py-3 bg-gray-700/40 rounded-lg border border-gray-600">
+                <span class="text-white font-semibold" x-text="benchmarkCompareResult.faster"></span>
+                <span class="text-gray-400 text-sm"> is </span>
+                <span class="text-green-400 font-bold" x-text="benchmarkCompareResult.differencePercent + '%'"></span>
+                <span class="text-gray-400 text-sm"> faster</span>
+              </div>
+
+              <!-- Side-by-side cards -->
+              <div class="grid grid-cols-2 gap-4">
+                <template x-for="side in ['a','b']" :key="side">
+                  <div class="bg-gray-700/40 rounded-lg border p-4"
+                       :class="benchmarkCompareResult[side].name === benchmarkCompareResult.faster ? 'border-green-600/50' : 'border-gray-600/50'">
+                    <div class="flex items-center gap-2 mb-3">
+                      <span class="text-green-400 text-lg" x-show="benchmarkCompareResult[side].name === benchmarkCompareResult.faster">🏆</span>
+                      <div class="font-semibold text-white text-sm" x-text="benchmarkCompareResult[side].name"></div>
+                      <span class="text-xs px-2 py-0.5 rounded ml-auto"
+                            :class="{
+                              'bg-purple-900/50 text-purple-300': benchmarkCompareResult[side].tier === 'ultra',
+                              'bg-blue-900/50 text-blue-300': benchmarkCompareResult[side].tier === 'high',
+                              'bg-teal-900/50 text-teal-300': benchmarkCompareResult[side].tier === 'mid-high',
+                              'bg-green-900/50 text-green-300': benchmarkCompareResult[side].tier === 'mid',
+                              'bg-yellow-900/50 text-yellow-300': benchmarkCompareResult[side].tier === 'entry',
+                              'bg-gray-600 text-gray-400': benchmarkCompareResult[side].tier === 'budget'
+                            }"
+                            x-text="benchmarkCompareResult[side].tier"></span>
+                    </div>
+                    <dl class="space-y-1 text-xs">
+                      <div class="flex justify-between">
+                        <dt class="text-gray-500">PassMark score</dt>
+                        <dd class="text-blue-400 font-mono font-bold" x-text="benchmarkCompareResult[side].score?.toLocaleString()"></dd>
+                      </div>
+                      <template x-if="benchmarkCompareResult[side].singleScore">
+                        <div class="flex justify-between">
+                          <dt class="text-gray-500">Single-thread</dt>
+                          <dd class="text-gray-300 font-mono" x-text="benchmarkCompareResult[side].singleScore?.toLocaleString()"></dd>
+                        </div>
+                      </template>
+                      <template x-if="benchmarkCompareResult[side].vram">
+                        <div class="flex justify-between">
+                          <dt class="text-gray-500">VRAM</dt>
+                          <dd class="text-gray-300 font-mono" x-text="benchmarkCompareResult[side].vram + 'GB'"></dd>
+                        </div>
+                      </template>
+                      <template x-if="benchmarkCompareResult[side].cores">
+                        <div class="flex justify-between">
+                          <dt class="text-gray-500">Cores / Threads</dt>
+                          <dd class="text-gray-300 font-mono" x-text="benchmarkCompareResult[side].cores + ' / ' + benchmarkCompareResult[side].threads"></dd>
+                        </div>
+                      </template>
+                      <div class="flex justify-between">
+                        <dt class="text-gray-500">TDP</dt>
+                        <dd class="text-gray-300 font-mono" x-text="benchmarkCompareResult[side].tdp + 'W'"></dd>
+                      </div>
+                      <template x-if="benchmarkCompareResult[side].socket">
+                        <div class="flex justify-between">
+                          <dt class="text-gray-500">Socket</dt>
+                          <dd class="text-gray-300 font-mono" x-text="benchmarkCompareResult[side].socket"></dd>
+                        </div>
+                      </template>
+                      <template x-if="benchmarkCompareResult[side].architecture">
+                        <div class="flex justify-between">
+                          <dt class="text-gray-500">Architecture</dt>
+                          <dd class="text-gray-300 font-mono" x-text="benchmarkCompareResult[side].architecture"></dd>
+                        </div>
+                      </template>
+                      <template x-if="benchmarkCompareResult[side].memType">
+                        <div class="flex justify-between">
+                          <dt class="text-gray-500">Memory</dt>
+                          <dd class="text-gray-300 font-mono" x-text="benchmarkCompareResult[side].memType"></dd>
+                        </div>
+                      </template>
+                    </dl>
+                    <!-- Score bar -->
+                    <div class="mt-3">
+                      <div class="h-2 rounded-full bg-gray-600 overflow-hidden">
+                        <div class="h-full bg-blue-500 rounded-full transition-all"
+                             :style="'width:' + Math.round(benchmarkCompareResult[side].score / Math.max(benchmarkCompareResult.a.score, benchmarkCompareResult.b.score) * 100) + '%'"></div>
+                      </div>
+                    </div>
+                    <button @click="quickSearchFromAdvisor(benchmarkCompareResult[side].name)"
+                            class="mt-3 text-xs text-blue-400 hover:text-blue-200 underline">Search prices →</button>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+          <template x-if="benchmarkCompareResult && benchmarkCompareResult.error">
+            <div class="text-red-400 text-sm" x-text="'❌ ' + benchmarkCompareResult.error"></div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ── Deal Scores ─────────────────────────────────────────────────── -->
+      <div x-show="advisorSubTab === 'deals'" class="space-y-4"
+           x-init="$watch('advisorSubTab', v => v === 'deals' && !dealScores && loadDealScores())">
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <h2 class="font-semibold text-white mb-1">Deal Scores</h2>
+              <p class="text-xs text-gray-500">Tracked components ranked by how close current price is to all-time low. Requires ≥3 price snapshots.</p>
+            </div>
+            <button @click="loadDealScores()" :disabled="dealScoresLoading"
+                    class="px-4 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-40 rounded-lg text-sm">
+              <span x-text="dealScoresLoading ? '⏳' : '↻ Refresh'"></span>
+            </button>
+          </div>
+
+          <template x-if="dealScores && dealScores.length === 0">
+            <div class="text-gray-500 text-sm">No tracked components have enough price history yet. Refresh prices a few times first.</div>
+          </template>
+
+          <template x-if="dealScores && dealScores.length > 0">
+            <div class="space-y-2">
+              <template x-for="d in dealScores" :key="d.componentId">
+                <div class="bg-gray-700/40 rounded-lg border border-gray-600/50 p-3">
+                  <div class="flex items-center gap-3">
+                    <!-- Score badge -->
+                    <div class="w-14 flex-shrink-0 text-center">
+                      <div class="text-2xl font-bold"
+                           :class="{
+                             'text-green-400': d.score >= 70,
+                             'text-yellow-400': d.score >= 40 && d.score < 70,
+                             'text-red-400': d.score < 40
+                           }"
+                           x-text="d.score"></div>
+                      <div class="text-[10px] text-gray-500">/100</div>
+                    </div>
+                    <!-- Score bar -->
+                    <div class="w-20 flex-shrink-0">
+                      <div class="h-2 rounded-full bg-gray-600 overflow-hidden">
+                        <div class="h-full rounded-full transition-all"
+                             :class="{
+                               'bg-green-500': d.score >= 70,
+                               'bg-yellow-500': d.score >= 40 && d.score < 70,
+                               'bg-red-500': d.score < 40
+                             }"
+                             :style="'width:' + d.score + '%'"></div>
+                      </div>
+                      <div class="text-[10px] text-gray-500 mt-0.5 text-center" x-text="d.label"></div>
+                    </div>
+                    <!-- Component info -->
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm text-white font-medium truncate" x-text="d.componentName"></div>
+                      <div class="text-xs text-gray-400 mt-0.5" x-text="d.recommendation"></div>
+                    </div>
+                    <!-- Price stats -->
+                    <div class="flex-shrink-0 text-right text-xs space-y-0.5">
+                      <div class="text-green-400 font-mono" x-text="'£' + d.currentBestPrice"></div>
+                      <div class="text-gray-600" x-text="'ATL £' + (d.allTimeLow ?? '—')"></div>
+                      <template x-if="d.vsAvg30dPercent !== null">
+                        <div :class="d.vsAvg30dPercent > 0 ? 'text-green-500' : 'text-red-400'"
+                             x-text="(d.vsAvg30dPercent > 0 ? '-' : '+') + Math.abs(d.vsAvg30dPercent) + '% vs 30d avg'"></div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ── Best Value/£ ────────────────────────────────────────────────── -->
+      <div x-show="advisorSubTab === 'value'" class="space-y-4">
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+          <h2 class="font-semibold text-white mb-1">Best Value per £</h2>
+          <p class="text-xs text-gray-500 mb-4">Ranks CPUs or GPUs by PassMark score ÷ estimated price within your budget. Uses tier-based price estimates — not live prices.</p>
+          <div class="flex flex-wrap gap-3 items-end mb-4">
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Type</label>
+              <select x-model="valueType" class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="gpu">GPU</option>
+                <option value="cpu">CPU</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Min (£)</label>
+              <input x-model.number="valueBudgetMin" type="number" min="0" step="50"
+                     class="w-24 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Max (£)</label>
+              <input x-model.number="valueBudgetMax" type="number" min="50" step="50"
+                     class="w-28 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button @click="runValueSearch()" :disabled="valueLoading"
+                    class="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg text-sm font-medium">
+              <span x-text="valueLoading ? '⏳…' : 'Find Best Value'"></span>
+            </button>
+          </div>
+
+          <template x-if="valueResult && valueResult.length > 0">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="text-left text-xs text-gray-500 border-b border-gray-700">
+                    <th class="pb-2 pr-2">#</th>
+                    <th class="pb-2 pr-3">Component</th>
+                    <th class="pb-2 pr-3">Tier</th>
+                    <th class="pb-2 pr-3 text-right">Est. Price</th>
+                    <th class="pb-2 pr-3 text-right">Score</th>
+                    <th class="pb-2 pr-3 text-right">Score/£</th>
+                    <th class="pb-2 pr-3">TDP</th>
+                    <th class="pb-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(c, i) in valueResult" :key="c.name">
+                    <tr class="border-b border-gray-700/50 hover:bg-gray-700/20"
+                        :class="i === 0 ? 'bg-green-950/20' : ''">
+                      <td class="py-2 pr-2 text-xs"
+                          :class="i === 0 ? 'text-yellow-400' : 'text-gray-600'"
+                          x-text="i === 0 ? '🏆' : '#' + (i+1)"></td>
+                      <td class="py-2 pr-3 font-medium text-gray-200">
+                        <div x-text="c.name"></div>
+                        <div class="text-[10px] text-gray-600"
+                             x-text="c.socket ?? c.architecture ?? ''"></div>
+                      </td>
+                      <td class="py-2 pr-3">
+                        <span class="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                              :class="{
+                                'bg-purple-900/50 text-purple-300': c.tier === 'ultra',
+                                'bg-blue-900/50 text-blue-300': c.tier === 'high',
+                                'bg-teal-900/50 text-teal-300': c.tier === 'mid-high',
+                                'bg-green-900/50 text-green-300': c.tier === 'mid',
+                                'bg-yellow-900/50 text-yellow-300': c.tier === 'entry',
+                                'bg-gray-700 text-gray-400': c.tier === 'budget'
+                              }"
+                              x-text="c.tier"></span>
+                      </td>
+                      <td class="py-2 pr-3 text-right text-green-400 font-mono text-xs" x-text="'~£' + c.estimatedPrice"></td>
+                      <td class="py-2 pr-3 text-right text-blue-400 font-mono text-xs" x-text="c.score?.toLocaleString()"></td>
+                      <td class="py-2 pr-3 text-right font-mono text-xs"
+                          :class="i === 0 ? 'text-yellow-400 font-bold' : 'text-gray-300'"
+                          x-text="c.scorePerPound"></td>
+                      <td class="py-2 pr-3 text-xs text-gray-400" x-text="c.tdp + 'W'"></td>
+                      <td class="py-2 flex gap-2">
+                        <button @click="quickSearchFromAdvisor(c.name)"
+                                class="text-xs text-blue-400 hover:text-blue-200 underline">Search</button>
+                        <button @click="quickTrackFromAdvisor({ label: (valueType==='gpu'?'GPU':'CPU'), suggestion: c.name, searchQuery: c.name, category: valueType })"
+                                class="text-xs text-green-400 hover:text-green-200 underline">Track</button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </template>
+          <template x-if="valueResult && valueResult.length === 0">
+            <div class="text-gray-500 text-sm">No components found in that price range.</div>
           </template>
         </div>
       </div>
@@ -2736,6 +3060,18 @@ function app() {
     compatComponents: { cpu: '', motherboard: '', ram: '', gpu: '', psu: '', case: '', cooler: '' },
     compatResult: null,
     compatLoading: false,
+    benchmarkA: '',
+    benchmarkB: '',
+    benchmarkType: 'auto',
+    benchmarkCompareResult: null,
+    benchmarkLoading: false,
+    dealScores: null,
+    dealScoresLoading: false,
+    valueType: 'gpu',
+    valueBudgetMin: 0,
+    valueBudgetMax: 500,
+    valueResult: null,
+    valueLoading: false,
 
     // Search
     searchQuery: '',
@@ -3763,6 +4099,52 @@ function app() {
         this.compatResult = await r.json();
       } catch (e) { this.showToast('❌ Network error', 'error'); }
       finally { this.compatLoading = false; }
+    },
+    async runBenchmarkCompare() {
+      this.benchmarkLoading = true;
+      try {
+        const p = new URLSearchParams({ a: this.benchmarkA, b: this.benchmarkB, type: this.benchmarkType });
+        const r = await fetch(`/api/advisor/benchmark-compare?${p}`);
+        this.benchmarkCompareResult = await r.json();
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
+      finally { this.benchmarkLoading = false; }
+    },
+    async loadDealScores() {
+      this.dealScoresLoading = true;
+      try {
+        const r = await fetch('/api/advisor/deals');
+        this.dealScores = await r.json();
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
+      finally { this.dealScoresLoading = false; }
+    },
+    async runValueSearch() {
+      this.valueLoading = true;
+      try {
+        const p = new URLSearchParams({ type: this.valueType, budget_min: this.valueBudgetMin, budget_max: this.valueBudgetMax, top_n: '15' });
+        const r = await fetch(`/api/advisor/value?${p}`);
+        this.valueResult = await r.json();
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
+      finally { this.valueLoading = false; }
+    },
+    async quickTrackFromAdvisor(allocation) {
+      try {
+        const r = await fetch('/api/components', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: allocation.suggestion,
+            search_query: allocation.searchQuery ?? allocation.suggestion,
+            category: (allocation.category ?? allocation.label ?? 'other').toLowerCase(),
+            fetch_now: false,
+          }),
+        });
+        const d = await r.json();
+        if (r.ok) {
+          this.showToast(`✅ Tracking: ${allocation.suggestion}`);
+          await this.loadComponents();
+        } else {
+          this.showToast('❌ ' + (d.error ?? 'Failed to track'), 'error');
+        }
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
     },
     quickSearchFromAdvisor(query) {
       this.searchQuery = query;

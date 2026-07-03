@@ -26,7 +26,8 @@ import { searchPcPartPicker, getPcPartPickerProductPrices } from './sources/pcpa
 import { apifyScrapePcPartPicker, isApifyConfigured } from './sources/apify.js';
 import { budgetBuilder, buildVsBuy, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
 import { checkCompatibility } from './services/compatibility.js';
-import { findCpuBenchmark, findGpuBenchmark } from './data/benchmarks.js';
+import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
+import { getDealScoresForAll } from './services/deal-scorer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -773,7 +774,57 @@ export function startWebServer(port: number): void {
   app.get('/api/advisor/budget', h(async (req, res) => {
     const { budget, use_case = 'gaming_1440p' } = req.query as Record<string, string>;
     if (!budget || isNaN(parseFloat(budget))) { res.status(400).json({ error: 'budget required' }); return; }
-    res.json(budgetBuilder(parseFloat(budget), use_case as UseCase));
+    const result = budgetBuilder(parseFloat(budget), use_case as UseCase);
+    // Attach PassMark benchmark data for CPU and GPU rows
+    const enriched = {
+      ...result,
+      allocations: result.allocations.map(a => {
+        const benchmark =
+          a.category === 'CPU' ? findCpuBenchmark(a.suggestion) :
+          a.category === 'GPU' ? findGpuBenchmark(a.suggestion) :
+          null;
+        return { ...a, benchmark };
+      }),
+    };
+    res.json(enriched);
+  }));
+
+  app.get('/api/advisor/deals', h(async (_req, res) => {
+    res.json(getDealScoresForAll());
+  }));
+
+  app.get('/api/advisor/benchmark-compare', h(async (req, res) => {
+    const { a, b, type = 'auto' } = req.query as Record<string, string>;
+    if (!a || !b) { res.status(400).json({ error: 'a and b required' }); return; }
+    const lookup = (q: string) =>
+      type === 'cpu' ? findCpuBenchmark(q) :
+      type === 'gpu' ? findGpuBenchmark(q) :
+      findGpuBenchmark(q) ?? findCpuBenchmark(q);
+    const ra = lookup(a);
+    const rb = lookup(b);
+    if (!ra || !rb) {
+      res.status(404).json({ error: !ra ? `Not found: ${a}` : `Not found: ${b}` }); return;
+    }
+    const diff = Math.round(Math.abs(ra.score - rb.score) / Math.max(ra.score, rb.score) * 100);
+    res.json({ a: ra, b: rb, faster: ra.score >= rb.score ? ra.name : rb.name, differencePercent: diff });
+  }));
+
+  const TIER_PRICES: Record<string, number> = {
+    budget: 80, entry: 130, mid: 220, 'mid-high': 340, high: 520, ultra: 850,
+  };
+  app.get('/api/advisor/value', h(async (req, res) => {
+    const { type = 'gpu', budget_max, budget_min = '0', top_n = '10' } = req.query as Record<string, string>;
+    if (!budget_max) { res.status(400).json({ error: 'budget_max required' }); return; }
+    const data = type === 'gpu' ? (GPU_BENCHMARKS as readonly object[]) : (CPU_BENCHMARKS as readonly object[]);
+    const maxP = parseFloat(budget_max);
+    const minP = parseFloat(budget_min);
+    const results = (data as Array<{ name: string; score: number; tier: string }>)
+      .map(c => ({ ...c, estimatedPrice: TIER_PRICES[c.tier] ?? 300, scorePerPound: 0 }))
+      .map(c => ({ ...c, scorePerPound: Math.round(c.score / c.estimatedPrice) }))
+      .filter(c => c.estimatedPrice >= minP && c.estimatedPrice <= maxP)
+      .sort((a, b) => b.scorePerPound - a.scorePerPound)
+      .slice(0, parseInt(top_n));
+    res.json(results);
   }));
 
   app.post('/api/advisor/build-vs-buy', h(async (req, res) => {
