@@ -59,8 +59,445 @@
         <div class="text-xs text-base-content/40 mt-1 truncate"
              x-text="'Next: ' + fmtDate(schedulerStatus.nextRunAt)"></div>
       </template>
+      <!-- Help button -->
+      <button @click="helpOpen = true"
+              class="btn btn-ghost btn-xs w-full mt-2 gap-1.5 text-base-content/50 hover:text-base-content">
+        <span>❓</span><span class="text-xs">Help &amp; Tips</span>
+      </button>
     </div>
   </aside>
+
+  <!-- ── Help Modal ─────────────────────────────────────────────────────────── -->
+  <div x-show="helpOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
+       x-transition:enter="transition ease-out duration-200"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0">
+    <!-- backdrop -->
+    <div class="absolute inset-0 bg-black/60" @click="helpOpen = false"></div>
+    <!-- panel -->
+    <div class="relative bg-base-200 border border-base-300 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+      <!-- header -->
+      <div class="flex items-center justify-between px-5 py-4 border-b border-base-300 flex-shrink-0">
+        <div>
+          <h2 class="text-base font-bold text-base-content">Help &amp; Tips</h2>
+          <p class="text-xs text-base-content/50 mt-0.5">How to get the most out of PC Price Dashboard</p>
+        </div>
+        <button @click="helpOpen = false" class="btn btn-ghost btn-sm btn-circle text-base-content/60">✕</button>
+      </div>
+      <!-- tab bar -->
+      <div class="flex gap-1 px-4 pt-3 flex-wrap flex-shrink-0">
+        <template x-for="ht in helpTabs" :key="ht.id">
+          <button @click="helpActiveTab = ht.id"
+                  :class="helpActiveTab === ht.id
+                    ? 'bg-primary text-primary-content'
+                    : 'bg-base-300 text-base-content/60 hover:text-base-content'"
+                  class="btn btn-xs rounded-full transition-colors"
+                  x-text="ht.icon + ' ' + ht.label">
+          </button>
+        </template>
+      </div>
+      <!-- content -->
+      <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm">
+
+        <!-- Getting Started -->
+        <template x-if="helpActiveTab === 'start'">
+          <div class="space-y-4">
+            <div class="bg-base-300 rounded-xl p-4 space-y-2">
+              <p class="font-semibold text-base-content">🚀 Quick Start</p>
+              <ol class="list-decimal list-inside space-y-1.5 text-base-content/80">
+                <li>Go to <strong>Settings</strong> and enter your <strong>PricesAPI.io key</strong> — this is the only required credential to start tracking prices.</li>
+                <li>Click <strong>Dashboard → Add Component</strong> and type a component name (e.g. "RTX 4080 Super"). Set a category and optional alert price.</li>
+                <li>The dashboard will fetch current UK retailer prices immediately and show them in the table.</li>
+                <li>Enable <strong>Auto-refresh</strong> in the scheduler section (Settings tab or sidebar pill) to keep prices updated in the background.</li>
+                <li>Set <strong>price alerts</strong> and connect a notification channel (Discord, Slack, ntfy, etc.) to get pinged when prices drop.</li>
+              </ol>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div class="bg-base-300 rounded-xl p-3 space-y-1">
+                <p class="font-semibold text-xs text-base-content/60 uppercase tracking-wide">Required</p>
+                <p class="font-medium text-base-content">PricesAPI.io key</p>
+                <p class="text-xs text-base-content/60">Powers all UK retailer price lookups (Scan, Ebuyer, Amazon UK, etc.)</p>
+              </div>
+              <div class="bg-base-300 rounded-xl p-3 space-y-1">
+                <p class="font-semibold text-xs text-base-content/60 uppercase tracking-wide">Optional</p>
+                <p class="font-medium text-base-content">Keepa / eBay / AWIN keys</p>
+                <p class="text-xs text-base-content/60">Enable deeper Amazon history, secondhand eBay prices, and affiliate product feeds.</p>
+              </div>
+            </div>
+            <div class="bg-info/10 border border-info/30 rounded-xl p-3 text-xs text-base-content/80 space-y-1">
+              <p class="font-semibold text-info">💡 MCP mode</p>
+              <p>This tool also runs as a Claude MCP server — ask Claude directly: <em>"Track an RTX 4080 Super and alert me if it drops below £650"</em> or <em>"What's the best value GPU under £400 right now?"</em></p>
+            </div>
+          </div>
+        </template>
+
+        <!-- Dashboard tab -->
+        <template x-if="helpActiveTab === 'dashboard'">
+          <div class="space-y-3">
+            <div class="bg-base-300 rounded-xl p-4 space-y-2">
+              <p class="font-semibold text-base-content">📊 Dashboard overview</p>
+              <p class="text-base-content/70">The Dashboard is your home screen. It shows live stats, recent price drops, stock changes, and your full component watchlist.</p>
+            </div>
+            <div class="space-y-2">
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🟢</span>
+                <div>
+                  <p class="font-medium text-base-content">Stat cards (top row)</p>
+                  <p class="text-xs text-base-content/60">Shows totals: tracked components, triggered alerts, 24h price drops, and active waitlist items. The green "Price Alerts" count means items have hit your alert threshold — click them to see which.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">📋</span>
+                <div>
+                  <p class="font-medium text-base-content">Component table</p>
+                  <p class="text-xs text-base-content/60">Click any row to expand it and see per-retailer prices, a price history chart, and action buttons. Use the filter bar to search by name, category, or tag. The <strong>best price</strong> badge shows the cheapest available retailer.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">⏸️</span>
+                <div>
+                  <p class="font-medium text-base-content">Pausing components</p>
+                  <p class="text-xs text-base-content/60">Paused components are skipped during auto-refresh. Useful for items you've already purchased or are watching less actively. The scheduler still runs — it just skips paused items.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🏷️</span>
+                <div>
+                  <p class="font-medium text-base-content">Tags</p>
+                  <p class="text-xs text-base-content/60">Create colour-coded tags (e.g. "For Gaming Build", "Wishlist", "Bought") in Settings and assign them to components. Filter the dashboard table by tag using the pill filters above the table.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">📉</span>
+                <div>
+                  <p class="font-medium text-base-content">Price chart</p>
+                  <p class="text-xs text-base-content/60">Expand a component row to see a 30-day sparkline. The dashed line is the 30-day average. Dots represent individual price records. Hover for exact values.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Search tab -->
+        <template x-if="helpActiveTab === 'search'">
+          <div class="space-y-3">
+            <div class="bg-base-300 rounded-xl p-4 space-y-2">
+              <p class="font-semibold text-base-content">🔍 Search tab</p>
+              <p class="text-base-content/70">Live price search across UK retailers — results are not saved until you click "Track".</p>
+            </div>
+            <div class="space-y-2">
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🛒</span>
+                <div>
+                  <p class="font-medium text-base-content">Retailer search</p>
+                  <p class="text-xs text-base-content/60">Queries PricesAPI.io and returns live prices from Scan, Ebuyer, Amazon UK, Overclockers, Currys, CCL, and more. Results show stock status and a direct buy link.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🔗</span>
+                <div>
+                  <p class="font-medium text-base-content">Track by URL</p>
+                  <p class="text-xs text-base-content/60">Paste any product URL from any UK retailer. The scraper tries JSON-LD, meta tags, and CSS selectors in order. If it fails, go to Settings → Scrape Rules and add a CSS selector rule for that domain.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">💷</span>
+                <div>
+                  <p class="font-medium text-base-content">CeX / secondhand</p>
+                  <p class="text-xs text-base-content/60">Search CeX for secondhand buy/sell prices. No API key required. Useful for comparing new vs used GPU prices.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">📦</span>
+                <div>
+                  <p class="font-medium text-base-content">eBay secondhand</p>
+                  <p class="text-xs text-base-content/60">Requires eBay API credentials. Returns median active listing prices from eBay UK. Great for judging fair secondhand value for GPUs, CPUs, and RAM.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">📈</span>
+                <div>
+                  <p class="font-medium text-base-content">Amazon price history (Keepa)</p>
+                  <p class="text-xs text-base-content/60">Requires a Keepa API key. Shows all-time low/high and 30/90-day Amazon UK averages — essential for spotting whether a "sale" is genuine.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Builds tab -->
+        <template x-if="helpActiveTab === 'builds'">
+          <div class="space-y-3">
+            <div class="bg-base-300 rounded-xl p-4 space-y-2">
+              <p class="font-semibold text-base-content">🖥️ Builds tab</p>
+              <p class="text-base-content/70">Group tracked components into named builds to track total build cost over time.</p>
+            </div>
+            <div class="space-y-2">
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">➕</span>
+                <div>
+                  <p class="font-medium text-base-content">Creating a build</p>
+                  <p class="text-xs text-base-content/60">Click "New Build", give it a name (e.g. "Gaming Rig 2025"), then add components from your watchlist. Each component can have a quantity (e.g. 2× RAM sticks).</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">💰</span>
+                <div>
+                  <p class="font-medium text-base-content">Total cost tracking</p>
+                  <p class="text-xs text-base-content/60">The build total updates automatically as component prices change. This lets you watch the total cost of your planned build in real time.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🔗</span>
+                <div>
+                  <p class="font-medium text-base-content">PCPartPicker import</p>
+                  <p class="text-xs text-base-content/60">Paste a PCPartPicker UK list URL in the Search tab to import a build. All components are tracked automatically and a build is created for you.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">📤</span>
+                <div>
+                  <p class="font-medium text-base-content">Export</p>
+                  <p class="text-xs text-base-content/60">Export any build to CSV or JSON via Dashboard → export icon, or use the MCP tool <code class="mono bg-base-100 px-1 rounded">export_data</code>. The export includes component names, categories, and current best prices.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Advisor tab -->
+        <template x-if="helpActiveTab === 'advisor'">
+          <div class="space-y-3">
+            <div class="bg-base-300 rounded-xl p-4 space-y-2">
+              <p class="font-semibold text-base-content">🧠 Advisor tab</p>
+              <p class="text-base-content/70">Local AI-free recommendations using built-in PassMark benchmark data and price tier tables — no API keys required.</p>
+            </div>
+            <div class="space-y-2">
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">💸</span>
+                <div>
+                  <p class="font-medium text-base-content">Budget builder</p>
+                  <p class="text-xs text-base-content/60">Enter a total budget and pick a use case (1080p Gaming, 1440p Gaming, 4K, Workstation, Streaming, Office, HTPC). The advisor splits your budget across CPU, GPU, RAM, storage, motherboard, PSU, and case — with PassMark scores for suggested chips.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">⚡</span>
+                <div>
+                  <p class="font-medium text-base-content">Upgrade path</p>
+                  <p class="text-xs text-base-content/60">Tell the advisor your current CPU and GPU and your upgrade budget. It recommends the single upgrade that gives the biggest performance gain for that use case.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🆚</span>
+                <div>
+                  <p class="font-medium text-base-content">Benchmark compare</p>
+                  <p class="text-xs text-base-content/60">Compare any two CPUs or GPUs by name. Returns PassMark scores and which is faster by what percentage. Useful for deciding between two options at similar price points.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🏗️</span>
+                <div>
+                  <p class="font-medium text-base-content">Build vs buy</p>
+                  <p class="text-xs text-base-content/60">Enter your target CPU, GPU, RAM, and storage specs. The advisor estimates build cost using tracked component prices and compares it against pre-built systems at similar spec levels.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">✅</span>
+                <div>
+                  <p class="font-medium text-base-content">Compatibility checker</p>
+                  <p class="text-xs text-base-content/60">Check for compatibility issues between components — CPU socket vs motherboard, DDR4 vs DDR5, M.2 slot availability, PCIe generation, etc.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Parts DB tab -->
+        <template x-if="helpActiveTab === 'parts'">
+          <div class="space-y-3">
+            <div class="bg-base-300 rounded-xl p-4 space-y-2">
+              <p class="font-semibold text-base-content">🗂️ Parts DB tab</p>
+              <p class="text-base-content/70">Browse and search the built-in component benchmark database — no internet connection required.</p>
+            </div>
+            <div class="space-y-2">
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🔎</span>
+                <div>
+                  <p class="font-medium text-base-content">Browsing the dataset</p>
+                  <p class="text-xs text-base-content/60">Filter by category (GPU, CPU, RAM, etc.) and search by name. Each entry shows a performance tier, estimated price range, and PassMark score where available.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">📊</span>
+                <div>
+                  <p class="font-medium text-base-content">Deal scores</p>
+                  <p class="text-xs text-base-content/60">The "Deals" sub-tab shows all your tracked components ranked by deal score — combining current price vs 30-day average, vs all-time low, and stock availability. Higher score = better deal right now.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">💡</span>
+                <div>
+                  <p class="font-medium text-base-content">Value finder</p>
+                  <p class="text-xs text-base-content/60">Use the Advisor's value finder tool to rank GPUs or CPUs by performance-per-pound within a price range — e.g. "best value GPU between £250 and £400".</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Pre-built PCs tab -->
+        <template x-if="helpActiveTab === 'prebuilts'">
+          <div class="space-y-3">
+            <div class="bg-base-300 rounded-xl p-4 space-y-2">
+              <p class="font-semibold text-base-content">💻 Pre-Built PCs tab</p>
+              <p class="text-base-content/70">Track and compare pre-built desktop PC systems from up to 15 major UK retailers.</p>
+            </div>
+            <div class="space-y-2">
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🏪</span>
+                <div>
+                  <p class="font-medium text-base-content">Supported retailers</p>
+                  <p class="text-xs text-base-content/60">Currys, Argos, John Lewis, AO.com, Very, Ebuyer, Scan, Overclockers, Box, Novatech, CCL, Chillblast, Dell UK, HP UK, Amazon UK. Search all 15 simultaneously or pick a subset.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🖥️</span>
+                <div>
+                  <p class="font-medium text-base-content">Spec extraction</p>
+                  <p class="text-xs text-base-content/60">CPU, GPU, RAM, storage, and OS are automatically extracted from product names. You can manually correct specs after tracking.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🔔</span>
+                <div>
+                  <p class="font-medium text-base-content">Price alerts</p>
+                  <p class="text-xs text-base-content/60">Set a GBP target on any tracked pre-built. You'll be notified when any retailer drops below your threshold — useful for watching for sales on specific systems.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Settings tab -->
+        <template x-if="helpActiveTab === 'settings'">
+          <div class="space-y-3">
+            <div class="bg-base-300 rounded-xl p-4 space-y-2">
+              <p class="font-semibold text-base-content">⚙️ Settings tab</p>
+              <p class="text-base-content/70">All configuration is stored in the local SQLite database — no config files to edit manually.</p>
+            </div>
+            <div class="space-y-2">
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🔑</span>
+                <div>
+                  <p class="font-medium text-base-content">API keys</p>
+                  <p class="text-xs text-base-content/60">Paste keys directly into the Settings form. They are stored in SQLite (not in .env files) and loaded into the server on startup. Only <strong>PricesAPI.io</strong> is mandatory — all others unlock optional features.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🔔</span>
+                <div>
+                  <p class="font-medium text-base-content">Notifications</p>
+                  <p class="text-xs text-base-content/60">Set up Discord/Slack webhooks, a Telegram bot, ntfy topic, or Pushover keys here. Use "Send test" to verify a channel works before relying on it. ntfy is the easiest — no account needed for the public server.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">⏱️</span>
+                <div>
+                  <p class="font-medium text-base-content">Auto-refresh (scheduler)</p>
+                  <p class="text-xs text-base-content/60">Set a global refresh interval in minutes. Recommended: 60 minutes for casual monitoring, 15 minutes for active deal hunting. The sidebar shows a pulsing green dot when the scheduler is active.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">💰</span>
+                <div>
+                  <p class="font-medium text-base-content">VAT mode</p>
+                  <p class="text-xs text-base-content/60">Switch between inc. VAT (prices as listed) and ex. VAT (strips UK 20% — useful for business purchasing on expenses).</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🛡️</span>
+                <div>
+                  <p class="font-medium text-base-content">Scrape rules</p>
+                  <p class="text-xs text-base-content/60">If URL-based tracking fails for a specific retailer, add a CSS selector rule here. Set <code class="mono bg-base-100 px-1 rounded">price_selector</code> to the element containing the price text. Use browser DevTools (F12 → Inspector) to find the right selector.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">💾</span>
+                <div>
+                  <p class="font-medium text-base-content">Backup &amp; export</p>
+                  <p class="text-xs text-base-content/60">Download a full JSON backup of your data (components, builds, price history, tags). API keys and credentials are <strong>excluded</strong> from backups for security. Import from CSV or JSON to migrate data.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- Tips & Tricks -->
+        <template x-if="helpActiveTab === 'tips'">
+          <div class="space-y-3">
+            <div class="bg-base-300 rounded-xl p-4 space-y-1.5">
+              <p class="font-semibold text-base-content">💡 Tips &amp; Tricks</p>
+            </div>
+            <div class="space-y-2">
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🎯</span>
+                <div>
+                  <p class="font-medium text-base-content">Set realistic alert prices</p>
+                  <p class="text-xs text-base-content/60">Use the price chart's all-time low as a reference. Setting an alert at 5–10% above ATL gives you a realistic target that will actually trigger, rather than waiting for an impossible price.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">📦</span>
+                <div>
+                  <p class="font-medium text-base-content">Use the waitlist for out-of-stock items</p>
+                  <p class="text-xs text-base-content/60">Add a component to the waitlist (Dashboard → row actions → Waitlist) to get a notification the moment it comes back in stock at or below your max price. Great for limited-stock items like Founders Edition GPUs.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">📏</span>
+                <div>
+                  <p class="font-medium text-base-content">Unit quantity for RAM and storage</p>
+                  <p class="text-xs text-base-content/60">Set unit_quantity = 2 for dual-channel RAM kits so the price-per-unit stat is meaningful. Use the unit_type field (e.g. "pack", "GB") to clarify what the unit represents.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🏷️</span>
+                <div>
+                  <p class="font-medium text-base-content">Tag-based organisation</p>
+                  <p class="text-xs text-base-content/60">Create tags like "Gaming Build", "Sold", "Bought", "Secondary Wish List" to segment your watchlist without having to delete components you no longer need. Filter by tag in the dashboard table.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">⏸️</span>
+                <div>
+                  <p class="font-medium text-base-content">Pause components you've bought</p>
+                  <p class="text-xs text-base-content/60">Rather than deleting a tracked component after purchase, pause it. This preserves the price history for future reference and stops the scheduler wasting API calls on it.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🔄</span>
+                <div>
+                  <p class="font-medium text-base-content">Per-component refresh intervals</p>
+                  <p class="text-xs text-base-content/60">Use a short interval (e.g. 15 min) for items you're actively hunting and a longer one (e.g. 24h) for casual wishlist items. Set via Dashboard → row actions → Interval, or via the API.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🤖</span>
+                <div>
+                  <p class="font-medium text-base-content">Use Claude for complex queries</p>
+                  <p class="text-xs text-base-content/60">If this dashboard is connected as a Claude MCP server, you can ask: <em>"Which of my tracked GPUs is the best deal today?"</em>, <em>"Compare RTX 4070 Ti Super vs RX 7900 GRE performance per pound"</em>, or <em>"Create a 1440p gaming build under £1200 and track all the parts."</em></p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+      </div>
+    </div>
+  </div>
 
   <!-- ── Main content ─────────────────────────────────────────────────────── -->
   <main class="flex-1 overflow-auto bg-base-100">
@@ -2971,6 +3408,21 @@ function app() {
     selectedBuildDetail: null,
     vatMode: 'inc_vat',
     configStatus: { discord: false, slack: false, telegram: false, email: false, ntfy: false, pushover: false },
+
+    // Help modal
+    helpOpen: false,
+    helpActiveTab: 'start',
+    helpTabs: [
+      { id: 'start',      icon: '🚀', label: 'Getting Started' },
+      { id: 'dashboard',  icon: '📊', label: 'Dashboard' },
+      { id: 'search',     icon: '🔍', label: 'Search' },
+      { id: 'builds',     icon: '🖥️', label: 'Builds' },
+      { id: 'advisor',    icon: '🧠', label: 'Advisor' },
+      { id: 'parts',      icon: '🗂️', label: 'Parts DB' },
+      { id: 'prebuilts',  icon: '💻', label: 'Pre-Built PCs' },
+      { id: 'settings',   icon: '⚙️', label: 'Settings' },
+      { id: 'tips',       icon: '💡', label: 'Tips & Tricks' },
+    ],
 
     // Advisor
     advisorSubTab: 'budget',
