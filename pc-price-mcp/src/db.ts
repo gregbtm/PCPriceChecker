@@ -234,7 +234,8 @@ function runMigrations(db: Database.Database): void {
   if (!prCols.includes('z_score'))     db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
 
   const tcCols = (db.prepare('PRAGMA table_info(tracked_components)').all() as Array<{ name: string }>).map(c => c.name);
-  if (!tcCols.includes('source_url'))  db.exec('ALTER TABLE tracked_components ADD COLUMN source_url TEXT');
+  if (!tcCols.includes('source_url'))     db.exec('ALTER TABLE tracked_components ADD COLUMN source_url TEXT');
+  if (!tcCols.includes('last_alerted_at')) db.exec('ALTER TABLE tracked_components ADD COLUMN last_alerted_at TEXT');
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -290,6 +291,39 @@ export function updateAlertPrice(id: number, alertPrice: number | null): boolean
 
 export function markLastChecked(id: number): void {
   getDb().prepare("UPDATE tracked_components SET last_checked = datetime('now') WHERE id = ?").run(id);
+}
+
+export function markLastAlerted(id: number): void {
+  getDb().prepare("UPDATE tracked_components SET last_alerted_at = datetime('now') WHERE id = ?").run(id);
+}
+
+export function shouldSendAlert(id: number, cooldownMinutes = 1440): boolean {
+  const row = getDb().prepare('SELECT last_alerted_at FROM tracked_components WHERE id = ?').get(id) as { last_alerted_at: string | null } | undefined;
+  if (!row?.last_alerted_at) return true;
+  const elapsedMinutes = (Date.now() - new Date(row.last_alerted_at + 'Z').getTime()) / 60_000;
+  return elapsedMinutes >= cooldownMinutes;
+}
+
+export interface SparklinePoint { date: string; min_price: number; }
+
+export function getBatchSparklines(ids: number[], days = 7): Map<number, SparklinePoint[]> {
+  if (ids.length === 0) return new Map();
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = getDb().prepare(`
+    SELECT component_id, date(recorded_at) AS date, MIN(price) AS min_price
+    FROM price_records
+    WHERE component_id IN (${placeholders}) AND is_outlier = 0
+      AND recorded_at >= datetime('now', '-${days} days')
+    GROUP BY component_id, date(recorded_at)
+    ORDER BY component_id, date ASC
+  `).all(...ids) as { component_id: number; date: string; min_price: number }[];
+
+  const result = new Map<number, SparklinePoint[]>();
+  for (const row of rows) {
+    if (!result.has(row.component_id)) result.set(row.component_id, []);
+    result.get(row.component_id)!.push({ date: row.date, min_price: row.min_price });
+  }
+  return result;
 }
 
 // ── Price records ──────────────────────────────────────────────────────────

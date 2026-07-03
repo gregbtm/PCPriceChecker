@@ -5,9 +5,11 @@
  *   3. User-defined CSS selector rules (per domain, stored in DB)
  *   4. Generic DOM price heuristics
  *   5. Playwright headless browser (JS-rendered pages)
+ *   5b. Camofox stealth browser (Cloudflare bypass — optional, requires running server)
  *   6. AI extraction via Claude API (last resort, requires ANTHROPIC_API_KEY)
  */
-import { getBrowser } from './playwright-scraper.js';
+import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js';
+import { scrapeWithCamofox } from './camofox-client.js';
 import * as db from '../db.js';
 
 export interface ScrapedProduct {
@@ -142,15 +144,22 @@ function tryDom(html: string): Partial<ScrapedProduct> | null {
   return null;
 }
 
-// ── Step 5: Playwright ─────────────────────────────────────────────────────
+// ── Step 5: Playwright (with UA + proxy rotation) ─────────────────────────
+
+function getNextProxy(): string | undefined {
+  const raw = db.getConfig('scrape_proxies');
+  if (!raw) return undefined;
+  const proxies = raw.split(',').map(p => p.trim()).filter(Boolean);
+  if (!proxies.length) return undefined;
+  return proxies[Math.floor(Math.random() * proxies.length)];
+}
 
 async function tryPlaywright(url: string): Promise<Partial<ScrapedProduct> | null> {
-  const browser = await getBrowser();
-  if (!browser) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const page: any = await (browser as any).newPage();
+  const page: any = await newPageWithProxy(getNextProxy());
+  if (!page) return null;
   try {
-    await page.setExtraHTTPHeaders({ 'User-Agent': BROWSER_HEADERS['User-Agent'], 'Accept-Language': BROWSER_HEADERS['Accept-Language'] });
+    await page.setExtraHTTPHeaders({ 'User-Agent': randomUA(), 'Accept-Language': BROWSER_HEADERS['Accept-Language'] });
     await page.goto(url, { waitUntil: 'networkidle', timeout: 25_000 });
     await page.waitForTimeout(1000);
 
@@ -179,7 +188,19 @@ async function tryPlaywright(url: string): Promise<Partial<ScrapedProduct> | nul
     }
     return null;
   } catch { return null; }
-  finally { await page.close().catch(() => {}); }
+  finally {
+    await page.__ctx?.close().catch(() => {});
+  }
+}
+
+// ── Step 5b: Camofox stealth browser (Cloudflare bypass) ──────────────────
+
+async function tryCamofox(url: string): Promise<Partial<ScrapedProduct> | null> {
+  const camofoxUrl = db.getConfig('camofox_url') ?? process.env.CAMOFOX_URL;
+  if (!camofoxUrl) return null;
+  const result = await scrapeWithCamofox(url, camofoxUrl);
+  if (!result?.price) return null;
+  return { name: result.name, price: result.price, currency: result.currency, inStock: result.inStock, method: 'playwright' };
 }
 
 // ── Step 6: AI extraction (Claude API) ────────────────────────────────────
@@ -249,6 +270,9 @@ export async function scrapeProductUrl(url: string): Promise<ScrapedProduct> {
 
   const pw = await tryPlaywright(url);
   if (pw?.price) return { ...fallback, ...pw, url } as ScrapedProduct;
+
+  const cfx = await tryCamofox(url);
+  if (cfx?.price) return { ...fallback, ...cfx, url } as ScrapedProduct;
 
   if (html) {
     const ai = await tryAi(html);

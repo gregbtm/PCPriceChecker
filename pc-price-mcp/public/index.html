@@ -19,9 +19,13 @@
   <style>
     [x-cloak] { display: none !important; }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #1f2937; }
-    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
-    body { background: #111827; color: #f3f4f6; }
+    ::-webkit-scrollbar-track { background: #111116; }
+    ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+    body { background: #09090b; color: #e4e4e7; font-family: Inter, system-ui, -apple-system, sans-serif; }
+    .price-num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+    .sparkline svg { display: block; }
+    .mono { font-family: ui-monospace, 'Cascadia Code', 'Fira Code', Consolas, monospace; }
   </style>
 </head>
 <body class="h-screen overflow-hidden" x-data="app()" x-init="init()">
@@ -121,6 +125,7 @@
                 <th class="px-4 py-2.5">Name</th>
                 <th class="px-4 py-2.5">Cat.</th>
                 <th class="px-4 py-2.5">Best Price</th>
+                <th class="px-4 py-2.5">7d Trend</th>
                 <th class="px-4 py-2.5">Deal</th>
                 <th class="px-4 py-2.5">Retailer</th>
                 <th class="px-4 py-2.5">Stock</th>
@@ -142,12 +147,21 @@
                   </td>
                   <td class="px-4 py-3">
                     <template x-if="c.best_price != null">
-                      <span class="font-semibold"
+                      <span class="font-semibold price-num"
                             :class="c.alert_price && c.best_price <= c.alert_price ? 'text-green-400' : 'text-white'"
                             x-text="fmtPrice(c.best_price, c.best_currency)"></span>
                     </template>
                     <template x-if="c.best_price == null">
                       <span class="text-gray-600">No data</span>
+                    </template>
+                  </td>
+                  <!-- Sparkline -->
+                  <td class="px-4 py-3 sparkline">
+                    <template x-if="sparklines[c.id] && sparklines[c.id].length >= 2">
+                      <span x-html="makeSvgSparkline(sparklines[c.id])"></span>
+                    </template>
+                    <template x-if="!sparklines[c.id] || sparklines[c.id].length < 2">
+                      <span class="text-gray-700 text-xs">—</span>
                     </template>
                   </td>
                   <!-- Deal / Best time to buy badge -->
@@ -1092,6 +1106,44 @@
         </div>
       </div>
 
+      <!-- Scraper Settings -->
+      <div class="bg-gray-800 rounded-xl border border-gray-700">
+        <div class="px-4 py-3 border-b border-gray-700">
+          <h3 class="font-semibold text-white">🕵️ Scraper Settings</h3>
+          <p class="text-xs text-gray-500 mt-0.5">Anti-detection browser and proxy configuration for JS-rendered retailer pages.</p>
+        </div>
+        <div class="p-4 space-y-4">
+          <!-- Camofox -->
+          <div>
+            <label class="text-xs text-gray-400 font-medium block mb-1">Camofox Server URL
+              <span class="text-gray-600 font-normal">(jo-inc/camofox-browser — bypasses Cloudflare, Dell, HP anti-bot)</span>
+            </label>
+            <input x-model="scraperCamofoxUrl" type="url" placeholder="http://localhost:9377"
+                   class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                          placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 mono">
+            <p class="text-xs text-gray-600 mt-1.5">Start server:
+              <code class="text-gray-400 bg-gray-700/50 px-1.5 py-0.5 rounded">npx @askjo/camofox-browser</code>
+              or Docker on port 9377. Patches Firefox at C++ level — bypasses JS fingerprinting detection.
+            </p>
+          </div>
+          <!-- Proxy rotation -->
+          <div>
+            <label class="text-xs text-gray-400 font-medium block mb-1">Rotating Proxies
+              <span class="text-gray-600 font-normal">(comma-separated — randomly selected per scrape session)</span>
+            </label>
+            <textarea x-model="scraperProxies" rows="3"
+                      placeholder="http://user:pass@proxy1.example.com:8080, http://proxy2:3128"
+                      class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                             placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 mono text-xs resize-none"></textarea>
+            <p class="text-xs text-gray-600 mt-1">Used as Playwright context proxy — helps bypass IP-based rate limits and geo-blocks on repeated scrapes.</p>
+          </div>
+          <button @click="saveScraperSettings()"
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium">
+            Save Scraper Settings
+          </button>
+        </div>
+      </div>
+
       <!-- VAT mode -->
       <div class="bg-gray-800 rounded-xl border border-gray-700">
         <div class="px-4 py-3 border-b border-gray-700">
@@ -1967,6 +2019,13 @@ function app() {
     apiKeyAnthropic: '',
     apiKeyStatus: {},
 
+    // Sparklines (keyed by component id)
+    sparklines: {},
+
+    // Scraper settings
+    scraperCamofoxUrl: '',
+    scraperProxies: '',
+
     // Saved searches
     savedSearches: [],
     savedSearchName: '',
@@ -2030,6 +2089,7 @@ function app() {
         this.loadPrebuilts(),
         this.loadSavedSearches(),
         this.loadPartsSlugs(),
+        this.loadSparklines(),
       ]);
       setInterval(() => this.loadSchedulerStatus(), 30_000);
     },
@@ -2109,6 +2169,33 @@ function app() {
         bing:      !!cfg.bing_api_key,
         anthropic: !!cfg.anthropic_api_key,
       };
+      // Scraper settings
+      this.scraperCamofoxUrl = cfg.camofox_url     ?? '';
+      this.scraperProxies    = cfg.scrape_proxies  ?? '';
+    },
+
+    async loadSparklines() {
+      try {
+        const r = await fetch('/api/dashboard/sparklines');
+        this.sparklines = await r.json();
+      } catch { /* non-fatal */ }
+    },
+
+    makeSvgSparkline(points) {
+      if (!points || points.length < 2) return '';
+      const prices = points.map(p => p.min_price);
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      const range = max - min || 1;
+      const W = 72, H = 26;
+      const coords = prices.map((p, i) => {
+        const x = ((i / (prices.length - 1)) * W).toFixed(1);
+        const y = (H - ((p - min) / range) * H * 0.8 - H * 0.1).toFixed(1);
+        return `${x},${y}`;
+      }).join(' ');
+      const last = prices[prices.length - 1];
+      const color = last < prices[0] ? '#34d399' : last > prices[0] ? '#f87171' : '#60a5fa';
+      return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible"><polyline points="${coords}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     },
 
     // ── Formatting ─────────────────────────────────────────────────────────
@@ -2208,7 +2295,7 @@ function app() {
         this.components = [...this.components];
       }
       this.refreshingAll = false;
-      await Promise.all([this.loadComponents(), this.loadPriceDrops(), this.loadAlerts(), this.loadStockChanges()]);
+      await Promise.all([this.loadComponents(), this.loadPriceDrops(), this.loadAlerts(), this.loadStockChanges(), this.loadSparklines()]);
       this.showToast('✅ All components refreshed');
     },
     async removeComponent(c) {
@@ -2438,6 +2525,14 @@ function app() {
         fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
       ));
       this.showToast('✅ API keys saved');
+      await this.loadConfig();
+    },
+    async saveScraperSettings() {
+      await Promise.all([
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'camofox_url',    value: this.scraperCamofoxUrl }) }),
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'scrape_proxies', value: this.scraperProxies }) }),
+      ]);
+      this.showToast('✅ Scraper settings saved');
       await this.loadConfig();
     },
     async testNotification() {

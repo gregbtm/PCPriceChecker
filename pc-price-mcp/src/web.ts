@@ -56,6 +56,7 @@ const DB_KEY_TO_ENV: Record<string, string> = {
   youtube_api_key:      'YOUTUBE_API_KEY',
   bing_api_key:         'BING_API_KEY',
   anthropic_api_key:    'ANTHROPIC_API_KEY',
+  camofox_url:          'CAMOFOX_URL',
 };
 
 function syncEnvFromDb(): void {
@@ -158,6 +159,15 @@ export function startWebServer(port: number): void {
     const history = db.getPriceHistory(id, days);
     const trend = db.getDailyPriceTrend(id, days);
     res.json({ history, trend });
+  }));
+
+  app.get('/api/dashboard/sparklines', h(async (_req, res) => {
+    const components = db.getTrackedComponents();
+    const ids = components.map(c => c.id);
+    const sparklines = db.getBatchSparklines(ids, 7);
+    const result: Record<number, { date: string; min_price: number }[]> = {};
+    for (const [id, points] of sparklines) result[id] = points;
+    res.json(result);
   }));
 
   app.get('/api/components/:id/stats', h(async (req, res) => {
