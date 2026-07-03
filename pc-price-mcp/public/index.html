@@ -1774,6 +1774,432 @@
   </main>
 </div>
 
+    <!-- ══ ADVISOR TAB ═══════════════════════════════════════════════════════ -->
+    <div x-show="activeTab === 'advisor'" class="p-6 space-y-5">
+
+      <!-- Sub-tab nav -->
+      <div class="flex gap-2 border-b border-gray-700 pb-3">
+        <template x-for="st in [
+          { id:'budget',  label:'💰 Budget Builder' },
+          { id:'upgrade', label:'⚡ Upgrade Advisor' },
+          { id:'bvb',     label:'⚖️ Build vs Buy' },
+          { id:'compat',  label:'🔌 Compatibility' }
+        ]" :key="st.id">
+          <button @click="advisorSubTab = st.id"
+                  :class="advisorSubTab === st.id ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'"
+                  class="px-4 py-1.5 rounded-lg text-sm font-medium" x-text="st.label"></button>
+        </template>
+      </div>
+
+      <!-- ── Budget Builder ─────────────────────────────────────────────── -->
+      <div x-show="advisorSubTab === 'budget'" class="space-y-4">
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+          <h2 class="font-semibold text-white mb-1">Budget Builder</h2>
+          <p class="text-xs text-gray-500 mb-4">Enter your total budget and use-case. Get a recommended component allocation with suggested parts.</p>
+          <div class="flex flex-wrap gap-3 items-end mb-4">
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Total budget (£)</label>
+              <input x-model.number="budgetAmount" type="number" min="200" step="50"
+                     class="w-32 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Use case</label>
+              <select x-model="budgetUseCase" class="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="gaming_1080p">1080p Gaming</option>
+                <option value="gaming_1440p">1440p Gaming</option>
+                <option value="gaming_4k">4K Gaming</option>
+                <option value="workstation">Workstation</option>
+                <option value="streaming">Streaming + Gaming</option>
+                <option value="general">General Purpose</option>
+              </select>
+            </div>
+            <button @click="runBudgetBuilder()" :disabled="budgetLoading || !budgetAmount"
+                    class="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg text-sm font-medium">
+              <span x-text="budgetLoading ? '⏳ Planning…' : 'Plan Build'"></span>
+            </button>
+          </div>
+
+          <template x-if="budgetResult && !budgetResult.error">
+            <div class="space-y-4">
+              <div class="flex items-center gap-3">
+                <span class="text-white font-semibold" x-text="'£' + budgetResult.budget + ' · ' + budgetResult.useCaseLabel"></span>
+                <span class="text-xs text-gray-500" x-text="'Allocated: £' + budgetResult.totalAllocated"></span>
+              </div>
+
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="text-left text-xs text-gray-500 border-b border-gray-700">
+                      <th class="pb-2 pr-3">Component</th>
+                      <th class="pb-2 pr-3 text-right">Budget</th>
+                      <th class="pb-2 pr-3 text-right">%</th>
+                      <th class="pb-2 pr-3">Suggestion</th>
+                      <th class="pb-2 pr-3">Tier</th>
+                      <th class="pb-2">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="a in budgetResult.allocations" :key="a.category">
+                      <tr class="border-b border-gray-700/50 hover:bg-gray-700/20">
+                        <td class="py-2 pr-3 font-medium text-gray-200" x-text="a.label"></td>
+                        <td class="py-2 pr-3 text-right text-green-400 font-mono" x-text="'£' + a.budgetPounds"></td>
+                        <td class="py-2 pr-3 text-right text-gray-400 font-mono" x-text="a.allocationPercent + '%'"></td>
+                        <td class="py-2 pr-3 text-gray-300 text-xs" x-text="a.suggestion"></td>
+                        <td class="py-2 pr-3">
+                          <span class="px-2 py-0.5 rounded text-xs font-medium"
+                                :class="{
+                                  'bg-purple-900/50 text-purple-300': a.tier === 'ultra',
+                                  'bg-blue-900/50 text-blue-300': a.tier === 'high',
+                                  'bg-teal-900/50 text-teal-300': a.tier === 'mid-high',
+                                  'bg-green-900/50 text-green-300': a.tier === 'mid',
+                                  'bg-yellow-900/50 text-yellow-300': a.tier === 'entry',
+                                  'bg-gray-700 text-gray-400': a.tier === 'budget'
+                                }"
+                                x-text="a.tier"></span>
+                        </td>
+                        <td class="py-2">
+                          <button @click="quickSearchFromAdvisor(a.searchQuery)"
+                                  class="text-xs text-blue-400 hover:text-blue-200 underline">Search →</button>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="space-y-1">
+                <template x-for="note in budgetResult.notes" :key="note">
+                  <div class="flex items-start gap-2 text-xs text-gray-400">
+                    <span class="text-blue-500 flex-shrink-0 mt-0.5">ℹ</span>
+                    <span x-text="note"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ── Upgrade Advisor ────────────────────────────────────────────── -->
+      <div x-show="advisorSubTab === 'upgrade'" class="space-y-4">
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+          <h2 class="font-semibold text-white mb-1">Upgrade Advisor</h2>
+          <p class="text-xs text-gray-500 mb-4">Enter your current CPU and GPU. Get bottleneck analysis and the best upgrade options within your budget.</p>
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Current CPU</label>
+              <input x-model="upgradeCpu" type="text" placeholder="e.g. Ryzen 5 5600X"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Current GPU</label>
+              <input x-model="upgradeGpu" type="text" placeholder="e.g. RTX 3070"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Budget (£)</label>
+              <input x-model.number="upgradeBudget" type="number" min="50" step="50"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Use case</label>
+              <select x-model="upgradeUseCase" class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="gaming_1080p">1080p Gaming</option>
+                <option value="gaming_1440p">1440p Gaming</option>
+                <option value="gaming_4k">4K Gaming</option>
+                <option value="workstation">Workstation</option>
+                <option value="streaming">Streaming + Gaming</option>
+                <option value="general">General Purpose</option>
+              </select>
+            </div>
+          </div>
+          <button @click="runUpgradeAdvisor()" :disabled="upgradeLoading || !upgradeCpu || !upgradeGpu"
+                  class="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg text-sm font-medium mb-4">
+            <span x-text="upgradeLoading ? '⏳ Analysing…' : 'Analyse Upgrade'"></span>
+          </button>
+
+          <template x-if="upgradeResult && !upgradeResult.error">
+            <div class="space-y-4">
+              <!-- Bottleneck card -->
+              <div class="p-3 rounded-lg border"
+                   :class="{
+                     'bg-red-950/30 border-red-800/40': upgradeResult.bottleneck === 'gpu' || upgradeResult.bottleneck === 'cpu',
+                     'bg-green-950/30 border-green-800/40': upgradeResult.bottleneck === 'balanced',
+                     'bg-gray-700/40 border-gray-600': upgradeResult.bottleneck === 'unknown'
+                   }">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="font-semibold text-sm"
+                        :class="{
+                          'text-red-300': upgradeResult.bottleneck === 'gpu' || upgradeResult.bottleneck === 'cpu',
+                          'text-green-300': upgradeResult.bottleneck === 'balanced',
+                          'text-gray-300': upgradeResult.bottleneck === 'unknown'
+                        }"
+                        x-text="'Bottleneck: ' + upgradeResult.bottleneck.toUpperCase()"></span>
+                </div>
+                <p class="text-xs text-gray-400" x-text="upgradeResult.bottleneckReason"></p>
+              </div>
+
+              <!-- Recommendations -->
+              <template x-if="upgradeResult.recommendations.length > 0">
+                <div class="space-y-2">
+                  <h3 class="text-sm font-medium text-gray-300">Upgrade Options</h3>
+                  <template x-for="(rec, i) in upgradeResult.recommendations" :key="i">
+                    <div class="bg-gray-700/40 border border-gray-600/50 rounded-lg p-3">
+                      <div class="flex items-start justify-between gap-2">
+                        <div class="flex-1">
+                          <div class="flex items-center gap-2 mb-1">
+                            <span class="text-xs font-bold uppercase px-2 py-0.5 rounded"
+                                  :class="rec.component === 'gpu' ? 'bg-green-900/50 text-green-300' : rec.component === 'cpu' ? 'bg-blue-900/50 text-blue-300' : 'bg-purple-900/50 text-purple-300'"
+                                  x-text="rec.component"></span>
+                            <span class="text-sm text-white font-medium" x-text="rec.suggestion"></span>
+                          </div>
+                          <p class="text-xs text-gray-400" x-text="rec.reason"></p>
+                          <template x-if="rec.gainPercent !== null">
+                            <p class="text-xs text-green-400 mt-1"
+                               x-text="'+' + rec.gainPercent + '% performance vs current · £' + rec.estimatedCostPounds + ' est.'"></p>
+                          </template>
+                        </div>
+                        <div class="text-right flex-shrink-0">
+                          <div class="text-sm font-bold text-white" x-text="'£' + rec.estimatedCostPounds"></div>
+                          <template x-if="rec.valueScore !== null">
+                            <div class="text-xs text-gray-400" x-text="'Value: ' + rec.valueScore + '/100'"></div>
+                          </template>
+                          <button @click="quickSearchFromAdvisor(rec.searchQuery)"
+                                  class="mt-1 text-xs text-blue-400 hover:text-blue-200 underline">Search →</button>
+                        </div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Notes -->
+              <template x-if="upgradeResult.notes.length > 0">
+                <div class="space-y-1">
+                  <template x-for="note in upgradeResult.notes" :key="note">
+                    <div class="flex items-start gap-2 text-xs text-gray-400">
+                      <span class="text-yellow-500 flex-shrink-0 mt-0.5">⚠</span>
+                      <span x-text="note"></span>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ── Build vs Buy ───────────────────────────────────────────────── -->
+      <div x-show="advisorSubTab === 'bvb'" class="space-y-4">
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+          <h2 class="font-semibold text-white mb-1">Build vs Buy</h2>
+          <p class="text-xs text-gray-500 mb-4">Compare the cost of self-building to buying a pre-built. Prices are pulled from your tracked components and pre-built watchlist.</p>
+          <div class="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">CPU (optional)</label>
+              <input x-model="bvbCpu" type="text" placeholder="e.g. Ryzen 7 7800X3D"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">GPU (optional)</label>
+              <input x-model="bvbGpu" type="text" placeholder="e.g. RTX 4070"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">RAM (GB, optional)</label>
+              <input x-model.number="bvbRam" type="number" placeholder="e.g. 32"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Storage (GB, optional)</label>
+              <input x-model.number="bvbStorage" type="number" placeholder="e.g. 1000"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          <button @click="runBuildVsBuy()" :disabled="bvbLoading"
+                  class="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg text-sm font-medium mb-4">
+            <span x-text="bvbLoading ? '⏳ Comparing…' : 'Compare'"></span>
+          </button>
+
+          <template x-if="bvbResult">
+            <div class="space-y-4">
+              <!-- Verdict card -->
+              <div class="p-4 rounded-lg border"
+                   :class="{
+                     'bg-green-950/30 border-green-700/50': bvbResult.verdict === 'build',
+                     'bg-blue-950/30 border-blue-700/50': bvbResult.verdict === 'buy',
+                     'bg-gray-700/40 border-gray-600': bvbResult.verdict === 'similar' || bvbResult.verdict === 'insufficient_data'
+                   }">
+                <div class="flex items-center gap-3 mb-2">
+                  <span class="text-2xl"
+                        x-text="bvbResult.verdict === 'build' ? '🔧' : bvbResult.verdict === 'buy' ? '🛒' : bvbResult.verdict === 'similar' ? '⚖️' : '❓'"></span>
+                  <div>
+                    <div class="font-semibold text-white"
+                         x-text="bvbResult.verdict === 'build' ? 'Build is cheaper' : bvbResult.verdict === 'buy' ? 'Pre-built is cheaper' : bvbResult.verdict === 'similar' ? 'Similar cost' : 'Insufficient data'"></div>
+                    <div class="text-xs text-gray-400 flex gap-4 mt-0.5">
+                      <template x-if="bvbResult.buildCost">
+                        <span x-text="'Build cost: £' + bvbResult.buildCost"></span>
+                      </template>
+                      <template x-if="bvbResult.cheapestPrebuilt">
+                        <span x-text="'Pre-built: £' + bvbResult.cheapestPrebuilt.price + ' (' + bvbResult.cheapestPrebuilt.name + ')'"></span>
+                      </template>
+                      <template x-if="bvbResult.savingsIfBuild !== null">
+                        <span :class="bvbResult.savingsIfBuild > 0 ? 'text-green-400' : 'text-red-400'"
+                              x-text="(bvbResult.savingsIfBuild > 0 ? 'Save £' : 'Extra £') + Math.abs(bvbResult.savingsIfBuild) + ' by building'"></span>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Build components table -->
+              <template x-if="bvbResult.buildComponents && bvbResult.buildComponents.length > 0">
+                <div class="overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr class="text-left text-xs text-gray-500 border-b border-gray-700">
+                        <th class="pb-2 pr-3">Component</th>
+                        <th class="pb-2 pr-3">Name</th>
+                        <th class="pb-2 pr-3 text-right">Price</th>
+                        <th class="pb-2">Retailer</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="(c, i) in bvbResult.buildComponents" :key="i">
+                        <tr class="border-b border-gray-700/50">
+                          <td class="py-2 pr-3 text-xs text-gray-400 uppercase font-medium" x-text="c.category"></td>
+                          <td class="py-2 pr-3 text-gray-200" x-text="c.name"></td>
+                          <td class="py-2 pr-3 text-right font-mono"
+                              :class="c.price ? 'text-green-400' : 'text-gray-600'"
+                              x-text="c.price ? '£' + c.price : '—'"></td>
+                          <td class="py-2 text-xs text-gray-400" x-text="c.retailer ?? '—'"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </template>
+
+              <!-- Notes -->
+              <div class="space-y-1">
+                <template x-for="note in bvbResult.notes" :key="note">
+                  <div class="flex items-start gap-2 text-xs text-gray-400">
+                    <span class="text-blue-500 flex-shrink-0 mt-0.5">ℹ</span>
+                    <span x-text="note"></span>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ── Compatibility Checker ──────────────────────────────────────── -->
+      <div x-show="advisorSubTab === 'compat'" class="space-y-4">
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+          <h2 class="font-semibold text-white mb-1">Compatibility Checker</h2>
+          <p class="text-xs text-gray-500 mb-4">Enter any component names to check for socket mismatches, memory standard conflicts, PSU wattage, and form-factor issues. Leave blank what you don't have yet.</p>
+          <div class="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">CPU</label>
+              <input x-model="compatComponents.cpu" type="text" placeholder="e.g. Ryzen 7 7700X"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Motherboard</label>
+              <input x-model="compatComponents.motherboard" type="text" placeholder="e.g. Asus B650 DDR5"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">RAM</label>
+              <input x-model="compatComponents.ram" type="text" placeholder="e.g. 32GB DDR5-6000"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">GPU</label>
+              <input x-model="compatComponents.gpu" type="text" placeholder="e.g. RTX 4070 Super"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">PSU</label>
+              <input x-model="compatComponents.psu" type="text" placeholder="e.g. Corsair RM750x 750W"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Case</label>
+              <input x-model="compatComponents.case" type="text" placeholder="e.g. Fractal Meshify 2 ATX"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">CPU Cooler</label>
+              <input x-model="compatComponents.cooler" type="text" placeholder="e.g. Noctua NH-D15"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+          </div>
+          <button @click="runCompatCheck()"
+                  :disabled="compatLoading || !Object.values(compatComponents).some(v => v)"
+                  class="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg text-sm font-medium mb-4">
+            <span x-text="compatLoading ? '⏳ Checking…' : 'Check Compatibility'"></span>
+          </button>
+
+          <template x-if="compatResult">
+            <div class="space-y-3">
+              <!-- Summary banner -->
+              <div class="p-3 rounded-lg flex items-center gap-3"
+                   :class="compatResult.isCompatible ? 'bg-green-950/40 border border-green-700/50' : 'bg-red-950/40 border border-red-700/50'">
+                <span class="text-2xl" x-text="compatResult.isCompatible ? '✅' : '❌'"></span>
+                <div>
+                  <div class="text-sm font-semibold"
+                       :class="compatResult.isCompatible ? 'text-green-300' : 'text-red-300'"
+                       x-text="compatResult.summary"></div>
+                  <template x-if="compatResult.estimatedPsuWatts">
+                    <div class="text-xs text-gray-400 mt-0.5"
+                         x-text="'Estimated power draw: ' + compatResult.estimatedPsuWatts + 'W'"></div>
+                  </template>
+                </div>
+              </div>
+
+              <!-- Hard errors -->
+              <template x-if="compatResult.issues.length > 0">
+                <div class="space-y-2">
+                  <template x-for="(issue, i) in compatResult.issues" :key="i">
+                    <div class="bg-red-950/30 border border-red-800/40 rounded-lg p-3 flex items-start gap-2">
+                      <span class="text-red-400 flex-shrink-0 mt-0.5">✖</span>
+                      <div>
+                        <div class="text-xs font-semibold text-red-300 uppercase mb-0.5" x-text="issue.type.replace(/_/g,' ')"></div>
+                        <div class="text-sm text-red-200" x-text="issue.message"></div>
+                        <div class="text-xs text-red-400/70 mt-0.5"
+                             x-text="issue.affectedComponents.join(' + ')"></div>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <!-- Warnings -->
+              <template x-if="compatResult.warnings.length > 0">
+                <div class="space-y-2">
+                  <template x-for="(w, i) in compatResult.warnings" :key="i">
+                    <div class="bg-yellow-950/30 border border-yellow-800/40 rounded-lg p-3 flex items-start gap-2">
+                      <span class="text-yellow-400 flex-shrink-0 mt-0.5">⚠</span>
+                      <div>
+                        <div class="text-xs font-semibold text-yellow-300 uppercase mb-0.5" x-text="w.type.replace(/_/g,' ')"></div>
+                        <div class="text-sm text-yellow-200" x-text="w.message"></div>
+                        <template x-if="w.affectedComponents.length > 0">
+                          <div class="text-xs text-yellow-400/70 mt-0.5" x-text="w.affectedComponents.join(' + ')"></div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+          </template>
+        </div>
+      </div>
+
+    </div>
+
 <!-- ══ MODALS ══════════════════════════════════════════════════════════════ -->
 
 <!-- Add / track component -->
@@ -2271,6 +2697,7 @@ function app() {
       { id: 'dashboard', icon: '📊', label: 'Dashboard' },
       { id: 'search',    icon: '🔍', label: 'Search' },
       { id: 'builds',   icon: '🖥️', label: 'Builds' },
+      { id: 'advisor',  icon: '🧠', label: 'Advisor' },
       { id: 'parts',    icon: '🗂️', label: 'Parts DB' },
       { id: 'settings', icon: '⚙️', label: 'Settings' },
       { id: 'prebuilts', icon: '💻', label: 'Pre-Built PCs' },
@@ -2287,6 +2714,28 @@ function app() {
     selectedBuildDetail: null,
     vatMode: 'inc_vat',
     configStatus: { discord: false, slack: false, telegram: false, email: false, ntfy: false, pushover: false },
+
+    // Advisor
+    advisorSubTab: 'budget',
+    budgetAmount: 1000,
+    budgetUseCase: 'gaming_1440p',
+    budgetResult: null,
+    budgetLoading: false,
+    upgradeCpu: '',
+    upgradeGpu: '',
+    upgradeBudget: 500,
+    upgradeUseCase: 'gaming_1440p',
+    upgradeResult: null,
+    upgradeLoading: false,
+    bvbCpu: '',
+    bvbGpu: '',
+    bvbRam: null,
+    bvbStorage: null,
+    bvbResult: null,
+    bvbLoading: false,
+    compatComponents: { cpu: '', motherboard: '', ram: '', gpu: '', psu: '', case: '', cooler: '' },
+    compatResult: null,
+    compatLoading: false,
 
     // Search
     searchQuery: '',
@@ -3265,6 +3714,61 @@ function app() {
         }
       } catch (e) { this.showToast('❌ Network error', 'error'); }
       finally { this.importJsonLoading = false; }
+    },
+
+    // ── Advisor ────────────────────────────────────────────────────────────
+    async runBudgetBuilder() {
+      this.budgetLoading = true;
+      try {
+        const r = await fetch(`/api/advisor/budget?budget=${this.budgetAmount}&use_case=${this.budgetUseCase}`);
+        this.budgetResult = await r.json();
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
+      finally { this.budgetLoading = false; }
+    },
+    async runUpgradeAdvisor() {
+      this.upgradeLoading = true;
+      try {
+        const r = await fetch('/api/advisor/upgrade', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current_cpu: this.upgradeCpu, current_gpu: this.upgradeGpu, budget: this.upgradeBudget, use_case: this.upgradeUseCase }),
+        });
+        this.upgradeResult = await r.json();
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
+      finally { this.upgradeLoading = false; }
+    },
+    async runBuildVsBuy() {
+      this.bvbLoading = true;
+      try {
+        const body = {};
+        if (this.bvbCpu) body.cpu = this.bvbCpu;
+        if (this.bvbGpu) body.gpu = this.bvbGpu;
+        if (this.bvbRam) body.ram_gb = this.bvbRam;
+        if (this.bvbStorage) body.storage_gb = this.bvbStorage;
+        const r = await fetch('/api/advisor/build-vs-buy', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        this.bvbResult = await r.json();
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
+      finally { this.bvbLoading = false; }
+    },
+    async runCompatCheck() {
+      this.compatLoading = true;
+      try {
+        const body = Object.fromEntries(Object.entries(this.compatComponents).filter(([, v]) => v));
+        const r = await fetch('/api/advisor/compat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        this.compatResult = await r.json();
+      } catch (e) { this.showToast('❌ Network error', 'error'); }
+      finally { this.compatLoading = false; }
+    },
+    quickSearchFromAdvisor(query) {
+      this.searchQuery = query;
+      this.searchSource = 'retailers';
+      this.activeTab = 'search';
+      this.$nextTick(() => this.doSearch());
     },
 
     // ── Parts DB ───────────────────────────────────────────────────────────

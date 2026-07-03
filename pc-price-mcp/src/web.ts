@@ -24,6 +24,9 @@ import {
 } from './export.js';
 import { searchPcPartPicker, getPcPartPickerProductPrices } from './sources/pcpartpicker-live.js';
 import { apifyScrapePcPartPicker, isApifyConfigured } from './sources/apify.js';
+import { budgetBuilder, buildVsBuy, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
+import { checkCompatibility } from './services/compatibility.js';
+import { findCpuBenchmark, findGpuBenchmark } from './data/benchmarks.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -763,6 +766,51 @@ export function startWebServer(port: number): void {
     const filename = `pc-price-backup-${new Date().toISOString().slice(0, 10)}.json`;
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.json(backup);
+  }));
+
+  // ── Advisor ───────────────────────────────────────────────────────────────
+
+  app.get('/api/advisor/budget', h(async (req, res) => {
+    const { budget, use_case = 'gaming_1440p' } = req.query as Record<string, string>;
+    if (!budget || isNaN(parseFloat(budget))) { res.status(400).json({ error: 'budget required' }); return; }
+    res.json(budgetBuilder(parseFloat(budget), use_case as UseCase));
+  }));
+
+  app.post('/api/advisor/build-vs-buy', h(async (req, res) => {
+    const { cpu, gpu, ram_gb, storage_gb } = req.body as Record<string, string | number>;
+    res.json(buildVsBuy({
+      cpu: cpu as string | undefined,
+      gpu: gpu as string | undefined,
+      ramGb: ram_gb ? Number(ram_gb) : undefined,
+      storageGb: storage_gb ? Number(storage_gb) : undefined,
+    }));
+  }));
+
+  app.post('/api/advisor/upgrade', h(async (req, res) => {
+    const { current_cpu, current_gpu, budget, use_case = 'gaming_1440p' } = req.body as Record<string, string>;
+    if (!current_cpu || !current_gpu || !budget) {
+      res.status(400).json({ error: 'current_cpu, current_gpu, budget required' }); return;
+    }
+    res.json(upgradeAdvisor({
+      currentCpu: current_cpu,
+      currentGpu: current_gpu,
+      budget: parseFloat(budget),
+      useCase: use_case as UseCase,
+    }));
+  }));
+
+  app.post('/api/advisor/compat', h(async (req, res) => {
+    res.json(checkCompatibility(req.body));
+  }));
+
+  app.get('/api/benchmark', h(async (req, res) => {
+    const { q, type = 'auto' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q required' }); return; }
+    const result =
+      type === 'cpu' ? findCpuBenchmark(q) :
+      type === 'gpu' ? findGpuBenchmark(q) :
+      findGpuBenchmark(q) ?? findCpuBenchmark(q);
+    res.json(result ?? { error: 'not found' });
   }));
 
   // ── Health check ──────────────────────────────────────────────────────────
