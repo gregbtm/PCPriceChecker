@@ -144,8 +144,8 @@ They are synced to `process.env` at server startup and on every update.
 | `anthropic_api_key` | Anthropic API key (used for AI price extraction fallback) |
 | `openai_api_key` | OpenAI API key (alternative AI extraction) |
 | `apify_api_token` | Apify platform token (PCPartPicker Apify actor) |
-| `camofox_url` | CamoFox proxied browser base URL |
-| `novada_browser_ws` | Novada Browser API WebSocket endpoint (CDP) |
+| `camofox_url` | Camoufox CDP/WebSocket endpoint — self-hosted anti-detect Firefox (priority 2 scraping backend) |
+| `novada_browser_ws` | Novada Browser API WebSocket endpoint (CDP) — cloud anti-detect (priority 1 scraping backend) |
 | `novada_api_key` | Novada API key |
 | `gotify_server_url` | Self-hosted Gotify push server URL |
 | `gotify_app_token` | Gotify application token |
@@ -758,12 +758,14 @@ On each scheduler tick:
 
 `track_url` accepts any product URL and uses a multi-stage extraction pipeline:
 
-1. **JSON-LD** — `<script type="application/ld+json">` product schema (most reliable)
+1. **JSON-LD** — `<script type="application/ld+json">` product schema (most reliable; used by Currys, JL, AO)
 2. **Open Graph / meta tags** — `og:price:amount`, `product:price:amount`
-3. **Saved scrape rule** — your CSS selectors for this domain (`/api/scrape-rules`)
-4. **Generic CSS heuristics** — common price class patterns across known retailers
-5. **Playwright** — full headless browser render (if configured)
-6. **AI extraction** — sends HTML to Anthropic/OpenAI with a structured extraction prompt (requires `anthropic_api_key` or `openai_api_key`)
+3. **Saved scrape rule** — your per-domain CSS selectors (`/api/scrape-rules`)
+4. **Generic CSS heuristics** — common price class patterns across known UK retailers
+5. **Playwright** — full headless browser render with stealth patches (see §10); handles JS-rendered prices and cookie walls
+6. **AI extraction** — sends page HTML to Anthropic/OpenAI with a structured extraction prompt (requires `anthropic_api_key` or `openai_api_key`)
+
+Each stage is only attempted if the previous returned no result. The Playwright stage uses whichever backend is configured in priority order (Novada → Camoufox → local Chromium).
 
 **Setting a scrape rule** for a site that doesn't auto-extract:
 
@@ -783,9 +785,42 @@ If a URL scrape fails, `last_scrape_failed` is set to 1 and the component shows 
 
 ---
 
-## 10. Browser Integration (Playwright / Novada)
+## 10. Browser Integration (Playwright / Novada / Camoufox)
 
-### Playwright (local)
+The scraper picks its browser backend using a priority chain evaluated at startup:
+
+| Priority | Backend | Config key | When to use |
+|----------|---------|-----------|------------|
+| 1 | **Novada** (cloud) | `novada_browser_ws` | Hardest sites — Overclockers, Scan, Ebuyer; includes IP rotation + CAPTCHA solving |
+| 2 | **Camoufox** (self-hosted) | `camofox_url` | Strong fingerprinting resistance without a cloud subscription |
+| 3 | **Local Chromium** | *(none)* | General scraping with stealth patches applied |
+
+Each backend uses the same stealth context layer described below.
+
+### Stealth hardening (applied to all backends)
+
+Every browser context runs a stealth init script injected before any page JavaScript executes. It removes the most common headless-browser detection signals:
+
+| Signal patched | What it does |
+|----------------|-------------|
+| `navigator.webdriver` | Set to `undefined` (clearest headless tell) |
+| `navigator.plugins` / `mimeTypes` | Three realistic entries matching real Chrome |
+| `navigator.languages` / `language` | `['en-GB', 'en']` (empty in vanilla headless) |
+| `window.chrome` | Full mock: `runtime`, `app`, `loadTimes`, `csi` |
+| `permissions.query('notifications')` | Returns `'denied'` (real Chrome behaviour) |
+| `WebGLRenderingContext.getParameter` | Returns `"Intel Inc."` / `"Intel Iris OpenGL Engine"` |
+| `HTMLCanvasElement.toDataURL` | ±1 pixel noise per context — unique fingerprint per session |
+| `navigator.connection` | `{ effectiveType: '4g', rtt: 50, downlink: 10 }` |
+
+**Per-context randomisation:** viewport (8 realistic sizes from 1280×720 to 2560×1440), `deviceScaleFactor` (1 or 1.5), 50–300 ms pre-navigation jitter.
+
+**Full HTTP headers:** `Accept`, `Accept-Language`, `Sec-Ch-Ua-Platform`, `Sec-Fetch-*`, `Upgrade-Insecure-Requests` — matching a genuine browser request.
+
+**UA pool:** Chrome 129–131 on Windows/Mac/Linux, Edge 131, Firefox 132, Safari 18 — updated to current versions.
+
+**Launch flags (local Chromium):** `--disable-blink-features=AutomationControlled` removes `navigator.webdriver` at the browser level in addition to the JS patch.
+
+### Local Chromium
 
 Install the optional peer dependency:
 
@@ -794,21 +829,34 @@ npm install playwright-core
 npx playwright install chromium
 ```
 
-Playwright is used automatically when simpler extraction fails. It handles JavaScript-rendered pages, cookie consent dialogs, and lazy-loaded prices.
-
-User-agent rotation is built in — each scrape picks a random realistic UA string to avoid simple bot detection.
-
-Resource blocking (images, fonts, media) is applied to speed up page loads.
+Set `PLAYWRIGHT_CHROMIUM_PATH` if Chromium is in a non-standard location (e.g. `/opt/pw-browsers/chromium`).
 
 ### Novada Browser API (CDP)
 
-Novada provides a cloud-hosted anti-detect browser with residential proxy rotation.
+Novada provides a cloud-hosted anti-detect browser with residential proxy rotation and CAPTCHA solving.
 
 1. Get a WebSocket endpoint from [novada.io](https://novada.io).
 2. Set `novada_browser_ws` in config (e.g. `wss://browser.novada.io/...`).
 3. Set `novada_api_key` if required by your plan.
 
-When `novada_browser_ws` is set, Playwright connects to Novada via CDP (`playwright.chromium.connectOverCDP(wsEndpoint)`) instead of launching a local browser. This is the most reliable option for sites with strong bot detection (Overclockers, Scan, etc.).
+Playwright connects via `chromium.connectOverCDP(wsEndpoint)`. The stealth init script is still applied on top of Novada's own hardening.
+
+### Camoufox (self-hosted anti-detect Firefox)
+
+Camoufox patches Firefox at the C++ level for fingerprint resistance, making JS-level detection far harder than with Chromium-based solutions.
+
+```bash
+# Install
+pip install camoufox[geoip]
+camoufox fetch
+
+# Start the server (exposes a CDP WebSocket endpoint)
+camoufox server --port 9377
+```
+
+Set `camofox_url` to the WebSocket URL (e.g. `ws://localhost:9377`). Playwright will attempt `chromium.connectOverCDP` first, then fall back to `firefox.connect` for non-CDP modes.
+
+Docker alternative: `docker run -p 9377:9377 ghcr.io/daijro/camoufox:latest`
 
 ---
 

@@ -200,7 +200,7 @@
                 <span class="text-lg">🔗</span>
                 <div>
                   <p class="font-medium text-base-content">Track by URL</p>
-                  <p class="text-xs text-base-content/60">Paste any product URL from any UK retailer. The scraper tries JSON-LD, meta tags, and CSS selectors in order. If it fails, go to Settings → Scrape Rules and add a CSS selector rule for that domain.</p>
+                  <p class="text-xs text-base-content/60">Paste any product URL from any UK retailer. The scraper cascades through six strategies in order: <strong>JSON-LD → meta tags → saved CSS rule → generic heuristics → headless browser (stealth) → AI extraction</strong>. If the first pass fails, the stealth browser tier (local Chromium / Camoufox / Novada) handles JS-rendered pages. If that also fails, AI extraction reads the raw HTML. Check Settings → Scrape Rules to add a CSS selector for persistently failing domains.</p>
                 </div>
               </div>
               <div class="flex gap-3 bg-base-300 rounded-xl p-3">
@@ -425,6 +425,19 @@
                 </div>
               </div>
               <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🕵️</span>
+                <div>
+                  <p class="font-medium text-base-content">Anti-detect scraper (Camoufox / Novada)</p>
+                  <p class="text-xs text-base-content/60">
+                    The scraper uses a three-tier browser priority chain:
+                    <strong>Novada</strong> (cloud, set <code class="mono bg-base-100 px-1 rounded">novada_browser_ws</code>) →
+                    <strong>Camoufox</strong> (self-hosted Firefox, set <code class="mono bg-base-100 px-1 rounded">camofox_url</code>) →
+                    <strong>Local Chromium</strong> (built-in stealth patches).
+                    All three tiers apply the same stealth layer: removes <code class="mono bg-base-100 px-1 rounded">navigator.webdriver</code>, spoofs plugins, mimeTypes, WebGL renderer, adds canvas noise, randomises viewport and timing. Use Novada or Camoufox for sites that block local Chromium (Overclockers, Scan).
+                  </p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
                 <span class="text-lg">💾</span>
                 <div>
                   <p class="font-medium text-base-content">Backup &amp; export</p>
@@ -482,6 +495,13 @@
                 <div>
                   <p class="font-medium text-base-content">Per-component refresh intervals</p>
                   <p class="text-xs text-base-content/60">Use a short interval (e.g. 15 min) for items you're actively hunting and a longer one (e.g. 24h) for casual wishlist items. Set via Dashboard → row actions → Interval, or via the API.</p>
+                </div>
+              </div>
+              <div class="flex gap-3 bg-base-300 rounded-xl p-3">
+                <span class="text-lg">🕵️</span>
+                <div>
+                  <p class="font-medium text-base-content">Getting past retailer bot detection</p>
+                  <p class="text-xs text-base-content/60">If URL tracking or pre-built scraping fails on a site (Scan, Overclockers, Very), try escalating the backend: set <code class="mono bg-base-100 px-1 rounded">camofox_url</code> in Settings → Scraper to point at a local Camoufox server, or use <code class="mono bg-base-100 px-1 rounded">novada_browser_ws</code> for the cloud option. Local Chromium already applies fingerprint spoofing (webdriver, plugins, canvas, WebGL, viewport randomisation) but some sites require a real Firefox browser profile — that's what Camoufox provides.</p>
                 </div>
               </div>
               <div class="flex gap-3 bg-base-300 rounded-xl p-3">
