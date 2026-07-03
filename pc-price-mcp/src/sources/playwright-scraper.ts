@@ -5,20 +5,167 @@ type AnyBrowser = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyPage = any;
 
-// Realistic browser UAs — rotated per scrape session to reduce fingerprinting
+// ── Fingerprint pools ─────────────────────────────────────────────────────────
+
+// Current realistic UAs — weighted towards Chrome on Windows (most common)
 const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 ];
 export function randomUA(): string { return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]; }
 
-// Lazily loaded — null if playwright-core is not installed
+// Realistic desktop viewport sizes (width × height)
+const VIEWPORTS = [
+  { width: 1920, height: 1080 },
+  { width: 1366, height: 768 },
+  { width: 1536, height: 864 },
+  { width: 1440, height: 900 },
+  { width: 1280, height: 720 },
+  { width: 1600, height: 900 },
+  { width: 2560, height: 1440 },
+  { width: 1280, height: 800 },
+] as const;
+function randomViewport() { return VIEWPORTS[Math.floor(Math.random() * VIEWPORTS.length)]; }
+
+// ── Stealth init script ───────────────────────────────────────────────────────
+// Injected into every page before any scripts run. Removes the most common
+// headless-browser tells detected by Cloudflare, PerimeterX, DataDome, etc.
+
+const STEALTH_INIT_SCRIPT = `
+(function () {
+  // 1. Remove navigator.webdriver — the clearest headless signal
+  try {
+    Object.defineProperty(navigator, 'webdriver', { get: () => undefined, configurable: true });
+  } catch (_) {}
+
+  // 2. Spoof navigator.plugins (headless has 0; real Chrome has at least 3)
+  try {
+    const fakePlugins = [
+      { name: 'Chrome PDF Plugin', description: 'Portable Document Format', filename: 'internal-pdf-viewer', length: 1 },
+      { name: 'Chrome PDF Viewer', description: '', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', length: 1 },
+      { name: 'Native Client', description: '', filename: 'internal-nacl-plugin', length: 2 },
+    ];
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => {
+        const arr = Object.assign([], fakePlugins, {
+          refresh: function () {},
+          item: (i) => fakePlugins[i] ?? null,
+          namedItem: (name) => fakePlugins.find(p => p.name === name) ?? null,
+        });
+        Object.setPrototypeOf(arr, PluginArray.prototype);
+        return arr;
+      },
+      configurable: true,
+    });
+    Object.defineProperty(navigator, 'mimeTypes', {
+      get: () => {
+        const mt = [
+          { type: 'application/pdf', suffixes: 'pdf', description: '', enabledPlugin: navigator.plugins[0] },
+          { type: 'text/pdf', suffixes: 'pdf', description: '', enabledPlugin: navigator.plugins[0] },
+        ];
+        const arr = Object.assign([], mt, {
+          item: (i) => mt[i] ?? null,
+          namedItem: (type) => mt.find(m => m.type === type) ?? null,
+        });
+        Object.setPrototypeOf(arr, MimeTypeArray.prototype);
+        return arr;
+      },
+      configurable: true,
+    });
+  } catch (_) {}
+
+  // 3. Fix navigator.languages (empty in headless)
+  try {
+    Object.defineProperty(navigator, 'languages', { get: () => ['en-GB', 'en'], configurable: true });
+    Object.defineProperty(navigator, 'language', { get: () => 'en-GB', configurable: true });
+  } catch (_) {}
+
+  // 4. Add window.chrome (missing in headless; expected by many fingerprint checks)
+  try {
+    if (!window.chrome) {
+      const chrome = {
+        app: { isInstalled: false, InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }, RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' } },
+        runtime: { id: undefined, connect: () => {}, sendMessage: () => {} },
+        loadTimes: () => ({ requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000, commitLoadTime: Date.now() / 1000, finishDocumentLoadTime: Date.now() / 1000, finishLoadTime: Date.now() / 1000, firstPaintTime: Date.now() / 1000, firstPaintAfterLoadTime: 0, navigationType: 'Other', wasFetchedViaSpdy: false, wasNpnNegotiated: false, npnNegotiatedProtocol: 'http/1.1', wasAlternateProtocolAvailable: false, connectionInfo: 'http/1.1' }),
+        csi: () => ({ startE: Date.now(), onloadT: Date.now(), pageT: Date.now() - 100, tran: 15 }),
+      };
+      window.chrome = chrome;
+      // Expose on all frames
+      try { Object.defineProperty(window, 'chrome', { value: chrome, writable: false, enumerable: true, configurable: false }); } catch (_) {}
+    }
+  } catch (_) {}
+
+  // 5. Permissions API — real Chrome denies notification by default; headless throws
+  try {
+    const origQuery = window.Notification ? undefined : navigator.permissions?.query?.bind(navigator.permissions);
+    if (navigator.permissions) {
+      const _orig = navigator.permissions.query.bind(navigator.permissions);
+      navigator.permissions.query = (params) => {
+        if (params.name === 'notifications') {
+          return Promise.resolve(Object.assign(Object.create(PermissionStatus.prototype), { state: 'denied', onchange: null }));
+        }
+        return _orig(params);
+      };
+    }
+  } catch (_) {}
+
+  // 6. WebGL — override renderer/vendor to look like a real GPU
+  try {
+    const getParam = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function (param) {
+      if (param === 37445) return 'Intel Inc.';         // UNMASKED_VENDOR_WEBGL
+      if (param === 37446) return 'Intel Iris OpenGL Engine'; // UNMASKED_RENDERER_WEBGL
+      return getParam.call(this, param);
+    };
+    const getParam2 = WebGL2RenderingContext.prototype.getParameter;
+    WebGL2RenderingContext.prototype.getParameter = function (param) {
+      if (param === 37445) return 'Intel Inc.';
+      if (param === 37446) return 'Intel Iris OpenGL Engine';
+      return getParam2.call(this, param);
+    };
+  } catch (_) {}
+
+  // 7. Add small deterministic noise to Canvas fingerprint
+  // Shifts pixel values by ±1 so every context gets a unique fingerprint
+  try {
+    const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = function (...args) {
+      const ctx = this.getContext('2d');
+      if (ctx) {
+        const shift = { r: Math.floor(Math.random() * 3) - 1, g: Math.floor(Math.random() * 3) - 1, b: Math.floor(Math.random() * 3) - 1 };
+        const imgData = ctx.getImageData(0, 0, this.width || 1, this.height || 1);
+        for (let i = 0; i < imgData.data.length; i += 4) {
+          imgData.data[i]     = Math.max(0, Math.min(255, imgData.data[i]     + shift.r));
+          imgData.data[i + 1] = Math.max(0, Math.min(255, imgData.data[i + 1] + shift.g));
+          imgData.data[i + 2] = Math.max(0, Math.min(255, imgData.data[i + 2] + shift.b));
+        }
+        ctx.putImageData(imgData, 0, 0);
+      }
+      return origToDataURL.apply(this, args);
+    };
+  } catch (_) {}
+
+  // 8. connection / battery (optional — fills gaps in navigator fingerprint)
+  try {
+    if (!navigator.connection) {
+      Object.defineProperty(navigator, 'connection', {
+        get: () => ({ effectiveType: '4g', rtt: 50, downlink: 10, saveData: false, onchange: null }),
+        configurable: true,
+      });
+    }
+  } catch (_) {}
+})();
+`;
+
+// ── Browser management ────────────────────────────────────────────────────────
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _pw: any | null | undefined = undefined;
 let _browser: AnyBrowser | null = null;
@@ -40,19 +187,49 @@ export async function getBrowser(): Promise<AnyBrowser | null> {
   try {
     if (_browser?.isConnected()) return _browser;
 
-    // Use Novada cloud browser when configured — provides stealth, CAPTCHA solving, IP rotation
+    // Priority 1 — Novada cloud anti-detect browser (stealth + IP rotation + CAPTCHA solving)
     const novadaWs = process.env.NOVADA_BROWSER_WS;
     if (novadaWs) {
       try {
         // @ts-ignore
         _browser = await pw.chromium.connectOverCDP(novadaWs);
         return _browser;
-      } catch { /* fall through to local browser */ }
+      } catch { /* fall through */ }
     }
 
+    // Priority 2 — Camoufox (self-hosted anti-detect Firefox with built-in spoofing)
+    const camofoxUrl = process.env.CAMOFOX_URL;
+    if (camofoxUrl) {
+      try {
+        // @ts-ignore
+        _browser = await pw.chromium.connectOverCDP(camofoxUrl);
+        return _browser;
+      } catch {
+        try {
+          // @ts-ignore
+          _browser = await pw.firefox.connect(camofoxUrl);
+          return _browser;
+        } catch { /* fall through to local */ }
+      }
+    }
+
+    // Priority 3 — Local Chromium with stealth hardening
     const launchOpts: Record<string, unknown> = {
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        // Remove the primary bot-detection signal: navigator.webdriver
+        '--disable-blink-features=AutomationControlled',
+        // Reduce passive fingerprinting surface
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins',
+        // Prevent fingerprinting via GPU enumeration
+        '--disable-reading-from-canvas',
+        // Match a realistic desktop renderer
+        '--window-size=1920,1080',
+      ],
     };
     const customPath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
     if (customPath) launchOpts.executablePath = customPath;
@@ -64,20 +241,61 @@ export async function getBrowser(): Promise<AnyBrowser | null> {
   }
 }
 
+// ── Context factory ───────────────────────────────────────────────────────────
+
+interface ContextOpts {
+  proxy?: string;
+  ua?: string;
+}
+
 export async function newPageWithProxy(proxy?: string): Promise<AnyPage | null> {
   const browser = await getBrowser();
   if (!browser) return null;
   try {
-    const ctxOpts: Record<string, unknown> = { locale: 'en-GB', timezoneId: 'Europe/London' };
-    if (proxy) ctxOpts.proxy = { server: proxy };
-    // @ts-ignore
-    const ctx = await browser.newContext(ctxOpts);
-    // @ts-ignore
-    const page = await ctx.newPage();
-    (page as any).__ctx = ctx;
+    const page = await _newStealthPage(browser, { proxy });
     return page;
   } catch { return null; }
 }
+
+async function _newStealthPage(browser: AnyBrowser, opts: ContextOpts = {}): Promise<AnyPage> {
+  const ua = opts.ua ?? randomUA();
+  const vp = randomViewport();
+
+  const ctxOpts: Record<string, unknown> = {
+    locale: 'en-GB',
+    timezoneId: 'Europe/London',
+    userAgent: ua,
+    viewport: vp,
+    screen: vp,
+    deviceScaleFactor: Math.random() > 0.5 ? 1 : 1.5,
+    hasTouch: false,
+    isMobile: false,
+    javaScriptEnabled: true,
+    extraHTTPHeaders: {
+      'Accept-Language': 'en-GB,en;q=0.9',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Sec-Ch-Ua-Platform': '"Windows"',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Upgrade-Insecure-Requests': '1',
+    },
+    permissions: [],
+  };
+  if (opts.proxy) ctxOpts.proxy = { server: opts.proxy };
+
+  // @ts-ignore
+  const ctx = await browser.newContext(ctxOpts);
+  // Inject stealth patches before any page scripts run
+  // @ts-ignore
+  await ctx.addInitScript(STEALTH_INIT_SCRIPT);
+  // @ts-ignore
+  const page: AnyPage = await ctx.newPage();
+  (page as any).__ctx = ctx;
+  return page;
+}
+
+// ── Price extraction helpers ──────────────────────────────────────────────────
 
 export interface BrowserScrapeResult {
   retailer: string;
@@ -86,7 +304,6 @@ export interface BrowserScrapeResult {
   durationMs: number;
 }
 
-// Shared: extract prices from JSON-LD <script> tags (works on Currys, JL, Very)
 async function extractJsonLd(page: AnyPage, retailer: string): Promise<PriceSnapshot[]> {
   const texts: string[] = await page.$$eval(
     'script[type="application/ld+json"]',
@@ -130,7 +347,6 @@ async function extractJsonLd(page: AnyPage, retailer: string): Promise<PriceSnap
   return results;
 }
 
-// Generic DOM fallback: look for price text in common card selectors
 async function extractDomPrices(page: AnyPage, retailer: string, selectors: string[]): Promise<PriceSnapshot[]> {
   const pageUrl: string = page.url();
   for (const selector of selectors) {
@@ -173,6 +389,8 @@ async function extractDomPrices(page: AnyPage, retailer: string, selectors: stri
   return [];
 }
 
+// ── Scrape orchestrator ───────────────────────────────────────────────────────
+
 async function doScrape(
   browser: AnyBrowser,
   url: string,
@@ -182,13 +400,12 @@ async function doScrape(
   domSelectors: string[],
 ): Promise<BrowserScrapeResult> {
   const t0 = Date.now();
-  // @ts-ignore
-  const ctx = await browser.newContext({ locale: 'en-GB', timezoneId: 'Europe/London', userAgent: randomUA() });
-  // @ts-ignore
-  const page: AnyPage = await ctx.newPage();
+  const page: AnyPage = await _newStealthPage(browser);
   try {
-    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-GB,en;q=0.9' });
-    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico,css}', (r: AnyPage) => r.abort());
+    // Block non-content resources to speed up load
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico}', (r: AnyPage) => r.abort());
+    // Random human-like delay before navigation (50–300 ms)
+    await page.waitForTimeout(50 + Math.floor(Math.random() * 250));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 });
     await page.waitForSelector(waitForSelector, { timeout: 8000 }).catch(() => {});
 
@@ -201,13 +418,16 @@ async function doScrape(
   } catch (err) {
     return { retailer, results: [], error: (err as Error).message, durationMs: Date.now() - t0 };
   } finally {
-    await ctx.close().catch(() => {});
+    const ctx = (page as any).__ctx;
+    await ctx?.close().catch(() => {});
   }
 }
 
+// ── Retailer scrapers ─────────────────────────────────────────────────────────
+
 export async function scrapeCurrys(query: string): Promise<BrowserScrapeResult> {
   const browser = await getBrowser();
-  if (!browser) return { retailer: 'Currys', results: [], error: 'Playwright/Chromium not available — set PLAYWRIGHT_CHROMIUM_PATH or build with ENABLE_PLAYWRIGHT=true', durationMs: 0 };
+  if (!browser) return { retailer: 'Currys', results: [], error: 'Playwright/Chromium not available — set PLAYWRIGHT_CHROMIUM_PATH or install playwright-core', durationMs: 0 };
   return doScrape(
     browser,
     `https://www.currys.co.uk/search?q=${encodeURIComponent(query)}&searchType=products`,
@@ -257,7 +477,7 @@ export async function scrapeVery(query: string): Promise<BrowserScrapeResult> {
   );
 }
 
-// ── Prebuilt-oriented scrapers (return richer product data for Dell / HP) ──
+// ── Pre-built PC scrapers ─────────────────────────────────────────────────────
 
 export interface BrowserPrebuiltItem {
   retailer: string;
@@ -305,18 +525,15 @@ async function scrapePrebuiltPage(
   const browser = await getBrowser();
   if (!browser) return { items: [], durationMs: 0, error: 'Playwright/Chromium not available' };
 
-  // @ts-ignore
-  const ctx = await browser.newContext({ locale: 'en-GB', timezoneId: 'Europe/London', userAgent: randomUA() }).catch(() => null);
-  if (!ctx) return { items: [], durationMs: 0, error: 'Could not create browser context' };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const page: any = await ctx.newPage();
+  const page: AnyPage = await _newStealthPage(browser).catch(() => null);
+  if (!page) return { items: [], durationMs: 0, error: 'Could not create browser context' };
+
   try {
-    await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-GB,en;q=0.9' });
-    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico,css}', (r: any) => r.abort());
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico}', (r: any) => r.abort());
+    await page.waitForTimeout(50 + Math.floor(Math.random() * 250));
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForSelector(waitFor, { timeout: 10_000 }).catch(() => {});
 
-    // 1. Try JSON-LD first
     const ldTexts: string[] = await page.$$eval(
       'script[type="application/ld+json"]',
       (els: Element[]) => els.map(el => el.textContent ?? ''),
@@ -345,7 +562,6 @@ async function scrapePrebuiltPage(
     }
     if (items.length > 0) return { items: items.slice(0, 10), durationMs: Date.now() - t0 };
 
-    // 2. DOM fallback: broad product card selectors
     for (const selector of cardSelectors) {
       const cards: Array<{ name: string; price: number; href: string }> = await page.$$eval(
         selector,
@@ -362,9 +578,7 @@ async function scrapePrebuiltPage(
           const m = priceText.match(/£\s*([\d,]+\.?\d*)/);
           const price = m ? parseFloat(m[1].replace(/,/g, '')) : 0;
           const href = linkEl?.href ?? baseUrl;
-          if (name.length > 4 && price > 50 && price < 20000) {
-            return [{ name, price, href }];
-          }
+          if (name.length > 4 && price > 50 && price < 20000) return [{ name, price, href }];
           return [];
         }),
         url,
@@ -381,41 +595,34 @@ async function scrapePrebuiltPage(
       }
     }
 
-    return { items: [], durationMs: Date.now() - t0, error: `No products parsed from ${retailer} — page structure may have changed` };
+    return { items: [], durationMs: Date.now() - t0, error: `No products parsed from ${retailer}` };
   } catch (err) {
     return { items: [], durationMs: Date.now() - t0, error: (err as Error).message };
   } finally {
-    await ctx.close().catch(() => {});
+    const ctx = (page as any).__ctx;
+    await ctx?.close().catch(() => {});
   }
 }
 
 export async function scrapeDellPrebuilt(query: string): Promise<{ items: BrowserPrebuiltItem[]; durationMs: number; error?: string }> {
   return scrapePrebuiltPage(
     `https://www.dell.com/en-gb/shop/desktop-computers/sc/desktops?q=${encodeURIComponent(query)}`,
-    'Dell UK',
-    'Dell',
+    'Dell UK', 'Dell',
     '[data-testid*="product"], .ps-product-card, [class*="product-card"]',
-    [
-      '[data-testid*="product-card"], .ps-product-card',
-      '[class*="product-card"], [class*="ProductCard"]',
-      'article[class*="product"], li[class*="product"]',
-    ],
+    ['[data-testid*="product-card"], .ps-product-card', '[class*="product-card"], [class*="ProductCard"]', 'article[class*="product"], li[class*="product"]'],
   );
 }
 
 export async function scrapeHpPrebuilt(query: string): Promise<{ items: BrowserPrebuiltItem[]; durationMs: number; error?: string }> {
   return scrapePrebuiltPage(
     `https://www.hp.com/gb-en/shop/discover/desktop-computers?q=${encodeURIComponent(query)}`,
-    'HP UK',
-    'HP',
+    'HP UK', 'HP',
     '[data-testid*="product"], [class*="product-card"], [class*="ProductCard"]',
-    [
-      '[data-testid*="product-card"]',
-      '[class*="product-card"], [class*="ProductCard"]',
-      'section[class*="product"], li[class*="product"]',
-    ],
+    ['[data-testid*="product-card"]', '[class*="product-card"], [class*="ProductCard"]', 'section[class*="product"], li[class*="product"]'],
   );
 }
+
+// ── Public API ────────────────────────────────────────────────────────────────
 
 const SCRAPER_FNS: Record<string, (q: string) => Promise<BrowserScrapeResult>> = {
   currys: scrapeCurrys,
@@ -435,7 +642,6 @@ export async function scrapeWithBrowser(
     .map((r) => r.toLowerCase())
     .filter((r) => r in SCRAPER_FNS)
     .map((r) => SCRAPER_FNS[r]);
-
   return Promise.all(fns.map((fn) => fn(query)));
 }
 
