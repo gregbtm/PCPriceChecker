@@ -86,9 +86,20 @@ async function scheduledRefreshAll(): Promise<void> {
 
   const country = db.getConfig('default_country') ?? 'gb';
   const dropThresholdPct = Number(db.getConfig('notify_drop_percent') ?? 5);
+  const globalIntervalMs = Number(db.getConfig('auto_refresh_interval_minutes') ?? 60) * 60_000;
 
   for (const component of components) {
     try {
+      // Skip paused components
+      if (component.paused) { continue; }
+
+      // Respect per-component check interval
+      if (component.check_interval_minutes != null && component.last_checked) {
+        const componentIntervalMs = component.check_interval_minutes * 60_000;
+        const elapsed = Date.now() - new Date(component.last_checked + 'Z').getTime();
+        if (elapsed < Math.max(componentIntervalMs, globalIntervalMs)) continue;
+      }
+
       // Snapshot previous state before refresh
       const prevLatest = db.getLatestPricePerRetailer(component.id);
       const prevBestPrice = prevLatest[0]?.price ?? null;
@@ -96,15 +107,26 @@ async function scheduledRefreshAll(): Promise<void> {
 
       const snapshots: db.PriceSnapshot[] = [];
 
-      if (component.source_url) {
-        // URL-tracked component: scrape the specific product page directly
-        const scraped = await scrapeProductUrl(component.source_url);
-        if (scraped.price != null) {
-          const domain = (() => { try { return new URL(component.source_url).hostname.replace(/^www\./, ''); } catch { return 'url'; } })();
-          snapshots.push({
-            source: scraped.method, price: scraped.price, currency: scraped.currency,
-            retailer: domain, url: component.source_url, inStock: scraped.inStock,
-          });
+      // Gather URLs to scrape: component_urls table takes priority, then source_url fallback
+      const componentUrls = db.getComponentUrls(component.id);
+      const urlsToScrape = componentUrls.length > 0
+        ? componentUrls.map(u => ({ url: u.url, retailer: u.retailer ?? undefined }))
+        : component.source_url
+          ? [{ url: component.source_url, retailer: undefined }]
+          : [];
+
+      if (urlsToScrape.length > 0) {
+        for (const { url, retailer } of urlsToScrape) {
+          const scraped = await scrapeProductUrl(url);
+          if (scraped.price != null) {
+            const domain = retailer ?? (() => {
+              try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'url'; }
+            })();
+            snapshots.push({
+              source: scraped.method, price: scraped.price, currency: scraped.currency,
+              retailer: domain, url, inStock: scraped.inStock,
+            });
+          }
         }
       } else {
         const { products } = await searchWithRetry(component.search_query, country, 3, 15);
@@ -120,7 +142,13 @@ async function scheduledRefreshAll(): Promise<void> {
         }
       }
 
-      if (snapshots.length === 0) { await sleep(2_000); continue; }
+      if (snapshots.length === 0) {
+        db.markScrapeFailed(component.id);
+        await sleep(2_000);
+        continue;
+      }
+
+      db.clearScrapeFailed(component.id);
 
       // Detect stock changes before saving
       for (const snap of snapshots) {

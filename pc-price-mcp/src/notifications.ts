@@ -228,9 +228,55 @@ export async function sendPushover(appToken: string, userKey: string, payload: N
   } catch { return false; }
 }
 
+// ── Gotify ─────────────────────────────────────────────────────────────────
+
+export async function sendGotify(serverUrl: string, appToken: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  let message = payload.componentName;
+  if (payload.price != null) message += ` — ${sym}${payload.price.toFixed(2)}`;
+  if (payload.retailer) message += ` at ${payload.retailer}`;
+  if (payload.dropAmount != null && payload.dropPercent != null) message += ` (${payload.dropPercent.toFixed(1)}% off)`;
+  if (payload.message) message += `\n${payload.message}`;
+  if (payload.url) message += `\n${payload.url}`;
+
+  const priority = payload.type === 'price_alert' ? 8 : (payload.type === 'price_drop' ? 6 : 4);
+
+  try {
+    const res = await fetch(`${serverUrl.replace(/\/$/, '')}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Gotify-Key': appToken },
+      body: JSON.stringify({ title: DISCORD_TITLES[payload.type], message, priority }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+// ── Apprise ────────────────────────────────────────────────────────────────
+
+export async function sendApprise(appriseUrl: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  let body = payload.componentName;
+  if (payload.price != null) body += ` — ${sym}${payload.price.toFixed(2)}`;
+  if (payload.retailer) body += ` at ${payload.retailer}`;
+  if (payload.dropAmount != null && payload.dropPercent != null) body += ` (${payload.dropPercent.toFixed(1)}% off)`;
+  if (payload.message) body += `\n${payload.message}`;
+  if (payload.url) body += `\n${payload.url}`;
+
+  try {
+    const res = await fetch(`${appriseUrl.replace(/\/$/, '')}/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: DISCORD_TITLES[payload.type], body }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 // ── notifyAll ───────────────────────────────────────────────────────────────
 
-export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean; telegram: boolean; email: boolean; ntfy: boolean; pushover: boolean }> {
+export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean; telegram: boolean; email: boolean; ntfy: boolean; pushover: boolean; gotify: boolean; apprise: boolean }> {
   const discordUrl    = db.getConfig('discord_webhook_url');
   const slackUrl      = db.getConfig('slack_webhook_url');
   const tgToken       = db.getConfig('telegram_bot_token');
@@ -241,15 +287,20 @@ export async function notifyAll(payload: NotificationPayload): Promise<{ discord
   const ntfyServer    = db.getConfig('ntfy_server') ?? 'https://ntfy.sh';
   const pushToken     = db.getConfig('pushover_app_token');
   const pushUser      = db.getConfig('pushover_user_key');
+  const gotifyUrl     = db.getConfig('gotify_server_url');
+  const gotifyToken   = db.getConfig('gotify_app_token');
+  const appriseUrl    = db.getConfig('apprise_url');
 
-  const [discord, slack, telegram, email, ntfy, pushover] = await Promise.all([
-    discordUrl              ? sendDiscord(discordUrl, payload)                          : Promise.resolve(false),
-    slackUrl                ? sendSlack(slackUrl, payload)                              : Promise.resolve(false),
-    tgToken && tgChatId     ? sendTelegram(tgToken, tgChatId, payload)                 : Promise.resolve(false),
-    resendKey && alertEmail ? sendEmail(resendKey, alertEmail, payload)                 : Promise.resolve(false),
-    ntfyTopic               ? sendNtfy(ntfyTopic, ntfyServer, payload)                 : Promise.resolve(false),
-    pushToken && pushUser   ? sendPushover(pushToken, pushUser, payload)               : Promise.resolve(false),
+  const [discord, slack, telegram, email, ntfy, pushover, gotify, apprise] = await Promise.all([
+    discordUrl                      ? sendDiscord(discordUrl, payload)                          : Promise.resolve(false),
+    slackUrl                        ? sendSlack(slackUrl, payload)                              : Promise.resolve(false),
+    tgToken && tgChatId             ? sendTelegram(tgToken, tgChatId, payload)                 : Promise.resolve(false),
+    resendKey && alertEmail         ? sendEmail(resendKey, alertEmail, payload)                 : Promise.resolve(false),
+    ntfyTopic                       ? sendNtfy(ntfyTopic, ntfyServer, payload)                 : Promise.resolve(false),
+    pushToken && pushUser           ? sendPushover(pushToken, pushUser, payload)               : Promise.resolve(false),
+    gotifyUrl && gotifyToken        ? sendGotify(gotifyUrl, gotifyToken, payload)              : Promise.resolve(false),
+    appriseUrl                      ? sendApprise(appriseUrl, payload)                         : Promise.resolve(false),
   ]);
 
-  return { discord, slack, telegram, email, ntfy, pushover };
+  return { discord, slack, telegram, email, ntfy, pushover, gotify, apprise };
 }

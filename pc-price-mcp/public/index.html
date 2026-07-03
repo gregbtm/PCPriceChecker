@@ -102,10 +102,51 @@
         </div>
       </div>
 
+      <!-- Needs attention -->
+      <template x-if="needsAttention.length > 0">
+        <div class="bg-red-950/40 border border-red-800/50 rounded-xl p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="text-red-400">⚠️</span>
+            <h3 class="font-semibold text-red-300 text-sm">Needs Attention (<span x-text="needsAttention.length"></span>)</h3>
+            <span class="text-xs text-red-500">— last scrape returned no data</span>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <template x-for="c in needsAttention" :key="c.id">
+              <div class="flex items-center gap-2 bg-red-900/30 border border-red-800/40 rounded-lg px-3 py-1.5">
+                <span class="text-sm text-red-200" x-text="c.name"></span>
+                <button @click="refreshComponent(c)" class="text-xs text-red-400 hover:text-red-200">🔄</button>
+                <button @click="openUrlsModal(c)" class="text-xs text-red-400 hover:text-red-200" title="Manage URLs">🔗</button>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
       <!-- Watchlist table -->
       <div class="bg-gray-800 rounded-xl border border-gray-700">
         <div class="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-          <h2 class="font-semibold text-white">Watchlist</h2>
+          <div class="flex items-center gap-3">
+            <h2 class="font-semibold text-white">Watchlist</h2>
+            <!-- Tag filter pills -->
+            <template x-if="tags.length > 0">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <button @click="activeTagFilter = null"
+                        :class="activeTagFilter === null ? 'bg-gray-600 text-white' : 'bg-gray-700/50 text-gray-400 hover:text-white'"
+                        class="px-2 py-0.5 rounded-full text-xs font-medium transition-colors">All</button>
+                <template x-for="tag in tags" :key="tag.id">
+                  <button @click="activeTagFilter = activeTagFilter === tag.id ? null : tag.id"
+                          :class="activeTagFilter === tag.id ? 'opacity-100 ring-2 ring-white/30' : 'opacity-70 hover:opacity-100'"
+                          :style="'background:' + tag.color + '33; color:' + tag.color + '; border:1px solid ' + tag.color + '66'"
+                          class="px-2 py-0.5 rounded-full text-xs font-medium transition-all"
+                          x-text="tag.name"></button>
+                </template>
+                <button @click="createTag()" class="text-gray-500 hover:text-gray-300 text-xs px-1" title="New tag">＋</button>
+              </div>
+            </template>
+            <template x-if="tags.length === 0">
+              <button @click="createTag()" class="text-xs text-gray-600 hover:text-gray-400">+ tag</button>
+            </template>
+          </div>
           <div class="flex gap-2">
             <button @click="openAddComponent()"
                     class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-xs font-medium">
@@ -135,11 +176,20 @@
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-700/50">
-              <template x-for="c in components" :key="c.id">
-                <tr class="hover:bg-gray-700/30 transition-colors">
+              <template x-for="c in filteredComponents()" :key="c.id">
+                <tr class="hover:bg-gray-700/30 transition-colors" :class="c.paused ? 'opacity-50' : ''">
                   <td class="px-4 py-3">
-                    <div class="font-medium text-white text-sm" x-text="c.name"></div>
+                    <div class="flex items-center gap-1.5">
+                      <span class="font-medium text-white text-sm" x-text="c.name"></span>
+                      <template x-if="c.paused"><span class="text-xs text-gray-500" title="Paused">⏸️</span></template>
+                      <template x-if="c.last_scrape_failed && !c.paused"><span class="text-xs text-red-400" title="Last scrape failed">⚠️</span></template>
+                      <template x-if="c.check_interval_minutes"><span class="text-xs text-gray-600" :title="'Check every ' + c.check_interval_minutes + 'm'">⏱️</span></template>
+                    </div>
                     <div class="text-xs text-gray-500 truncate max-w-48" x-text="c.search_query"></div>
+                    <template x-if="c.unit_quantity && c.unit_type">
+                      <div class="text-xs text-indigo-400 mt-0.5"
+                           x-text="c.best_price ? '£' + (c.best_price / c.unit_quantity).toFixed(3) + ' / ' + c.unit_type : 'unit: ' + c.unit_quantity + c.unit_type"></div>
+                    </template>
                   </td>
                   <td class="px-4 py-3">
                     <span class="px-1.5 py-0.5 rounded text-xs bg-gray-700 text-gray-300"
@@ -203,8 +253,8 @@
                   <td class="px-4 py-3 text-gray-500 text-xs"
                       x-text="c.last_checked ? fmtDate(c.last_checked) : 'Never'"></td>
                   <td class="px-4 py-3">
-                    <div class="flex gap-1">
-                      <button @click="refreshComponent(c)" :disabled="c._refreshing"
+                    <div class="flex gap-1 flex-wrap">
+                      <button @click="refreshComponent(c)" :disabled="c._refreshing || c.paused"
                               class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs disabled:opacity-40"
                               title="Refresh prices">
                         <span x-text="c._refreshing ? '⏳' : '🔄'"></span>
@@ -215,6 +265,18 @@
                       <button @click="openEditAlert(c)"
                               class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs"
                               title="Set alert">🔔</button>
+                      <button @click="togglePause(c)"
+                              :class="c.paused ? 'bg-green-900/60 hover:bg-green-800' : 'bg-gray-700 hover:bg-gray-600'"
+                              class="p-1.5 rounded text-xs"
+                              :title="c.paused ? 'Resume' : 'Pause'">
+                        <span x-text="c.paused ? '▶️' : '⏸️'"></span>
+                      </button>
+                      <button @click="openUrlsModal(c)"
+                              class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+                              title="Manage tracked URLs">🔗</button>
+                      <button @click="openIntervalModal(c)"
+                              class="p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-xs"
+                              title="Check interval & unit pricing">⚙️</button>
                       <button @click="removeComponent(c)"
                               class="p-1.5 bg-red-900/60 hover:bg-red-800 rounded text-xs"
                               title="Remove">🗑️</button>
@@ -222,10 +284,10 @@
                   </td>
                 </tr>
               </template>
-              <template x-if="components.length === 0">
+              <template x-if="filteredComponents().length === 0">
                 <tr>
-                  <td colspan="9" class="px-4 py-10 text-center text-gray-600">
-                    No components tracked. Click "+ Add Component" to start watching prices.
+                  <td colspan="10" class="px-4 py-10 text-center text-gray-600">
+                    <span x-text="activeTagFilter ? 'No components with this tag.' : 'No components tracked. Click &quot;+ Add Component&quot; to start.'"></span>
                   </td>
                 </tr>
               </template>
@@ -716,6 +778,16 @@
               <span class="text-gray-300 text-xs">Pushover</span>
               <span x-text="configStatus.pushover ? '✅' : '❌'" class="text-xs"></span>
             </div>
+            <div class="flex items-center gap-2">
+              <div :class="configStatus.gotify ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
+              <span class="text-gray-300 text-xs">Gotify</span>
+              <span x-text="configStatus.gotify ? '✅' : '❌'" class="text-xs"></span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div :class="configStatus.apprise ? 'bg-green-500' : 'bg-gray-600'" class="w-2 h-2 rounded-full"></div>
+              <span class="text-gray-300 text-xs">Apprise</span>
+              <span x-text="configStatus.apprise ? '✅' : '❌'" class="text-xs"></span>
+            </div>
           </div>
           <div>
             <label class="text-xs text-gray-400 block mb-1">Discord Webhook URL</label>
@@ -842,6 +914,37 @@
                           x-text="showSecrets.pushoverUser ? '🙈' : '👁'"></button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Gotify -->
+          <div class="border-t border-gray-700 pt-3">
+            <p class="text-xs text-gray-400 font-medium mb-2">Gotify — self-hosted push notification server</p>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs text-gray-400 block mb-1">Gotify Server URL</label>
+                <input x-model="notifGotifyUrl" type="url" placeholder="http://your-gotify:80"
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                              focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="text-xs text-gray-400 block mb-1">Gotify App Token</label>
+                <input x-model="notifGotifyToken" type="password" placeholder="A…"
+                       class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                              focus:outline-none focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+          </div>
+
+          <!-- Apprise -->
+          <div class="border-t border-gray-700 pt-3">
+            <p class="text-xs text-gray-400 font-medium mb-2">Apprise — unified push to 80+ services (Slack, Matrix, PushBullet…)</p>
+            <div>
+              <label class="text-xs text-gray-400 block mb-1">Apprise API URL</label>
+              <input x-model="notifAppriseUrl" type="url" placeholder="http://your-apprise:8000/notify/KEY"
+                     class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                            focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <p class="text-xs text-gray-600 mt-1">Must be the full Apprise API notify endpoint.</p>
             </div>
           </div>
 
@@ -1898,6 +2001,109 @@
   </div>
 </div>
 
+<!-- ── Component URLs modal ─────────────────────────────────────────────── -->
+<div x-show="showUrlsModal" x-cloak
+     class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+     @click.self="showUrlsModal = false">
+  <div class="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-lg p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-white">🔗 Tracked URLs — <span x-text="urlsModalComponent?.name"></span></h3>
+      <button @click="showUrlsModal = false" class="text-gray-500 hover:text-white text-lg">✕</button>
+    </div>
+    <p class="text-xs text-gray-400 mb-4">Add direct product URLs to scrape instead of (or in addition to) search queries. The scheduler scrapes all URLs every cycle.</p>
+
+    <!-- Existing URLs -->
+    <div class="space-y-2 mb-4 max-h-48 overflow-y-auto">
+      <template x-if="urlsModalList.length === 0">
+        <p class="text-xs text-gray-600">No URLs added yet. Use the search query, or add a direct product page URL below.</p>
+      </template>
+      <template x-for="u in urlsModalList" :key="u.id">
+        <div class="flex items-center gap-2 bg-gray-700/50 rounded-lg px-3 py-2">
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-medium text-white truncate" x-text="u.label || u.retailer || u.url"></div>
+            <div class="text-xs text-gray-500 truncate" x-text="u.url"></div>
+          </div>
+          <button @click="removeComponentUrl(u)" class="flex-shrink-0 text-red-400 hover:text-red-300 text-xs">🗑️</button>
+        </div>
+      </template>
+    </div>
+
+    <!-- Add new URL -->
+    <div class="border-t border-gray-700 pt-4 space-y-2">
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Product URL *</label>
+        <input x-model="urlsModalNew.url" type="url" placeholder="https://www.scan.co.uk/products/…"
+               class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                      focus:outline-none focus:ring-2 focus:ring-blue-500">
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Retailer (optional)</label>
+          <input x-model="urlsModalNew.retailer" type="text" placeholder="Scan"
+                 class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                        focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <label class="text-xs text-gray-400 block mb-1">Label (optional)</label>
+          <input x-model="urlsModalNew.label" type="text" placeholder="e.g. Scan 16GB"
+                 class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                        focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+      </div>
+      <button @click="addComponentUrl()" :disabled="!urlsModalNew.url"
+              class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 rounded-lg text-sm font-medium">
+        Add URL
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Component interval / unit modal ─────────────────────────────────── -->
+<div x-show="showIntervalModal" x-cloak
+     class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+     @click.self="showIntervalModal = false">
+  <div class="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-sm p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-white">⚙️ Settings — <span x-text="intervalModalComponent?.name"></span></h3>
+      <button @click="showIntervalModal = false" class="text-gray-500 hover:text-white text-lg">✕</button>
+    </div>
+
+    <div class="space-y-4">
+      <div>
+        <label class="text-xs text-gray-400 block mb-1">Custom check interval (minutes)</label>
+        <input x-model="intervalModalMinutes" type="number" min="1" placeholder="Leave blank to use global interval"
+               class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                      focus:outline-none focus:ring-2 focus:ring-blue-500">
+        <p class="text-xs text-gray-600 mt-1">Overrides the global scheduler interval for this component only.</p>
+      </div>
+
+      <div class="border-t border-gray-700 pt-4">
+        <p class="text-xs text-gray-400 font-medium mb-2">Unit pricing (e.g. RAM per GB, SSD per TB)</p>
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Quantity (units in product)</label>
+            <input x-model="intervalModalUnitQty" type="number" min="0.001" step="any" placeholder="e.g. 32 (for 32GB)"
+                   class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                          focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+          <div>
+            <label class="text-xs text-gray-400 block mb-1">Unit type</label>
+            <input x-model="intervalModalUnitType" type="text" placeholder="GB, TB, core, etc."
+                   class="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white
+                          focus:outline-none focus:ring-2 focus:ring-blue-500">
+          </div>
+        </div>
+        <p class="text-xs text-gray-600 mt-1">If set, price-per-unit is shown in the watchlist alongside the total price.</p>
+      </div>
+    </div>
+
+    <div class="flex gap-2 mt-5">
+      <button @click="saveIntervalModal()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium">Save</button>
+      <button @click="showIntervalModal = false" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm text-gray-300">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div x-show="toast" x-cloak x-transition:enter="transition ease-out duration-200"
      x-transition:enter-start="opacity-0 translate-y-2"
@@ -2026,6 +2232,31 @@ function app() {
     scraperCamofoxUrl: '',
     scraperProxies: '',
 
+    // Tags
+    tags: [],
+    activeTagFilter: null,
+
+    // Needs attention
+    needsAttention: [],
+
+    // Component URLs modal
+    showUrlsModal: false,
+    urlsModalComponent: null,
+    urlsModalList: [],
+    urlsModalNew: { url: '', retailer: '', label: '' },
+
+    // Component interval/unit modal
+    showIntervalModal: false,
+    intervalModalComponent: null,
+    intervalModalMinutes: '',
+    intervalModalUnitQty: '',
+    intervalModalUnitType: '',
+
+    // Gotify / Apprise notification fields
+    notifGotifyUrl: '',
+    notifGotifyToken: '',
+    notifAppriseUrl: '',
+
     // Saved searches
     savedSearches: [],
     savedSearchName: '',
@@ -2090,6 +2321,8 @@ function app() {
         this.loadSavedSearches(),
         this.loadPartsSlugs(),
         this.loadSparklines(),
+        this.loadTags(),
+        this.loadNeedsAttention(),
       ]);
       setInterval(() => this.loadSchedulerStatus(), 30_000);
     },
@@ -2135,6 +2368,9 @@ function app() {
       this.notifNtfyServer     = cfg.ntfy_server          ?? '';
       this.notifPushoverToken  = cfg.pushover_app_token   ?? '';
       this.notifPushoverUser   = cfg.pushover_user_key    ?? '';
+      this.notifGotifyUrl   = cfg.gotify_server_url ?? '';
+      this.notifGotifyToken = cfg.gotify_app_token  ?? '';
+      this.notifAppriseUrl  = cfg.apprise_url        ?? '';
       this.configStatus = {
         discord:  !!cfg.discord_webhook_url,
         slack:    !!cfg.slack_webhook_url,
@@ -2142,6 +2378,8 @@ function app() {
         email:    !!(cfg.resend_api_key && cfg.alert_email),
         ntfy:     !!cfg.ntfy_topic,
         pushover: !!(cfg.pushover_app_token && cfg.pushover_user_key),
+        gotify:   !!(cfg.gotify_server_url && cfg.gotify_app_token),
+        apprise:  !!cfg.apprise_url,
       };
       // API keys
       this.apiKeyPricesApi  = cfg.prices_api_key       ?? '';
@@ -2179,6 +2417,108 @@ function app() {
         const r = await fetch('/api/dashboard/sparklines');
         this.sparklines = await r.json();
       } catch { /* non-fatal */ }
+    },
+
+    async loadTags() {
+      try {
+        const r = await fetch('/api/tags');
+        this.tags = await r.json();
+      } catch { /* non-fatal */ }
+    },
+
+    async loadNeedsAttention() {
+      try {
+        const r = await fetch('/api/needs-attention');
+        this.needsAttention = await r.json();
+      } catch { /* non-fatal */ }
+    },
+
+    // ── Tag management ──────────────────────────────────────────────────────
+    filteredComponents() {
+      if (!this.activeTagFilter) return this.components;
+      return this.components.filter(c => c._tags && c._tags.some(t => t.id === this.activeTagFilter));
+    },
+
+    async createTag() {
+      const name = prompt('Tag name (e.g. "Gaming", "Work"):');
+      if (!name) return;
+      const color = prompt('Tag colour (hex, e.g. #6366f1):', '#6366f1') || '#6366f1';
+      await fetch('/api/tags', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), color }),
+      });
+      await this.loadTags();
+      this.showToast(`✅ Tag "${name}" created`);
+    },
+
+    async deleteTag(tag) {
+      if (!confirm(`Delete tag "${tag.name}"? It will be removed from all components.`)) return;
+      await fetch(`/api/tags/${tag.id}`, { method: 'DELETE' });
+      if (this.activeTagFilter === tag.id) this.activeTagFilter = null;
+      await this.loadTags();
+      this.showToast(`🗑️ Tag "${tag.name}" deleted`);
+    },
+
+    // ── Component pause/resume ──────────────────────────────────────────────
+    async togglePause(c) {
+      const action = c.paused ? 'resume' : 'pause';
+      await fetch(`/api/components/${c.id}/${action}`, { method: 'POST' });
+      await this.loadComponents();
+      this.showToast(c.paused ? `▶️ Resumed "${c.name}"` : `⏸️ Paused "${c.name}"`);
+    },
+
+    // ── Component interval / unit modal ────────────────────────────────────
+    openIntervalModal(c) {
+      this.intervalModalComponent = c;
+      this.intervalModalMinutes = c.check_interval_minutes ?? '';
+      this.intervalModalUnitQty = c.unit_quantity ?? '';
+      this.intervalModalUnitType = c.unit_type ?? '';
+      this.showIntervalModal = true;
+    },
+    async saveIntervalModal() {
+      const c = this.intervalModalComponent;
+      if (!c) return;
+      const mins = this.intervalModalMinutes !== '' ? Number(this.intervalModalMinutes) : null;
+      const qty  = this.intervalModalUnitQty  !== '' ? Number(this.intervalModalUnitQty)  : null;
+      const type = this.intervalModalUnitType || null;
+      await Promise.all([
+        fetch(`/api/components/${c.id}/interval`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ minutes: mins }),
+        }),
+        fetch(`/api/components/${c.id}/unit`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantity: qty, unit_type: type }),
+        }),
+      ]);
+      this.showIntervalModal = false;
+      await this.loadComponents();
+      this.showToast('✅ Component settings saved');
+    },
+
+    // ── Component URLs modal ────────────────────────────────────────────────
+    async openUrlsModal(c) {
+      this.urlsModalComponent = c;
+      this.urlsModalNew = { url: '', retailer: '', label: '' };
+      const r = await fetch(`/api/components/${c.id}/urls`);
+      this.urlsModalList = await r.json();
+      this.showUrlsModal = true;
+    },
+    async addComponentUrl() {
+      if (!this.urlsModalNew.url) return;
+      await fetch(`/api/components/${this.urlsModalComponent.id}/urls`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.urlsModalNew),
+      });
+      this.urlsModalNew = { url: '', retailer: '', label: '' };
+      const r = await fetch(`/api/components/${this.urlsModalComponent.id}/urls`);
+      this.urlsModalList = await r.json();
+      this.showToast('✅ URL added');
+    },
+    async removeComponentUrl(urlRecord) {
+      await fetch(`/api/component-urls/${urlRecord.id}`, { method: 'DELETE' });
+      this.urlsModalList = this.urlsModalList.filter(u => u.id !== urlRecord.id);
+      this.showToast('🗑️ URL removed');
     },
 
     makeSvgSparkline(points) {
@@ -2295,7 +2635,7 @@ function app() {
         this.components = [...this.components];
       }
       this.refreshingAll = false;
-      await Promise.all([this.loadComponents(), this.loadPriceDrops(), this.loadAlerts(), this.loadStockChanges(), this.loadSparklines()]);
+      await Promise.all([this.loadComponents(), this.loadPriceDrops(), this.loadAlerts(), this.loadStockChanges(), this.loadSparklines(), this.loadNeedsAttention()]);
       this.showToast('✅ All components refreshed');
     },
     async removeComponent(c) {
@@ -2497,6 +2837,9 @@ function app() {
         { key: 'ntfy_server',         value: this.notifNtfyServer },
         { key: 'pushover_app_token',  value: this.notifPushoverToken },
         { key: 'pushover_user_key',   value: this.notifPushoverUser },
+        { key: 'gotify_server_url',   value: this.notifGotifyUrl },
+        { key: 'gotify_app_token',    value: this.notifGotifyToken },
+        { key: 'apprise_url',         value: this.notifAppriseUrl },
       ];
       await Promise.all(fields.map(f =>
         fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
@@ -2545,7 +2888,9 @@ function app() {
       if (d.email    !== undefined) parts.push('Email '    + (d.email    ? '✅' : '❌'));
       if (d.ntfy     !== undefined) parts.push('ntfy '     + (d.ntfy     ? '✅' : '❌'));
       if (d.pushover !== undefined) parts.push('Pushover ' + (d.pushover ? '✅' : '❌'));
-      const ok = d.discord || d.slack || d.telegram || d.email || d.ntfy || d.pushover;
+      if (d.gotify   !== undefined) parts.push('Gotify '   + (d.gotify   ? '✅' : '❌'));
+      if (d.apprise  !== undefined) parts.push('Apprise '  + (d.apprise  ? '✅' : '❌'));
+      const ok = d.discord || d.slack || d.telegram || d.email || d.ntfy || d.pushover || d.gotify || d.apprise;
       this.showToast(parts.join(' · ') || 'No notifications configured', ok ? 'success' : 'error');
     },
     async setVatMode(mode) {

@@ -57,6 +57,9 @@ const DB_KEY_TO_ENV: Record<string, string> = {
   bing_api_key:         'BING_API_KEY',
   anthropic_api_key:    'ANTHROPIC_API_KEY',
   camofox_url:          'CAMOFOX_URL',
+  gotify_server_url:    'GOTIFY_SERVER_URL',
+  gotify_app_token:     'GOTIFY_APP_TOKEN',
+  apprise_url:          'APPRISE_URL',
 };
 
 function syncEnvFromDb(): void {
@@ -553,6 +556,108 @@ export function startWebServer(port: number): void {
   app.get('/api/dataset/slugs', (_req, res) => {
     res.json({ slugs: DATASET_SLUGS });
   });
+
+  // ── Component pause / resume / interval / unit pricing ───────────────────
+
+  app.post('/api/components/:id/pause', h(async (req, res) => {
+    db.pauseComponent(parseInt(param(req.params.id)));
+    res.json({ ok: true, paused: true });
+  }));
+
+  app.post('/api/components/:id/resume', h(async (req, res) => {
+    db.resumeComponent(parseInt(param(req.params.id)));
+    res.json({ ok: true, paused: false });
+  }));
+
+  app.patch('/api/components/:id/interval', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const minutes = req.body.minutes != null ? Number(req.body.minutes) : null;
+    db.setComponentInterval(id, minutes);
+    res.json({ ok: true, check_interval_minutes: minutes });
+  }));
+
+  app.patch('/api/components/:id/unit', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const { quantity, unit_type } = req.body;
+    db.setComponentUnitPricing(id, quantity != null ? Number(quantity) : null, unit_type ?? null);
+    res.json({ ok: true });
+  }));
+
+  // ── Component URLs ────────────────────────────────────────────────────────
+
+  app.get('/api/components/:id/urls', h(async (req, res) => {
+    res.json(db.getComponentUrls(parseInt(param(req.params.id))));
+  }));
+
+  app.post('/api/components/:id/urls', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const { url, retailer, label } = req.body;
+    if (!url) { res.status(400).json({ error: 'url is required' }); return; }
+    const record = db.addComponentUrl(id, url, retailer, label);
+    res.json(record);
+  }));
+
+  app.delete('/api/component-urls/:urlId', h(async (req, res) => {
+    const removed = db.removeComponentUrl(parseInt(param(req.params.urlId)));
+    res.json({ removed });
+  }));
+
+  // ── Tags ──────────────────────────────────────────────────────────────────
+
+  app.get('/api/tags', h(async (_req, res) => {
+    res.json(db.getTags());
+  }));
+
+  app.post('/api/tags', h(async (req, res) => {
+    const { name, color } = req.body;
+    if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+    res.json(db.createTag(name, color));
+  }));
+
+  app.delete('/api/tags/:id', h(async (req, res) => {
+    const removed = db.deleteTag(parseInt(param(req.params.id)));
+    res.json({ removed });
+  }));
+
+  app.get('/api/components/:id/tags', h(async (req, res) => {
+    res.json(db.getTagsForComponent(parseInt(param(req.params.id))));
+  }));
+
+  app.put('/api/components/:id/tags', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const { tag_ids } = req.body;
+    if (!Array.isArray(tag_ids)) { res.status(400).json({ error: 'tag_ids must be an array' }); return; }
+    db.setComponentTags(id, tag_ids.map(Number));
+    res.json({ ok: true });
+  }));
+
+  app.post('/api/components/:id/tags/:tagId', h(async (req, res) => {
+    db.addTagToComponent(parseInt(param(req.params.id)), parseInt(param(req.params.tagId)));
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/components/:id/tags/:tagId', h(async (req, res) => {
+    db.removeTagFromComponent(parseInt(param(req.params.id)), parseInt(param(req.params.tagId)));
+    res.json({ ok: true });
+  }));
+
+  // ── Needs attention ───────────────────────────────────────────────────────
+
+  app.get('/api/needs-attention', h(async (_req, res) => {
+    res.json(db.getComponentsNeedingAttention());
+  }));
+
+  // ── AI bootstrap: auto-detect selectors from a URL ───────────────────────
+
+  app.post('/api/scrape-rules/bootstrap', h(async (req, res) => {
+    const { url } = req.body;
+    if (!url) { res.status(400).json({ error: 'url is required' }); return; }
+    const { scrapeProductUrl } = await import('./sources/url-scraper.js');
+    const result = await scrapeProductUrl(url);
+    const domain = (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } })();
+    const existing = db.getScrapeRule(domain);
+    res.json({ scraped: result, domain, rule: existing ?? null });
+  }));
 
   // ── Health check ──────────────────────────────────────────────────────────
 

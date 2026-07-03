@@ -12,6 +12,20 @@ export interface TrackedComponent {
   alert_price: number | null; notes: string | null;
   created_at: string; last_checked: string | null;
   source_url: string | null;
+  paused: number;                    // 0 | 1
+  check_interval_minutes: number | null;
+  last_scrape_failed: number;        // 0 | 1
+  unit_quantity: number | null;
+  unit_type: string | null;
+}
+
+export interface ComponentUrl {
+  id: number; component_id: number; url: string;
+  retailer: string | null; label: string | null; added_at: string;
+}
+
+export interface Tag {
+  id: number; name: string; color: string; created_at: string;
 }
 
 export interface ScrapeRule {
@@ -224,6 +238,36 @@ function initSchema(db: Database.Database): void {
       notes            TEXT,
       updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS component_urls (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      component_id INTEGER NOT NULL REFERENCES tracked_components(id) ON DELETE CASCADE,
+      url          TEXT    NOT NULL,
+      retailer     TEXT,
+      label        TEXT,
+      added_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(component_id, url)
+    );
+
+    CREATE TABLE IF NOT EXISTS tags (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT    NOT NULL UNIQUE,
+      color      TEXT    NOT NULL DEFAULT '#6366f1',
+      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS component_tags (
+      component_id INTEGER NOT NULL REFERENCES tracked_components(id) ON DELETE CASCADE,
+      tag_id       INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+      PRIMARY KEY (component_id, tag_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_component_urls_component
+      ON component_urls(component_id);
+    CREATE INDEX IF NOT EXISTS idx_component_tags_component
+      ON component_tags(component_id);
+    CREATE INDEX IF NOT EXISTS idx_component_tags_tag
+      ON component_tags(tag_id);
   `);
 }
 
@@ -234,8 +278,13 @@ function runMigrations(db: Database.Database): void {
   if (!prCols.includes('z_score'))     db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
 
   const tcCols = (db.prepare('PRAGMA table_info(tracked_components)').all() as Array<{ name: string }>).map(c => c.name);
-  if (!tcCols.includes('source_url'))     db.exec('ALTER TABLE tracked_components ADD COLUMN source_url TEXT');
-  if (!tcCols.includes('last_alerted_at')) db.exec('ALTER TABLE tracked_components ADD COLUMN last_alerted_at TEXT');
+  if (!tcCols.includes('source_url'))             db.exec('ALTER TABLE tracked_components ADD COLUMN source_url TEXT');
+  if (!tcCols.includes('last_alerted_at'))         db.exec('ALTER TABLE tracked_components ADD COLUMN last_alerted_at TEXT');
+  if (!tcCols.includes('paused'))                  db.exec('ALTER TABLE tracked_components ADD COLUMN paused INTEGER NOT NULL DEFAULT 0');
+  if (!tcCols.includes('check_interval_minutes'))  db.exec('ALTER TABLE tracked_components ADD COLUMN check_interval_minutes INTEGER');
+  if (!tcCols.includes('last_scrape_failed'))      db.exec('ALTER TABLE tracked_components ADD COLUMN last_scrape_failed INTEGER NOT NULL DEFAULT 0');
+  if (!tcCols.includes('unit_quantity'))            db.exec('ALTER TABLE tracked_components ADD COLUMN unit_quantity REAL');
+  if (!tcCols.includes('unit_type'))               db.exec('ALTER TABLE tracked_components ADD COLUMN unit_type TEXT');
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -302,6 +351,118 @@ export function shouldSendAlert(id: number, cooldownMinutes = 1440): boolean {
   if (!row?.last_alerted_at) return true;
   const elapsedMinutes = (Date.now() - new Date(row.last_alerted_at + 'Z').getTime()) / 60_000;
   return elapsedMinutes >= cooldownMinutes;
+}
+
+export function pauseComponent(id: number): void {
+  getDb().prepare('UPDATE tracked_components SET paused = 1 WHERE id = ?').run(id);
+}
+
+export function resumeComponent(id: number): void {
+  getDb().prepare('UPDATE tracked_components SET paused = 0 WHERE id = ?').run(id);
+}
+
+export function setComponentInterval(id: number, minutes: number | null): void {
+  getDb().prepare('UPDATE tracked_components SET check_interval_minutes = ? WHERE id = ?').run(minutes, id);
+}
+
+export function markScrapeFailed(id: number): void {
+  getDb().prepare('UPDATE tracked_components SET last_scrape_failed = 1 WHERE id = ?').run(id);
+}
+
+export function clearScrapeFailed(id: number): void {
+  getDb().prepare('UPDATE tracked_components SET last_scrape_failed = 0 WHERE id = ?').run(id);
+}
+
+export function getComponentsNeedingAttention(): TrackedComponent[] {
+  return getDb().prepare(`
+    SELECT * FROM tracked_components
+    WHERE last_scrape_failed = 1 AND paused = 0
+    ORDER BY last_checked ASC
+  `).all() as TrackedComponent[];
+}
+
+export function setComponentUnitPricing(id: number, quantity: number | null, unitType: string | null): void {
+  getDb().prepare('UPDATE tracked_components SET unit_quantity = ?, unit_type = ? WHERE id = ?').run(quantity, unitType, id);
+}
+
+// ── Component URLs ─────────────────────────────────────────────────────────
+
+export function addComponentUrl(
+  componentId: number, url: string, retailer?: string | null, label?: string | null,
+): ComponentUrl {
+  getDb().prepare(`
+    INSERT INTO component_urls (component_id, url, retailer, label)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(component_id, url) DO UPDATE SET retailer = excluded.retailer, label = excluded.label
+  `).run(componentId, url, retailer ?? null, label ?? null);
+  return getDb().prepare('SELECT * FROM component_urls WHERE component_id = ? AND url = ?')
+    .get(componentId, url) as ComponentUrl;
+}
+
+export function removeComponentUrl(id: number): boolean {
+  return getDb().prepare('DELETE FROM component_urls WHERE id = ?').run(id).changes > 0;
+}
+
+export function getComponentUrls(componentId: number): ComponentUrl[] {
+  return getDb().prepare('SELECT * FROM component_urls WHERE component_id = ? ORDER BY added_at ASC')
+    .all(componentId) as ComponentUrl[];
+}
+
+// ── Tags ───────────────────────────────────────────────────────────────────
+
+export function createTag(name: string, color = '#6366f1'): Tag {
+  return getDb().prepare(`
+    INSERT INTO tags (name, color) VALUES (?, ?)
+    ON CONFLICT(name) DO UPDATE SET color = excluded.color
+    RETURNING *
+  `).get(name, color) as Tag;
+}
+
+export function getTags(): Tag[] {
+  return getDb().prepare('SELECT * FROM tags ORDER BY name ASC').all() as Tag[];
+}
+
+export function getTagById(id: number): Tag | undefined {
+  return getDb().prepare('SELECT * FROM tags WHERE id = ?').get(id) as Tag | undefined;
+}
+
+export function deleteTag(id: number): boolean {
+  return getDb().prepare('DELETE FROM tags WHERE id = ?').run(id).changes > 0;
+}
+
+export function getTagsForComponent(componentId: number): Tag[] {
+  return getDb().prepare(`
+    SELECT t.* FROM tags t
+    JOIN component_tags ct ON ct.tag_id = t.id
+    WHERE ct.component_id = ?
+    ORDER BY t.name ASC
+  `).all(componentId) as Tag[];
+}
+
+export function setComponentTags(componentId: number, tagIds: number[]): void {
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare('DELETE FROM component_tags WHERE component_id = ?').run(componentId);
+    const insert = db.prepare('INSERT OR IGNORE INTO component_tags (component_id, tag_id) VALUES (?, ?)');
+    for (const tagId of tagIds) insert.run(componentId, tagId);
+  })();
+}
+
+export function addTagToComponent(componentId: number, tagId: number): void {
+  getDb().prepare('INSERT OR IGNORE INTO component_tags (component_id, tag_id) VALUES (?, ?)').run(componentId, tagId);
+}
+
+export function removeTagFromComponent(componentId: number, tagId: number): void {
+  getDb().prepare('DELETE FROM component_tags WHERE component_id = ? AND tag_id = ?').run(componentId, tagId);
+}
+
+export function getComponentsByTag(tagId: number): TrackedComponent[] {
+  return getDb().prepare(`
+    SELECT tc.* FROM tracked_components tc
+    JOIN component_tags ct ON ct.component_id = tc.id
+    WHERE ct.tag_id = ?
+    ORDER BY tc.name ASC
+  `).all(tagId) as TrackedComponent[];
 }
 
 export interface SparklinePoint { date: string; min_price: number; }

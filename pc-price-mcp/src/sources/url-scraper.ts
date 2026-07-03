@@ -203,6 +203,53 @@ async function tryCamofox(url: string): Promise<Partial<ScrapedProduct> | null> 
   return { name: result.name, price: result.price, currency: result.currency, inStock: result.inStock, method: 'playwright' };
 }
 
+// ── AI self-healing: propose new selectors when rules fail ────────────────
+
+async function healSelectors(domain: string, html: string): Promise<void> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return;
+
+  const text = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .slice(0, 4000);
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        messages: [{
+          role: 'user',
+          content: `Given this retail page HTML text for domain "${domain}", propose CSS selectors. Reply ONLY with JSON: {"price_selector":".price","name_selector":"h1","avail_selector":".stock","price_regex":null}. Use null for any you can't determine.\n\n${text}`,
+        }],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = await res.json() as any;
+    const raw: string = data?.content?.[0]?.text ?? '';
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return;
+    const parsed = JSON.parse(m[0]);
+    if (parsed?.price_selector) {
+      db.setScrapeRule(domain, {
+        price_selector: parsed.price_selector ?? null,
+        name_selector:  parsed.name_selector  ?? null,
+        avail_selector: parsed.avail_selector ?? null,
+        price_attribute: null,
+        price_regex:    parsed.price_regex    ?? null,
+        notes: 'AI self-healed',
+      });
+    }
+  } catch { /* ignore */ }
+}
+
 // ── Step 6: AI extraction (Claude API) ────────────────────────────────────
 
 async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
@@ -262,6 +309,8 @@ export async function scrapeProductUrl(url: string): Promise<ScrapedProduct> {
     if (rule) {
       const r = tryRules(html, rule);
       if (r?.price) return { ...fallback, ...r, url } as ScrapedProduct;
+      // Rules exist but failed — try to self-heal asynchronously (don't block the chain)
+      healSelectors(domain, html).catch(() => {});
     }
 
     const dom = tryDom(html);
