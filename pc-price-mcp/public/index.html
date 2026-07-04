@@ -2,7 +2,7 @@
 <html lang="en" data-theme="night">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>PC Price Checker – UK Component Monitor</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96' fill='none'%3E%3Crect width='96' height='96' rx='18' fill='%231e293b'/%3E%3Cg stroke='%233B82F6' stroke-width='4.5' stroke-linecap='round'%3E%3Cline x1='22' y1='8' x2='22' y2='17'/%3E%3Cline x1='34' y1='8' x2='34' y2='17'/%3E%3Cline x1='46' y1='8' x2='46' y2='17'/%3E%3Cline x1='22' y1='63' x2='22' y2='72'/%3E%3Cline x1='34' y1='63' x2='34' y2='72'/%3E%3Cline x1='8' y1='26' x2='17' y2='26'/%3E%3Cline x1='8' y1='38' x2='17' y2='38'/%3E%3Cline x1='8' y1='50' x2='17' y2='50'/%3E%3C/g%3E%3Crect x='17' y='17' width='39' height='39' rx='5' stroke='%233B82F6' stroke-width='4.5'/%3E%3Cpath d='M56 36 L76 36 L82 43 L82 70 L56 70 Z' stroke='%2310B981' stroke-width='4.5' stroke-linejoin='round'/%3E%3Ccircle cx='72' cy='46' r='3' fill='%2310B981'/%3E%3Cpath d='M63 57 L70 64 L79 51' stroke='%2310B981' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5/dist/full.min.css" rel="stylesheet">
@@ -59,77 +59,78 @@
   <symbol id="hi-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
     <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
   </symbol>
+  <!-- Nav & layout icons -->
+  <symbol id="hi-bars-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+  </symbol>
+  <symbol id="hi-squares-2x2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
+  </symbol>
+  <symbol id="hi-magnifying-glass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+  </symbol>
+  <symbol id="hi-computer-desktop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 7.409A2.25 2.25 0 0 1 2.25 5.493V5.25" />
+  </symbol>
+  <symbol id="hi-light-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" />
+  </symbol>
+  <symbol id="hi-circle-stack" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
+  </symbol>
+  <symbol id="hi-cog-6-tooth" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
+    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+  </symbol>
+  <symbol id="hi-building-office-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" />
+  </symbol>
+  <!-- Stat figure icons -->
+  <symbol id="hi-archive-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="m20.25 7.5-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" />
+  </symbol>
+  <symbol id="hi-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 0 0 5.454-1.31A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6 9v.75a8.967 8.967 0 0 1-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 0 1-5.714 0m5.714 0a3 3 0 1 1-5.714 0" />
+  </symbol>
+  <symbol id="hi-arrow-trending-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6 9 12.75l4.286-4.286a11.948 11.948 0 0 1 4.306 6.43l.776 2.898m0 0 3.182-5.511m-3.182 5.511-5.511-3.181" />
+  </symbol>
+  <symbol id="hi-arrow-path" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+  </symbol>
+  <symbol id="hi-question-mark-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+  </symbol>
 </svg>
 
-<div class="flex h-screen">
+<div class="drawer lg:drawer-open h-screen">
+  <input id="app-drawer" type="checkbox" class="drawer-toggle" />
 
-  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
-  <aside class="w-56 flex-shrink-0 bg-base-100 border-r border-base-300 flex flex-col">
-    <div class="p-4 border-b border-base-300 flex items-center gap-3">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" class="w-9 h-9 flex-shrink-0" aria-hidden="true">
-        <!-- CPU pins -->
-        <g stroke="#3B82F6" stroke-width="6" stroke-linecap="round">
-          <line x1="30" y1="10" x2="30" y2="22"/>
-          <line x1="46" y1="10" x2="46" y2="22"/>
-          <line x1="62" y1="10" x2="62" y2="22"/>
-          <line x1="30" y1="86" x2="30" y2="98"/>
-          <line x1="46" y1="86" x2="46" y2="98"/>
-          <line x1="10" y1="34" x2="22" y2="34"/>
-          <line x1="10" y1="50" x2="22" y2="50"/>
-          <line x1="10" y1="66" x2="22" y2="66"/>
-        </g>
-        <!-- CPU body -->
-        <rect x="22" y="22" width="52" height="52" rx="6" stroke="#3B82F6" stroke-width="6"/>
-        <!-- Price tag -->
-        <path d="M74 48 L100 48 L108 56 L108 92 L74 92 Z" stroke="#10B981" stroke-width="6" stroke-linejoin="round"/>
-        <!-- Tag hole -->
-        <circle cx="93" cy="60" r="4" fill="#10B981"/>
-        <!-- Checkmark -->
-        <path d="M82 74 L92 84 L102 68" stroke="#10B981" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-      </svg>
-      <div class="min-w-0">
-        <div class="text-sm font-bold text-base-content leading-tight">PC Price Checker</div>
-        <div class="text-[10px] text-base-content/50 mt-0.5 font-mono tracking-wide">track · alert · buy</div>
+  <div class="drawer-content flex flex-col overflow-hidden">
+
+    <!-- ── Mobile navbar (visible on small screens only) ─────────────────── -->
+    <div class="navbar bg-base-200 border-b border-base-300 lg:hidden flex-shrink-0 min-h-12 px-2">
+      <div class="navbar-start">
+        <label for="app-drawer" class="btn btn-ghost btn-square btn-sm" aria-label="Open sidebar">
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-bars-3"/></svg>
+        </label>
       </div>
-    </div>
-
-    <nav class="flex-1 p-2">
-      <ul class="menu menu-sm w-full gap-0.5 p-0">
-        <template x-for="item in navItems" :key="item.id">
-          <li>
-            <button
-              @click="activeTab = item.id"
-              :class="activeTab === item.id ? 'menu-active' : ''"
-              class="w-full flex items-center gap-3 text-sm font-medium">
-              <span class="text-base" x-text="item.icon"></span>
-              <span x-text="item.label"></span>
-            </button>
-          </li>
-        </template>
-      </ul>
-    </nav>
-
-    <!-- Scheduler pill -->
-    <div class="p-3 border-t border-base-300">
-      <div class="flex items-center gap-2">
-        <div :class="schedulerStatus?.active ? 'bg-success animate-pulse' : 'bg-base-300'"
-             class="w-2 h-2 rounded-full flex-shrink-0"></div>
-        <span class="text-xs text-base-content/60 truncate"
-              x-text="schedulerStatus?.active
-                ? 'Auto-refresh: every ' + schedulerStatus.intervalMinutes + 'm'
-                : 'Auto-refresh: off'"></span>
+      <div class="navbar-center flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" class="w-7 h-7 flex-shrink-0" aria-hidden="true">
+          <g stroke="#3B82F6" stroke-width="6" stroke-linecap="round">
+            <line x1="30" y1="10" x2="30" y2="22"/><line x1="46" y1="10" x2="46" y2="22"/><line x1="62" y1="10" x2="62" y2="22"/>
+            <line x1="30" y1="86" x2="30" y2="98"/><line x1="46" y1="86" x2="46" y2="98"/>
+            <line x1="10" y1="34" x2="22" y2="34"/><line x1="10" y1="50" x2="22" y2="50"/><line x1="10" y1="66" x2="22" y2="66"/>
+          </g>
+          <rect x="22" y="22" width="52" height="52" rx="6" stroke="#3B82F6" stroke-width="6"/>
+          <path d="M74 48 L100 48 L108 56 L108 92 L74 92 Z" stroke="#10B981" stroke-width="6" stroke-linejoin="round"/>
+          <circle cx="93" cy="60" r="4" fill="#10B981"/>
+          <path d="M82 74 L92 84 L102 68" stroke="#10B981" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <span class="text-sm font-bold text-base-content">PC Price Checker</span>
       </div>
-      <template x-if="schedulerStatus?.nextRunAt">
-        <div class="text-xs text-base-content/40 mt-1 truncate"
-             x-text="'Next: ' + fmtDate(schedulerStatus.nextRunAt)"></div>
-      </template>
-      <!-- Help button -->
-      <button @click="helpOpen = true"
-              class="btn btn-ghost btn-xs w-full mt-2 gap-1.5 text-base-content/50 hover:text-base-content">
-        <span>❓</span><span class="text-xs">Help &amp; Tips</span>
-      </button>
+      <div class="navbar-end"></div>
     </div>
-  </aside>
 
   <!-- ── Help Modal ─────────────────────────────────────────────────────────── -->
   <div x-show="helpOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -583,22 +584,26 @@
     </div>
   </div>
 
-  <!-- ── Main content ─────────────────────────────────────────────────────── -->
-  <main class="flex-1 overflow-auto bg-base-100">
+    <!-- ── Main content ─────────────────────────────────────────────────────── -->
+    <main class="flex-1 overflow-auto bg-base-100 pb-16 lg:pb-0">
 
     <!-- ══ DASHBOARD TAB ══════════════════════════════════════════════════ -->
     <div x-show="activeTab === 'dashboard'" class="p-6 space-y-5">
 
       <!-- Stat cards -->
-      <div class="stats stats-horizontal shadow w-full bg-base-200 border border-base-300 rounded-xl">
+      <div class="stats stats-vertical sm:stats-horizontal shadow w-full bg-base-200 border border-base-300 rounded-xl">
         <div class="stat">
-          <div class="stat-figure text-base-content/30 text-3xl">📦</div>
+          <div class="stat-figure text-base-content/30">
+            <svg class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-archive-box"/></svg>
+          </div>
           <div class="stat-title">Tracked</div>
           <div class="stat-value text-base-content" x-text="components.length"></div>
           <div class="stat-desc">components</div>
         </div>
-        <div class="stat" :class="alerts.length > 0 ? 'text-success' : ''">
-          <div class="stat-figure text-success text-3xl">🔔</div>
+        <div class="stat">
+          <div class="stat-figure text-success">
+            <svg class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-bell"/></svg>
+          </div>
           <div class="stat-title">Price Alerts</div>
           <div class="stat-value" :class="alerts.length > 0 ? 'text-success' : 'text-base-content'"
                x-text="alerts.length"></div>
@@ -608,13 +613,17 @@
           </div>
         </div>
         <div class="stat">
-          <div class="stat-figure text-info text-3xl">📉</div>
+          <div class="stat-figure text-info">
+            <svg class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-arrow-trending-down"/></svg>
+          </div>
           <div class="stat-title">Price Drops</div>
           <div class="stat-value text-info" x-text="priceDrops.length"></div>
           <div class="stat-desc">last 24h</div>
         </div>
         <div class="stat">
-          <div class="stat-figure text-warning text-3xl">🔄</div>
+          <div class="stat-figure text-warning">
+            <svg class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-arrow-path"/></svg>
+          </div>
           <div class="stat-title">Stock Changes</div>
           <div class="stat-value text-warning" x-text="stockChanges.length"></div>
           <div class="stat-desc">last 24h</div>
@@ -2966,8 +2975,149 @@
 
     </div>
 
-  </main>
-</div>
+    </main>
+
+    <!-- ── Mobile dock (visible on small screens only) ───────────────────── -->
+    <div class="dock lg:hidden z-30">
+      <button :class="activeTab === 'dashboard' ? 'dock-active' : ''"
+              @click="activeTab = 'dashboard'">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-squares-2x2"/></svg>
+        <span class="dock-label">Dashboard</span>
+      </button>
+      <button :class="activeTab === 'search' ? 'dock-active' : ''"
+              @click="activeTab = 'search'">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-magnifying-glass"/></svg>
+        <span class="dock-label">Search</span>
+      </button>
+      <button :class="activeTab === 'builds' ? 'dock-active' : ''"
+              @click="activeTab = 'builds'">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-computer-desktop"/></svg>
+        <span class="dock-label">Builds</span>
+      </button>
+      <button :class="activeTab === 'settings' ? 'dock-active' : ''"
+              @click="activeTab = 'settings'">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-cog-6-tooth"/></svg>
+        <span class="dock-label">Settings</span>
+      </button>
+      <label for="app-drawer" class="flex flex-col items-center justify-center cursor-pointer gap-1 text-xs"
+             :class="activeTab === 'advisor' || activeTab === 'parts' || activeTab === 'prebuilts' ? 'dock-active' : ''">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-bars-3"/></svg>
+        <span class="dock-label">More</span>
+      </label>
+    </div>
+
+  </div><!-- /drawer-content -->
+
+  <!-- ── Sidebar (drawer-side) ─────────────────────────────────────────── -->
+  <div class="drawer-side z-40">
+    <label for="app-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
+    <aside class="w-64 min-h-full bg-base-100 border-r border-base-300 flex flex-col">
+
+      <div class="p-4 border-b border-base-300 flex items-center gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" class="w-9 h-9 flex-shrink-0" aria-hidden="true">
+          <g stroke="#3B82F6" stroke-width="6" stroke-linecap="round">
+            <line x1="30" y1="10" x2="30" y2="22"/><line x1="46" y1="10" x2="46" y2="22"/><line x1="62" y1="10" x2="62" y2="22"/>
+            <line x1="30" y1="86" x2="30" y2="98"/><line x1="46" y1="86" x2="46" y2="98"/>
+            <line x1="10" y1="34" x2="22" y2="34"/><line x1="10" y1="50" x2="22" y2="50"/><line x1="10" y1="66" x2="22" y2="66"/>
+          </g>
+          <rect x="22" y="22" width="52" height="52" rx="6" stroke="#3B82F6" stroke-width="6"/>
+          <path d="M74 48 L100 48 L108 56 L108 92 L74 92 Z" stroke="#10B981" stroke-width="6" stroke-linejoin="round"/>
+          <circle cx="93" cy="60" r="4" fill="#10B981"/>
+          <path d="M82 74 L92 84 L102 68" stroke="#10B981" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <div class="min-w-0">
+          <div class="text-sm font-bold text-base-content leading-tight">PC Price Checker</div>
+          <div class="text-[10px] text-base-content/50 mt-0.5 font-mono tracking-wide">track · alert · buy</div>
+        </div>
+      </div>
+
+      <nav class="flex-1 p-2">
+        <ul class="menu menu-sm w-full gap-0.5 p-0">
+          <li>
+            <button @click="activeTab = 'dashboard'; closeMobileDrawer()"
+                    :class="activeTab === 'dashboard' ? 'menu-active' : ''"
+                    class="w-full flex items-center gap-3 text-sm font-medium">
+              <svg class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-squares-2x2"/></svg>
+              Dashboard
+            </button>
+          </li>
+          <li>
+            <button @click="activeTab = 'search'; closeMobileDrawer()"
+                    :class="activeTab === 'search' ? 'menu-active' : ''"
+                    class="w-full flex items-center gap-3 text-sm font-medium">
+              <svg class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-magnifying-glass"/></svg>
+              Search
+            </button>
+          </li>
+          <li>
+            <button @click="activeTab = 'builds'; closeMobileDrawer()"
+                    :class="activeTab === 'builds' ? 'menu-active' : ''"
+                    class="w-full flex items-center gap-3 text-sm font-medium">
+              <svg class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-computer-desktop"/></svg>
+              Builds
+            </button>
+          </li>
+          <li>
+            <button @click="activeTab = 'advisor'; closeMobileDrawer()"
+                    :class="activeTab === 'advisor' ? 'menu-active' : ''"
+                    class="w-full flex items-center gap-3 text-sm font-medium">
+              <svg class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-light-bulb"/></svg>
+              Advisor
+            </button>
+          </li>
+          <li>
+            <button @click="activeTab = 'parts'; closeMobileDrawer()"
+                    :class="activeTab === 'parts' ? 'menu-active' : ''"
+                    class="w-full flex items-center gap-3 text-sm font-medium">
+              <svg class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-circle-stack"/></svg>
+              Parts DB
+            </button>
+          </li>
+          <li>
+            <button @click="activeTab = 'settings'; closeMobileDrawer()"
+                    :class="activeTab === 'settings' ? 'menu-active' : ''"
+                    class="w-full flex items-center gap-3 text-sm font-medium">
+              <svg class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-cog-6-tooth"/></svg>
+              Settings
+            </button>
+          </li>
+          <li>
+            <button @click="activeTab = 'prebuilts'; closeMobileDrawer()"
+                    :class="activeTab === 'prebuilts' ? 'menu-active' : ''"
+                    class="w-full flex items-center gap-3 text-sm font-medium">
+              <svg class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-building-office-2"/></svg>
+              Pre-Built PCs
+            </button>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- Scheduler pill -->
+      <div class="p-3 border-t border-base-300">
+        <div class="flex items-center gap-2">
+          <div :class="schedulerStatus?.active ? 'bg-success animate-pulse' : 'bg-base-300'"
+               class="w-2 h-2 rounded-full flex-shrink-0"></div>
+          <span class="text-xs text-base-content/60 truncate"
+                x-text="schedulerStatus?.active
+                  ? 'Auto-refresh: every ' + schedulerStatus.intervalMinutes + 'm'
+                  : 'Auto-refresh: off'"></span>
+        </div>
+        <template x-if="schedulerStatus?.nextRunAt">
+          <div class="text-xs text-base-content/40 mt-1 truncate"
+               x-text="'Next: ' + fmtDate(schedulerStatus.nextRunAt)"></div>
+        </template>
+        <!-- Help button -->
+        <button @click="helpOpen = true"
+                class="btn btn-ghost btn-xs w-full mt-2 gap-1.5 text-base-content/50 hover:text-base-content">
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-question-mark-circle"/></svg>
+          <span class="text-xs">Help &amp; Tips</span>
+        </button>
+      </div>
+
+    </aside>
+  </div><!-- /drawer-side -->
+
+</div><!-- /drawer -->
 
 <!-- ══ MODALS ══════════════════════════════════════════════════════════════ -->
 
@@ -3447,15 +3597,6 @@
 function app() {
   return {
     activeTab: 'dashboard',
-    navItems: [
-      { id: 'dashboard', icon: '📊', label: 'Dashboard' },
-      { id: 'search',    icon: '🔍', label: 'Search' },
-      { id: 'builds',   icon: '🖥️', label: 'Builds' },
-      { id: 'advisor',  icon: '🧠', label: 'Advisor' },
-      { id: 'parts',    icon: '🗂️', label: 'Parts DB' },
-      { id: 'settings', icon: '⚙️', label: 'Settings' },
-      { id: 'prebuilts', icon: '💻', label: 'Pre-Built PCs' },
-    ],
 
     // ── State ──────────────────────────────────────────────────────────────
     components: [],
@@ -3703,6 +3844,12 @@ function app() {
     refreshingAll: false,
     toast: null,
     _toastTimer: null,
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    closeMobileDrawer() {
+      const toggle = document.getElementById('app-drawer');
+      if (toggle) toggle.checked = false;
+    },
 
     // ── Init ───────────────────────────────────────────────────────────────
     async init() {
