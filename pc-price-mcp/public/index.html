@@ -23,6 +23,44 @@
 </head>
 <body class="h-screen overflow-hidden" x-data="app()" x-init="init()">
 
+<!-- ── Heroicons v2 SVG sprite (https://heroicons.com/) ─────────────────── -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="hi-information-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+  </symbol>
+  <symbol id="hi-exclamation-triangle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+  </symbol>
+  <symbol id="hi-check-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+  </symbol>
+  <symbol id="hi-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+  </symbol>
+  <symbol id="hi-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+  </symbol>
+  <symbol id="hi-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+  </symbol>
+  <symbol id="hi-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+  </symbol>
+  <symbol id="hi-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+  </symbol>
+  <symbol id="hi-eye-slash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+  </symbol>
+  <symbol id="hi-x-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+  </symbol>
+  <symbol id="hi-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" />
+  </symbol>
+</svg>
+
 <div class="flex h-screen">
 
   <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
@@ -1261,6 +1299,19 @@
     <!-- ══ SETTINGS TAB ═════════════════════════════════════════════════════ -->
     <div x-show="activeTab === 'settings'" class="p-6 space-y-5 max-w-xl">
 
+      <!-- Wizard launch banner -->
+      <div class="rounded-2xl border border-primary/30 bg-primary/5 p-4 flex items-center gap-4">
+        <div class="flex-shrink-0 text-primary"><svg class="h-10 w-10"><use href="#hi-sparkles"/></svg></div>
+        <div class="flex-1 min-w-0">
+          <p class="font-semibold text-base-content text-sm">Setup Wizard</p>
+          <p class="text-xs text-base-content/60 mt-0.5">Connect your API keys, notification channels, and scrapers — step by step, with links and tips for each one.</p>
+        </div>
+        <button @click="openWizard()" class="btn btn-primary btn-sm gap-2 flex-shrink-0">
+          <svg class="h-4 w-4"><use href="#hi-arrow-right"/></svg>
+          Launch
+        </button>
+      </div>
+
       <!-- Scheduler -->
       <div class="bg-base-200 rounded-xl border border-base-300">
         <div class="px-4 py-3 border-b border-base-300">
@@ -1349,9 +1400,7 @@
               <input x-model="notifDiscord" :type="showSecrets.discord ? 'text' : 'password'"
                      placeholder="https://discord.com/api/webhooks/…"
                      class="flex-1 input input-bordered">
-              <button @click="showSecrets.discord = !showSecrets.discord"
-                      class="btn btn-ghost btn-xs"
-                      :title="showSecrets.discord ? 'Hide' : 'Show'" x-text="showSecrets.discord ? '🙈' : '👁'"></button>
+              <button @click="showSecrets.discord = !showSecrets.discord" class="btn btn-ghost btn-xs p-1" :title="showSecrets.discord ? 'Hide' : 'Show'"><svg class="h-4 w-4" x-show="!showSecrets.discord"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.discord"><use href="#hi-eye-slash"/></svg></button>
             </div>
           </div>
           <div>
@@ -1360,9 +1409,7 @@
               <input x-model="notifSlack" :type="showSecrets.slack ? 'text' : 'password'"
                      placeholder="https://hooks.slack.com/services/…"
                      class="flex-1 input input-bordered">
-              <button @click="showSecrets.slack = !showSecrets.slack"
-                      class="btn btn-ghost btn-xs"
-                      :title="showSecrets.slack ? 'Hide' : 'Show'" x-text="showSecrets.slack ? '🙈' : '👁'"></button>
+              <button @click="showSecrets.slack = !showSecrets.slack" class="btn btn-ghost btn-xs p-1" :title="showSecrets.slack ? 'Hide' : 'Show'"><svg class="h-4 w-4" x-show="!showSecrets.slack"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.slack"><use href="#hi-eye-slash"/></svg></button>
             </div>
           </div>
           <div class="grid grid-cols-2 gap-3">
@@ -1372,9 +1419,7 @@
                 <input x-model="notifTelegram" :type="showSecrets.telegram ? 'text' : 'password'"
                        placeholder="123456:ABC-DEF…"
                        class="flex-1 input input-bordered">
-                <button @click="showSecrets.telegram = !showSecrets.telegram"
-                        class="btn btn-ghost btn-xs"
-                        :title="showSecrets.telegram ? 'Hide' : 'Show'" x-text="showSecrets.telegram ? '🙈' : '👁'"></button>
+                <button @click="showSecrets.telegram = !showSecrets.telegram" class="btn btn-ghost btn-xs p-1" :title="showSecrets.telegram ? 'Hide' : 'Show'"><svg class="h-4 w-4" x-show="!showSecrets.telegram"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.telegram"><use href="#hi-eye-slash"/></svg></button>
               </div>
             </div>
             <div>
@@ -1394,9 +1439,7 @@
                 <input x-model="notifResend" :type="showSecrets.resend ? 'text' : 'password'"
                        placeholder="re_xxxxxxxxxx"
                        class="flex-1 input input-bordered">
-                <button @click="showSecrets.resend = !showSecrets.resend"
-                        class="btn btn-ghost btn-xs"
-                        :title="showSecrets.resend ? 'Hide' : 'Show'" x-text="showSecrets.resend ? '🙈' : '👁'"></button>
+                <button @click="showSecrets.resend = !showSecrets.resend" class="btn btn-ghost btn-xs p-1" :title="showSecrets.resend ? 'Hide' : 'Show'"><svg class="h-4 w-4" x-show="!showSecrets.resend"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.resend"><use href="#hi-eye-slash"/></svg></button>
               </div>
             </div>
             <div>
@@ -1442,9 +1485,7 @@
                   <input x-model="notifPushoverToken" :type="showSecrets.pushoverToken ? 'text' : 'password'"
                          placeholder="a…"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.pushoverToken = !showSecrets.pushoverToken"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.pushoverToken ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.pushoverToken = !showSecrets.pushoverToken" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.pushoverToken"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.pushoverToken"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
               <div>
@@ -1453,9 +1494,7 @@
                   <input x-model="notifPushoverUser" :type="showSecrets.pushoverUser ? 'text' : 'password'"
                          placeholder="u…"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.pushoverUser = !showSecrets.pushoverUser"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.pushoverUser ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.pushoverUser = !showSecrets.pushoverUser" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.pushoverUser"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.pushoverUser"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
             </div>
@@ -1545,9 +1584,7 @@
               <input x-model="apiKeyPricesApi" :type="showSecrets.pricesapi ? 'text' : 'password'"
                      placeholder="pa_…"
                      class="flex-1 input input-bordered">
-              <button @click="showSecrets.pricesapi = !showSecrets.pricesapi"
-                      class="btn btn-ghost btn-xs"
-                      x-text="showSecrets.pricesapi ? '🙈' : '👁'"></button>
+              <button @click="showSecrets.pricesapi = !showSecrets.pricesapi" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.pricesapi"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.pricesapi"><use href="#hi-eye-slash"/></svg></button>
             </div>
           </div>
 
@@ -1561,9 +1598,7 @@
                   <input x-model="apiKeyEbayId" :type="showSecrets.ebayId ? 'text' : 'password'"
                          placeholder="YourApp-…"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.ebayId = !showSecrets.ebayId"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.ebayId ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.ebayId = !showSecrets.ebayId" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.ebayId"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.ebayId"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
               <div>
@@ -1572,9 +1607,7 @@
                   <input x-model="apiKeyEbaySec" :type="showSecrets.ebaySec ? 'text' : 'password'"
                          placeholder="SBX-…"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.ebaySec = !showSecrets.ebaySec"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.ebaySec ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.ebaySec = !showSecrets.ebaySec" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.ebaySec"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.ebaySec"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
             </div>
@@ -1587,9 +1620,7 @@
               <input x-model="apiKeyKeepa" :type="showSecrets.keepa ? 'text' : 'password'"
                      placeholder="keepa_…"
                      class="flex-1 input input-bordered">
-              <button @click="showSecrets.keepa = !showSecrets.keepa"
-                      class="btn btn-ghost btn-xs"
-                      x-text="showSecrets.keepa ? '🙈' : '👁'"></button>
+              <button @click="showSecrets.keepa = !showSecrets.keepa" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.keepa"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.keepa"><use href="#hi-eye-slash"/></svg></button>
             </div>
           </div>
 
@@ -1603,9 +1634,7 @@
                   <input x-model="apiKeyAmzAccess" :type="showSecrets.amzAccess ? 'text' : 'password'"
                          placeholder="AKIA…"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.amzAccess = !showSecrets.amzAccess"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.amzAccess ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.amzAccess = !showSecrets.amzAccess" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.amzAccess"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.amzAccess"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
               <div>
@@ -1614,9 +1643,7 @@
                   <input x-model="apiKeyAmzSecret" :type="showSecrets.amzSecret ? 'text' : 'password'"
                          placeholder="…"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.amzSecret = !showSecrets.amzSecret"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.amzSecret ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.amzSecret = !showSecrets.amzSecret" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.amzSecret"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.amzSecret"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
               <div>
@@ -1625,9 +1652,7 @@
                   <input x-model="apiKeyAmzTag" :type="showSecrets.amzTag ? 'text' : 'password'"
                          placeholder="yourtag-21"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.amzTag = !showSecrets.amzTag"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.amzTag ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.amzTag = !showSecrets.amzTag" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.amzTag"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.amzTag"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
             </div>
@@ -1643,9 +1668,7 @@
                   <input x-model="apiKeyAwinId" :type="showSecrets.awinId ? 'text' : 'password'"
                          placeholder="123456"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.awinId = !showSecrets.awinId"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.awinId ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.awinId = !showSecrets.awinId" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.awinId"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.awinId"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
               <div>
@@ -1654,9 +1677,7 @@
                   <input x-model="apiKeyAwinKey" :type="showSecrets.awinKey ? 'text' : 'password'"
                          placeholder="…"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.awinKey = !showSecrets.awinKey"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.awinKey ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.awinKey = !showSecrets.awinKey" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.awinKey"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.awinKey"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
             </div>
@@ -1672,9 +1693,7 @@
                   <input x-model="apiKeyRedditId" :type="showSecrets.redditId ? 'text' : 'password'"
                          placeholder="…"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.redditId = !showSecrets.redditId"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.redditId ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.redditId = !showSecrets.redditId" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.redditId"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.redditId"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
               <div>
@@ -1683,9 +1702,7 @@
                   <input x-model="apiKeyRedditSec" :type="showSecrets.redditSec ? 'text' : 'password'"
                          placeholder="…"
                          class="flex-1 input input-bordered">
-                  <button @click="showSecrets.redditSec = !showSecrets.redditSec"
-                          class="btn btn-ghost btn-xs"
-                          x-text="showSecrets.redditSec ? '🙈' : '👁'"></button>
+                  <button @click="showSecrets.redditSec = !showSecrets.redditSec" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.redditSec"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.redditSec"><use href="#hi-eye-slash"/></svg></button>
                 </div>
               </div>
             </div>
@@ -1698,9 +1715,7 @@
               <input x-model="apiKeyYoutube" :type="showSecrets.youtube ? 'text' : 'password'"
                      placeholder="AIza…"
                      class="flex-1 input input-bordered">
-              <button @click="showSecrets.youtube = !showSecrets.youtube"
-                      class="btn btn-ghost btn-xs"
-                      x-text="showSecrets.youtube ? '🙈' : '👁'"></button>
+              <button @click="showSecrets.youtube = !showSecrets.youtube" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.youtube"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.youtube"><use href="#hi-eye-slash"/></svg></button>
             </div>
           </div>
 
@@ -1711,9 +1726,7 @@
               <input x-model="apiKeyBing" :type="showSecrets.bing ? 'text' : 'password'"
                      placeholder="…"
                      class="flex-1 input input-bordered">
-              <button @click="showSecrets.bing = !showSecrets.bing"
-                      class="btn btn-ghost btn-xs"
-                      x-text="showSecrets.bing ? '🙈' : '👁'"></button>
+              <button @click="showSecrets.bing = !showSecrets.bing" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.bing"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.bing"><use href="#hi-eye-slash"/></svg></button>
             </div>
           </div>
 
@@ -1724,9 +1737,7 @@
               <input x-model="apiKeyAnthropic" :type="showSecrets.anthropic ? 'text' : 'password'"
                      placeholder="sk-ant-…"
                      class="flex-1 input input-bordered">
-              <button @click="showSecrets.anthropic = !showSecrets.anthropic"
-                      class="btn btn-ghost btn-xs"
-                      x-text="showSecrets.anthropic ? '🙈' : '👁'"></button>
+              <button @click="showSecrets.anthropic = !showSecrets.anthropic" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.anthropic"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.anthropic"><use href="#hi-eye-slash"/></svg></button>
             </div>
           </div>
 
@@ -1737,9 +1748,7 @@
               <input x-model="apiKeyOpenAI" :type="showSecrets.openai ? 'text' : 'password'"
                      placeholder="sk-…"
                      class="flex-1 input input-bordered">
-              <button @click="showSecrets.openai = !showSecrets.openai"
-                      class="btn btn-ghost btn-xs"
-                      x-text="showSecrets.openai ? '🙈' : '👁'"></button>
+              <button @click="showSecrets.openai = !showSecrets.openai" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.openai"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.openai"><use href="#hi-eye-slash"/></svg></button>
             </div>
           </div>
 
@@ -1750,9 +1759,7 @@
               <input x-model="apiKeyApify" :type="showSecrets.apify ? 'text' : 'password'"
                      placeholder="apify_api_…"
                      class="flex-1 input input-bordered">
-              <button @click="showSecrets.apify = !showSecrets.apify"
-                      class="btn btn-ghost btn-xs"
-                      x-text="showSecrets.apify ? '🙈' : '👁'"></button>
+              <button @click="showSecrets.apify = !showSecrets.apify" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.apify"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.apify"><use href="#hi-eye-slash"/></svg></button>
             </div>
             <p class="text-xs text-base-content/40 mt-1">Used for POST /api/pcpartpicker/apify — optional, the Playwright scraper works without it.</p>
           </div>
@@ -3632,6 +3639,11 @@ function app() {
     notifGotifyToken: '',
     notifAppriseUrl: '',
 
+    // Setup wizard
+    wizardStep: 0,
+    wizardSaving: {},
+    wizardSaved: {},
+
     // Saved searches
     savedSearches: [],
     savedSearchName: '',
@@ -4274,6 +4286,29 @@ function app() {
       this.showToast('✅ Scraper settings saved');
       await this.loadConfig();
     },
+    openWizard() {
+      if (this.wizardStep === 5) this.wizardStep = 0;
+      document.getElementById('setup-wizard-modal').showModal();
+    },
+    closeWizard() {
+      document.getElementById('setup-wizard-modal').close();
+    },
+    async wizardSaveField(configKey, value) {
+      this.wizardSaving = { ...this.wizardSaving, [configKey]: true };
+      try {
+        await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: configKey, value }),
+        });
+        this.wizardSaving = { ...this.wizardSaving, [configKey]: false };
+        this.wizardSaved  = { ...this.wizardSaved,  [configKey]: true };
+        setTimeout(() => { this.wizardSaved = { ...this.wizardSaved, [configKey]: false }; }, 2000);
+        await this.loadConfig();
+      } catch {
+        this.wizardSaving = { ...this.wizardSaving, [configKey]: false };
+      }
+    },
     async testNotification() {
       const r = await fetch('/api/notifications/test', { method: 'POST' });
       const d = await r.json();
@@ -4622,5 +4657,794 @@ function app() {
   };
 }
 </script>
+
+<!-- ══ Setup Wizard Modal ══════════════════════════════════════════════════════ -->
+<dialog id="setup-wizard-modal" class="modal modal-bottom sm:modal-middle">
+  <div class="modal-box w-full max-w-2xl p-0 flex flex-col" style="max-height:min(88vh,720px)">
+
+    <!-- ── Header ────────────────────────────────────────────────────────────── -->
+    <div class="px-6 pt-5 pb-4 border-b border-base-300 flex-shrink-0">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <div class="flex items-center gap-2.5 mb-0.5">
+            <span class="text-2xl leading-none" x-text="['🪄','🔑','☁️','🔔','🤖','🎉'][wizardStep]"></span>
+            <h2 class="text-base font-bold text-base-content" x-text="['Setup Wizard','Price Sources','Cloud Scraping','Notifications','AI &amp; Search','All Done!'][wizardStep]"></h2>
+          </div>
+          <p class="text-xs text-base-content/50" x-text="['Connect APIs, alerts, and scrapers — one step at a time. Everything saves automatically as you type.','Real-time UK price data from retailers and marketplaces.','Browser automation, Apify cloud actors, and rotating proxies.','Get a notification the moment any tracked price drops.','AI-assisted scraping fallback, web search, and Amazon data.','Your configuration is complete — PC Price Checker is ready to go.'][wizardStep]"></p>
+        </div>
+        <form method="dialog">
+          <button class="btn btn-ghost btn-circle btn-sm text-base-content/40 mt-0.5"><svg class="h-4 w-4"><use href="#hi-x-mark"/></svg></button>
+        </form>
+      </div>
+      <!-- Steps indicator -->
+      <ul class="steps w-full text-[10px]" x-show="wizardStep >= 1 && wizardStep <= 4">
+        <li class="step" :class="wizardStep >= 1 ? 'step-primary' : ''">Sources</li>
+        <li class="step" :class="wizardStep >= 2 ? 'step-primary' : ''">Scraping</li>
+        <li class="step" :class="wizardStep >= 3 ? 'step-primary' : ''">Alerts</li>
+        <li class="step" :class="wizardStep >= 4 ? 'step-primary' : ''">AI</li>
+      </ul>
+    </div>
+
+    <!-- ── Body ──────────────────────────────────────────────────────────────── -->
+    <div class="flex-1 overflow-y-auto p-5 space-y-4">
+
+      <!-- ─ Step 0: Welcome ─ -->
+      <div x-show="wizardStep === 0">
+        <p class="text-base-content/70 text-sm text-center mb-5 max-w-sm mx-auto">Connect your data sources, alert channels, and cloud services. Skip any step — settings save automatically on blur.</p>
+        <div class="grid grid-cols-2 gap-3">
+          <div class="flex gap-3 items-start p-4 rounded-xl bg-base-200 border border-base-300">
+            <span class="text-2xl">🔑</span>
+            <div><p class="font-semibold text-sm text-base-content">Price Sources</p><p class="text-xs text-base-content/50 mt-0.5">PricesAPI, eBay, Keepa, AWIN</p></div>
+          </div>
+          <div class="flex gap-3 items-start p-4 rounded-xl bg-base-200 border border-base-300">
+            <span class="text-2xl">☁️</span>
+            <div><p class="font-semibold text-sm text-base-content">Cloud Scraping</p><p class="text-xs text-base-content/50 mt-0.5">Apify, Camofox, Proxies</p></div>
+          </div>
+          <div class="flex gap-3 items-start p-4 rounded-xl bg-base-200 border border-base-300">
+            <span class="text-2xl">🔔</span>
+            <div><p class="font-semibold text-sm text-base-content">Notifications</p><p class="text-xs text-base-content/50 mt-0.5">Discord, Telegram, ntfy, Pushover, Slack, Email</p></div>
+          </div>
+          <div class="flex gap-3 items-start p-4 rounded-xl bg-base-200 border border-base-300">
+            <span class="text-2xl">🤖</span>
+            <div><p class="font-semibold text-sm text-base-content">AI &amp; Search</p><p class="text-xs text-base-content/50 mt-0.5">Claude, OpenAI, YouTube, Reddit, Bing</p></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ─ Step 1: Price Sources ─ -->
+      <div x-show="wizardStep === 1" class="space-y-4">
+
+        <!-- PricesAPI -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>💳</span><span class="font-semibold text-sm">PricesAPI.io</span>
+            <span class="badge badge-soft badge-error badge-xs">Required</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>Core pricing engine for UK retailers. <strong>Free 50,000 requests/month.</strong> Sign up, verify email, copy your key. <a href="https://pricesapi.io/dashboard" target="_blank" class="link link-hover font-semibold">pricesapi.io/dashboard →</a></span>
+          </div>
+          <div class="relative">
+            <input :type="showSecrets.pricesapi ? 'text' : 'password'" x-model="apiKeyPricesApi"
+                   @blur="wizardSaveField('prices_api_key', apiKeyPricesApi)"
+                   placeholder="pa_…" class="input input-bordered w-full pr-20" />
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+              <button type="button" @click="showSecrets.pricesapi = !showSecrets.pricesapi" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.pricesapi"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.pricesapi"><use href="#hi-eye-slash"/></svg></button>
+              <span x-show="wizardSaving['prices_api_key']" class="loading loading-spinner loading-xs text-primary"></span>
+              <span x-show="wizardSaved['prices_api_key']" class="text-success text-xs font-bold">✓</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- eBay -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>🛍️</span><span class="font-semibold text-sm">eBay Browse API</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · Free</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>eBay UK listings, sold prices, and buy-it-now deals. Free developer account. Create an app, get Client ID + Secret. <a href="https://developer.ebay.com/my/keys" target="_blank" class="link link-hover font-semibold">developer.ebay.com/my/keys →</a></span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <p class="label text-xs text-base-content/60 pb-1">Client ID (AppID)</p>
+              <div class="relative">
+                <input :type="showSecrets.ebayId ? 'text' : 'password'" x-model="apiKeyEbayId"
+                       @blur="wizardSaveField('ebay_client_id', apiKeyEbayId)"
+                       placeholder="YourApp-…" class="input input-bordered w-full pr-14" />
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                  <button type="button" @click="showSecrets.ebayId = !showSecrets.ebayId" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.ebayId"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.ebayId"><use href="#hi-eye-slash"/></svg></button>
+                  <span x-show="wizardSaved['ebay_client_id']" class="text-success text-xs font-bold">✓</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <p class="label text-xs text-base-content/60 pb-1">Client Secret</p>
+              <div class="relative">
+                <input :type="showSecrets.ebaySec ? 'text' : 'password'" x-model="apiKeyEbaySec"
+                       @blur="wizardSaveField('ebay_client_secret', apiKeyEbaySec)"
+                       placeholder="SBX-…" class="input input-bordered w-full pr-14" />
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                  <button type="button" @click="showSecrets.ebaySec = !showSecrets.ebaySec" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.ebaySec"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.ebaySec"><use href="#hi-eye-slash"/></svg></button>
+                  <span x-show="wizardSaved['ebay_client_secret']" class="text-success text-xs font-bold">✓</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Keepa -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>📊</span><span class="font-semibold text-sm">Keepa</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · ~€17/mo</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>Amazon UK price history charts, deal detection, and ASIN lookups. Subscribe, then copy your API key. <a href="https://keepa.com/#!api" target="_blank" class="link link-hover font-semibold">keepa.com/api →</a></span>
+          </div>
+          <div class="relative">
+            <input :type="showSecrets.keepa ? 'text' : 'password'" x-model="apiKeyKeepa"
+                   @blur="wizardSaveField('keepa_api_key', apiKeyKeepa)"
+                   placeholder="keepa_…" class="input input-bordered w-full pr-20" />
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+              <button type="button" @click="showSecrets.keepa = !showSecrets.keepa" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.keepa"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.keepa"><use href="#hi-eye-slash"/></svg></button>
+              <span x-show="wizardSaving['keepa_api_key']" class="loading loading-spinner loading-xs text-primary"></span>
+              <span x-show="wizardSaved['keepa_api_key']" class="text-success text-xs font-bold">✓</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- AWIN -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>🏷️</span><span class="font-semibold text-sm">AWIN Affiliate</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · Free</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>Access 300+ UK retailers incl. Scan, Overclockers, Currys, CCL. Free affiliate account — apply, get approved, find your Publisher ID under Account → Details. <a href="https://ui.awin.com/publisher-overview" target="_blank" class="link link-hover font-semibold">awin.com →</a></span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <p class="label text-xs text-base-content/60 pb-1">Publisher ID</p>
+              <div class="relative">
+                <input :type="showSecrets.awinId ? 'text' : 'password'" x-model="apiKeyAwinId"
+                       @blur="wizardSaveField('awin_publisher_id', apiKeyAwinId)"
+                       placeholder="123456" class="input input-bordered w-full pr-14" />
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                  <button type="button" @click="showSecrets.awinId = !showSecrets.awinId" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.awinId"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.awinId"><use href="#hi-eye-slash"/></svg></button>
+                  <span x-show="wizardSaved['awin_publisher_id']" class="text-success text-xs font-bold">✓</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <p class="label text-xs text-base-content/60 pb-1">API Key</p>
+              <div class="relative">
+                <input :type="showSecrets.awinKey ? 'text' : 'password'" x-model="apiKeyAwinKey"
+                       @blur="wizardSaveField('awin_api_key', apiKeyAwinKey)"
+                       placeholder="…" class="input input-bordered w-full pr-14" />
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                  <button type="button" @click="showSecrets.awinKey = !showSecrets.awinKey" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.awinKey"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.awinKey"><use href="#hi-eye-slash"/></svg></button>
+                  <span x-show="wizardSaved['awin_api_key']" class="text-success text-xs font-bold">✓</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+      </div>
+
+      <!-- ─ Step 2: Cloud Scraping ─ -->
+      <div x-show="wizardStep === 2" class="space-y-4">
+
+        <!-- Apify -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>🕷️</span><span class="font-semibold text-sm">Apify</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · $5 free/mo</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>Runs cloud actors for <strong>PCPartPicker, Currys, Argos, Idealo, Google Shopping, and Amazon</strong> — no local browser needed. $5 free credit/month. Sign up, go to Settings → Integrations → API token. <a href="https://console.apify.com/settings/integrations" target="_blank" class="link link-hover font-semibold">console.apify.com →</a></span>
+          </div>
+          <div class="relative">
+            <input :type="showSecrets.apify ? 'text' : 'password'" x-model="apiKeyApify"
+                   @blur="wizardSaveField('apify_api_token', apiKeyApify)"
+                   placeholder="apify_api_…" class="input input-bordered w-full pr-20" />
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+              <button type="button" @click="showSecrets.apify = !showSecrets.apify" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.apify"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.apify"><use href="#hi-eye-slash"/></svg></button>
+              <span x-show="wizardSaving['apify_api_token']" class="loading loading-spinner loading-xs text-primary"></span>
+              <span x-show="wizardSaved['apify_api_token']" class="text-success text-xs font-bold">✓</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Camofox -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>🦊</span><span class="font-semibold text-sm">Camofox Anti-Bot Browser</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · Self-hosted</span>
+          </legend>
+          <div role="alert" class="alert alert-warning alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-exclamation-triangle"/></svg>
+            <span>Patches Firefox at C++ level — bypasses Cloudflare, Dell, HP, NVIDIA anti-bot detection. Start locally: <code class="bg-base-300/50 px-1 rounded mono">npx @askjo/camofox-browser</code> (listens on port 9377). <a href="https://github.com/askjo/camofox-browser" target="_blank" class="link link-hover font-semibold">GitHub →</a></span>
+          </div>
+          <div class="relative">
+            <input type="url" x-model="scraperCamofoxUrl"
+                   @blur="wizardSaveField('camofox_url', scraperCamofoxUrl)"
+                   placeholder="http://localhost:9377" class="input input-bordered w-full mono pr-10" />
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+              <span x-show="wizardSaving['camofox_url']" class="loading loading-spinner loading-xs text-primary"></span>
+              <span x-show="wizardSaved['camofox_url']" class="text-success text-xs font-bold">✓</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Rotating Proxies -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>🌐</span><span class="font-semibold text-sm">Rotating Proxies</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>Comma-separated proxy list. One is randomly selected per scrape session. Helps bypass IP-based rate limits and geo-blocks on repeated scrapes. Format: <code class="mono bg-base-300/50 px-1 rounded">http://user:pass@host:port</code></span>
+          </div>
+          <div class="relative">
+            <textarea x-model="scraperProxies" rows="3"
+                      @blur="wizardSaveField('scrape_proxies', scraperProxies)"
+                      placeholder="http://user:pass@proxy1.example.com:8080, http://proxy2:3128"
+                      class="textarea textarea-bordered w-full mono text-xs resize-none"></textarea>
+            <span x-show="wizardSaved['scrape_proxies']" class="absolute right-2 top-2 text-success text-xs font-bold">✓ saved</span>
+          </div>
+        </fieldset>
+
+      </div>
+
+      <!-- ─ Step 3: Notifications ─ -->
+      <div x-show="wizardStep === 3" class="space-y-3">
+
+        <!-- Drop % threshold -->
+        <div role="alert" class="alert alert-success alert-soft py-2.5 px-4 text-sm">
+          <svg class="h-5 w-5 shrink-0"><use href="#hi-check-circle"/></svg>
+          <div class="flex items-center gap-3 flex-wrap">
+            <span class="text-xs text-base-content/80">Alert me when a tracked price drops by at least</span>
+            <div class="flex items-center gap-2">
+              <input x-model="notifDropPct" type="number" min="0" max="100"
+                     @blur="wizardSaveField('notify_drop_percent', notifDropPct)"
+                     class="input input-bordered input-sm w-20 text-center" />
+              <span class="text-xs text-base-content/80">%</span>
+              <span x-show="wizardSaved['notify_drop_percent']" class="text-success text-xs font-bold">✓</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Discord -->
+        <div class="collapse collapse-arrow border border-base-300 rounded-xl bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title flex items-center gap-3 min-h-0 py-3 px-4">
+            <span class="text-xl">💬</span>
+            <div class="flex-1 min-w-0"><span class="font-medium text-sm">Discord</span><span class="text-xs text-base-content/50 ml-2">Webhook URL</span></div>
+            <span :class="configStatus.discord ? 'badge-success' : 'badge-ghost'" class="badge badge-soft badge-xs mr-5" x-text="configStatus.discord ? '✓ Connected' : 'Not set'"></span>
+          </div>
+          <div class="collapse-content pb-4 space-y-3">
+            <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+              <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+              <span>Free. In Discord: Edit Channel → Integrations → Webhooks → New Webhook → Copy URL. <a href="https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks" target="_blank" class="link link-hover font-semibold">Guide →</a></span>
+            </div>
+            <div class="relative">
+              <input :type="showSecrets.discord ? 'text' : 'password'" x-model="notifDiscord"
+                     @blur="wizardSaveField('discord_webhook_url', notifDiscord)"
+                     placeholder="https://discord.com/api/webhooks/…" class="input input-bordered w-full pr-20" />
+              <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+                <button type="button" @click="showSecrets.discord = !showSecrets.discord" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.discord"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.discord"><use href="#hi-eye-slash"/></svg></button>
+                <span x-show="wizardSaving['discord_webhook_url']" class="loading loading-spinner loading-xs text-primary"></span>
+                <span x-show="wizardSaved['discord_webhook_url']" class="text-success text-xs font-bold">✓</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Telegram -->
+        <div class="collapse collapse-arrow border border-base-300 rounded-xl bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title flex items-center gap-3 min-h-0 py-3 px-4">
+            <span class="text-xl">✈️</span>
+            <div class="flex-1 min-w-0"><span class="font-medium text-sm">Telegram</span><span class="text-xs text-base-content/50 ml-2">Bot + Chat ID</span></div>
+            <span :class="configStatus.telegram ? 'badge-success' : 'badge-ghost'" class="badge badge-soft badge-xs mr-5" x-text="configStatus.telegram ? '✓ Connected' : 'Not set'"></span>
+          </div>
+          <div class="collapse-content pb-4 space-y-3">
+            <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+              <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+              <span>Free. Message <strong>@BotFather</strong> → /newbot to get a token. Add bot to a group, then ask <strong>@userinfobot</strong> for the chat ID. <a href="https://core.telegram.org/bots#botfather" target="_blank" class="link link-hover font-semibold">BotFather docs →</a></span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">Bot Token</p>
+                <div class="relative">
+                  <input :type="showSecrets.telegram ? 'text' : 'password'" x-model="notifTelegram"
+                         @blur="wizardSaveField('telegram_bot_token', notifTelegram)"
+                         placeholder="123456:ABC-DEF…" class="input input-bordered w-full pr-14" />
+                  <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                    <button type="button" @click="showSecrets.telegram = !showSecrets.telegram" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.telegram"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.telegram"><use href="#hi-eye-slash"/></svg></button>
+                    <span x-show="wizardSaved['telegram_bot_token']" class="text-success text-xs">✓</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">Chat ID</p>
+                <div class="relative">
+                  <input type="text" x-model="notifTelegramChat"
+                         @blur="wizardSaveField('telegram_chat_id', notifTelegramChat)"
+                         placeholder="-100123456789" class="input input-bordered w-full pr-8" />
+                  <span x-show="wizardSaved['telegram_chat_id']" class="absolute right-2 top-1/2 -translate-y-1/2 text-success text-xs">✓</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ntfy -->
+        <div class="collapse collapse-arrow border border-base-300 rounded-xl bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title flex items-center gap-3 min-h-0 py-3 px-4">
+            <span class="text-xl">📱</span>
+            <div class="flex-1 min-w-0"><span class="font-medium text-sm">ntfy</span><span class="text-xs text-base-content/50 ml-2">Phone &amp; desktop push — no account needed</span></div>
+            <span :class="configStatus.ntfy ? 'badge-success' : 'badge-ghost'" class="badge badge-soft badge-xs mr-5" x-text="configStatus.ntfy ? '✓ Connected' : 'Not set'"></span>
+          </div>
+          <div class="collapse-content pb-4 space-y-3">
+            <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+              <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+              <span>Free, open-source, self-hostable. No account needed — pick any unique topic. Subscribe at <span class="font-mono font-semibold">ntfy.sh/[topic]</span> or in the ntfy iOS/Android app. <a href="https://ntfy.sh" target="_blank" class="link link-hover font-semibold">ntfy.sh →</a></span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">Topic</p>
+                <div class="relative">
+                  <input type="text" x-model="notifNtfyTopic"
+                         @blur="wizardSaveField('ntfy_topic', notifNtfyTopic)"
+                         placeholder="my-pc-price-alerts" class="input input-bordered w-full pr-8" />
+                  <span x-show="wizardSaved['ntfy_topic']" class="absolute right-2 top-1/2 -translate-y-1/2 text-success text-xs">✓</span>
+                </div>
+              </div>
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">Server <span class="text-base-content/30">(default: ntfy.sh)</span></p>
+                <div class="relative">
+                  <input type="text" x-model="notifNtfyServer"
+                         @blur="wizardSaveField('ntfy_server', notifNtfyServer)"
+                         placeholder="https://ntfy.sh" class="input input-bordered w-full pr-8" />
+                  <span x-show="wizardSaved['ntfy_server']" class="absolute right-2 top-1/2 -translate-y-1/2 text-success text-xs">✓</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Slack -->
+        <div class="collapse collapse-arrow border border-base-300 rounded-xl bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title flex items-center gap-3 min-h-0 py-3 px-4">
+            <span class="text-xl">💼</span>
+            <div class="flex-1 min-w-0"><span class="font-medium text-sm">Slack</span><span class="text-xs text-base-content/50 ml-2">Incoming Webhook</span></div>
+            <span :class="configStatus.slack ? 'badge-success' : 'badge-ghost'" class="badge badge-soft badge-xs mr-5" x-text="configStatus.slack ? '✓ Connected' : 'Not set'"></span>
+          </div>
+          <div class="collapse-content pb-4 space-y-3">
+            <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+              <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+              <span>Free. Create an Incoming Webhook app at api.slack.com, authorise it to a channel, copy the URL. <a href="https://api.slack.com/messaging/webhooks" target="_blank" class="link link-hover font-semibold">Slack Webhooks →</a></span>
+            </div>
+            <div class="relative">
+              <input :type="showSecrets.slack ? 'text' : 'password'" x-model="notifSlack"
+                     @blur="wizardSaveField('slack_webhook_url', notifSlack)"
+                     placeholder="https://hooks.slack.com/services/…" class="input input-bordered w-full pr-20" />
+              <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+                <button type="button" @click="showSecrets.slack = !showSecrets.slack" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.slack"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.slack"><use href="#hi-eye-slash"/></svg></button>
+                <span x-show="wizardSaved['slack_webhook_url']" class="text-success text-xs font-bold">✓</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Email (Resend) -->
+        <div class="collapse collapse-arrow border border-base-300 rounded-xl bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title flex items-center gap-3 min-h-0 py-3 px-4">
+            <span class="text-xl">📧</span>
+            <div class="flex-1 min-w-0"><span class="font-medium text-sm">Email via Resend</span><span class="text-xs text-base-content/50 ml-2">Free 100/day</span></div>
+            <span :class="configStatus.email ? 'badge-success' : 'badge-ghost'" class="badge badge-soft badge-xs mr-5" x-text="configStatus.email ? '✓ Connected' : 'Not set'"></span>
+          </div>
+          <div class="collapse-content pb-4 space-y-3">
+            <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+              <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+              <span>Free 100 emails/day, no credit card needed. Sign up, verify a sending domain, create an API key. <a href="https://resend.com/api-keys" target="_blank" class="link link-hover font-semibold">resend.com →</a></span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">Resend API Key</p>
+                <div class="relative">
+                  <input :type="showSecrets.resend ? 'text' : 'password'" x-model="notifResend"
+                         @blur="wizardSaveField('resend_api_key', notifResend)"
+                         placeholder="re_xxxxxxxxxx" class="input input-bordered w-full pr-14" />
+                  <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                    <button type="button" @click="showSecrets.resend = !showSecrets.resend" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.resend"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.resend"><use href="#hi-eye-slash"/></svg></button>
+                    <span x-show="wizardSaved['resend_api_key']" class="text-success text-xs">✓</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">Send alerts to</p>
+                <div class="relative">
+                  <input type="email" x-model="notifEmail"
+                         @blur="wizardSaveField('alert_email', notifEmail)"
+                         placeholder="you@example.com" class="input input-bordered w-full pr-8" />
+                  <span x-show="wizardSaved['alert_email']" class="absolute right-2 top-1/2 -translate-y-1/2 text-success text-xs">✓</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pushover -->
+        <div class="collapse collapse-arrow border border-base-300 rounded-xl bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title flex items-center gap-3 min-h-0 py-3 px-4">
+            <span class="text-xl">🔔</span>
+            <div class="flex-1 min-w-0"><span class="font-medium text-sm">Pushover</span><span class="text-xs text-base-content/50 ml-2">One-time £5 app purchase</span></div>
+            <span :class="configStatus.pushover ? 'badge-success' : 'badge-ghost'" class="badge badge-soft badge-xs mr-5" x-text="configStatus.pushover ? '✓ Connected' : 'Not set'"></span>
+          </div>
+          <div class="collapse-content pb-4 space-y-3">
+            <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+              <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+              <span>Rich iOS/Android push. Buy app once (£5), register a free application to get the App Token, find your User Key on the dashboard. <a href="https://pushover.net/api" target="_blank" class="link link-hover font-semibold">pushover.net →</a></span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">App Token</p>
+                <div class="relative">
+                  <input :type="showSecrets.pushoverToken ? 'text' : 'password'" x-model="notifPushoverToken"
+                         @blur="wizardSaveField('pushover_app_token', notifPushoverToken)"
+                         placeholder="a…" class="input input-bordered w-full pr-14" />
+                  <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                    <button type="button" @click="showSecrets.pushoverToken = !showSecrets.pushoverToken" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.pushoverToken"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.pushoverToken"><use href="#hi-eye-slash"/></svg></button>
+                    <span x-show="wizardSaved['pushover_app_token']" class="text-success text-xs">✓</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">User Key</p>
+                <div class="relative">
+                  <input :type="showSecrets.pushoverUser ? 'text' : 'password'" x-model="notifPushoverUser"
+                         @blur="wizardSaveField('pushover_user_key', notifPushoverUser)"
+                         placeholder="u…" class="input input-bordered w-full pr-14" />
+                  <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                    <button type="button" @click="showSecrets.pushoverUser = !showSecrets.pushoverUser" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.pushoverUser"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.pushoverUser"><use href="#hi-eye-slash"/></svg></button>
+                    <span x-show="wizardSaved['pushover_user_key']" class="text-success text-xs">✓</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gotify -->
+        <div class="collapse collapse-arrow border border-base-300 rounded-xl bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title flex items-center gap-3 min-h-0 py-3 px-4">
+            <span class="text-xl">🏠</span>
+            <div class="flex-1 min-w-0"><span class="font-medium text-sm">Gotify</span><span class="text-xs text-base-content/50 ml-2">Self-hosted push server</span></div>
+            <span :class="configStatus.gotify ? 'badge-success' : 'badge-ghost'" class="badge badge-soft badge-xs mr-5" x-text="configStatus.gotify ? '✓ Connected' : 'Not set'"></span>
+          </div>
+          <div class="collapse-content pb-4 space-y-3">
+            <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+              <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+              <span>Open-source, self-hosted. Run via Docker, create an Application, copy the App token. Server URL is your Gotify instance. <a href="https://gotify.net/docs/install" target="_blank" class="link link-hover font-semibold">gotify.net →</a></span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">Server URL</p>
+                <div class="relative">
+                  <input type="url" x-model="notifGotifyUrl"
+                         @blur="wizardSaveField('gotify_server_url', notifGotifyUrl)"
+                         placeholder="http://your-gotify:80" class="input input-bordered w-full pr-8" />
+                  <span x-show="wizardSaved['gotify_server_url']" class="absolute right-2 top-1/2 -translate-y-1/2 text-success text-xs">✓</span>
+                </div>
+              </div>
+              <div>
+                <p class="label text-xs text-base-content/60 pb-1">App Token</p>
+                <div class="relative">
+                  <input type="password" x-model="notifGotifyToken"
+                         @blur="wizardSaveField('gotify_app_token', notifGotifyToken)"
+                         placeholder="A…" class="input input-bordered w-full pr-8" />
+                  <span x-show="wizardSaved['gotify_app_token']" class="absolute right-2 top-1/2 -translate-y-1/2 text-success text-xs">✓</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Apprise -->
+        <div class="collapse collapse-arrow border border-base-300 rounded-xl bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title flex items-center gap-3 min-h-0 py-3 px-4">
+            <span class="text-xl">🌍</span>
+            <div class="flex-1 min-w-0"><span class="font-medium text-sm">Apprise</span><span class="text-xs text-base-content/50 ml-2">Unified push to 80+ services</span></div>
+            <span :class="configStatus.apprise ? 'badge-success' : 'badge-ghost'" class="badge badge-soft badge-xs mr-5" x-text="configStatus.apprise ? '✓ Connected' : 'Not set'"></span>
+          </div>
+          <div class="collapse-content pb-4 space-y-3">
+            <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+              <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+              <span>Aggregates Slack, Matrix, PushBullet, Signal, and 80+ others. Self-hosted API server. Paste the full notify endpoint URL. <a href="https://github.com/caronc/apprise-api" target="_blank" class="link link-hover font-semibold">Apprise API →</a></span>
+            </div>
+            <div class="relative">
+              <input type="url" x-model="notifAppriseUrl"
+                     @blur="wizardSaveField('apprise_url', notifAppriseUrl)"
+                     placeholder="http://your-apprise:8000/notify/KEY" class="input input-bordered w-full pr-8" />
+              <span x-show="wizardSaved['apprise_url']" class="absolute right-2 top-1/2 -translate-y-1/2 text-success text-xs">✓</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ─ Step 4: AI & Search ─ -->
+      <div x-show="wizardStep === 4" class="space-y-4">
+
+        <!-- Anthropic -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>🤖</span><span class="font-semibold text-sm">Anthropic (Claude)</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · AI fallback</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>Used when all other scraping methods fail — Claude reads raw page HTML and extracts prices. Pay-per-use. <a href="https://console.anthropic.com/settings/keys" target="_blank" class="link link-hover font-semibold">console.anthropic.com →</a></span>
+          </div>
+          <div class="relative">
+            <input :type="showSecrets.anthropic ? 'text' : 'password'" x-model="apiKeyAnthropic"
+                   @blur="wizardSaveField('anthropic_api_key', apiKeyAnthropic)"
+                   placeholder="sk-ant-…" class="input input-bordered w-full pr-20" />
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+              <button type="button" @click="showSecrets.anthropic = !showSecrets.anthropic" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.anthropic"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.anthropic"><use href="#hi-eye-slash"/></svg></button>
+              <span x-show="wizardSaving['anthropic_api_key']" class="loading loading-spinner loading-xs text-primary"></span>
+              <span x-show="wizardSaved['anthropic_api_key']" class="text-success text-xs font-bold">✓</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- OpenAI -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>🧠</span><span class="font-semibold text-sm">OpenAI</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · Alternative AI</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>gpt-4o-mini for price extraction and self-healing CSS selectors — used when Anthropic is not configured. Pay-per-use. <a href="https://platform.openai.com/api-keys" target="_blank" class="link link-hover font-semibold">platform.openai.com →</a></span>
+          </div>
+          <div class="relative">
+            <input :type="showSecrets.openai ? 'text' : 'password'" x-model="apiKeyOpenAI"
+                   @blur="wizardSaveField('openai_api_key', apiKeyOpenAI)"
+                   placeholder="sk-…" class="input input-bordered w-full pr-20" />
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+              <button type="button" @click="showSecrets.openai = !showSecrets.openai" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.openai"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.openai"><use href="#hi-eye-slash"/></svg></button>
+              <span x-show="wizardSaving['openai_api_key']" class="loading loading-spinner loading-xs text-primary"></span>
+              <span x-show="wizardSaved['openai_api_key']" class="text-success text-xs font-bold">✓</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Amazon PA API -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>📦</span><span class="font-semibold text-sm">Amazon Product Advertising API</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · Affiliate</span>
+          </legend>
+          <div role="alert" class="alert alert-warning alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-exclamation-triangle"/></svg>
+            <span>Requires an active Amazon Associates account with 3+ qualifying sales within 180 days of registration. Keys are under Tools → Product Advertising API. <a href="https://affiliate-program.amazon.co.uk/" target="_blank" class="link link-hover font-semibold">Amazon Associates UK →</a></span>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <div>
+              <p class="label text-xs text-base-content/60 pb-1">Access Key</p>
+              <div class="relative">
+                <input :type="showSecrets.amzAccess ? 'text' : 'password'" x-model="apiKeyAmzAccess"
+                       @blur="wizardSaveField('amazon_access_key', apiKeyAmzAccess)"
+                       placeholder="AKIA…" class="input input-bordered w-full pr-14" />
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                  <button type="button" @click="showSecrets.amzAccess = !showSecrets.amzAccess" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.amzAccess"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.amzAccess"><use href="#hi-eye-slash"/></svg></button>
+                  <span x-show="wizardSaved['amazon_access_key']" class="text-success text-xs">✓</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <p class="label text-xs text-base-content/60 pb-1">Secret Key</p>
+              <div class="relative">
+                <input :type="showSecrets.amzSecret ? 'text' : 'password'" x-model="apiKeyAmzSecret"
+                       @blur="wizardSaveField('amazon_secret_key', apiKeyAmzSecret)"
+                       placeholder="…" class="input input-bordered w-full pr-14" />
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                  <button type="button" @click="showSecrets.amzSecret = !showSecrets.amzSecret" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.amzSecret"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.amzSecret"><use href="#hi-eye-slash"/></svg></button>
+                  <span x-show="wizardSaved['amazon_secret_key']" class="text-success text-xs">✓</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <p class="label text-xs text-base-content/60 pb-1">Associate Tag</p>
+              <div class="relative">
+                <input :type="showSecrets.amzTag ? 'text' : 'password'" x-model="apiKeyAmzTag"
+                       @blur="wizardSaveField('amazon_associate_tag', apiKeyAmzTag)"
+                       placeholder="yourtag-21" class="input input-bordered w-full pr-14" />
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                  <button type="button" @click="showSecrets.amzTag = !showSecrets.amzTag" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.amzTag"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.amzTag"><use href="#hi-eye-slash"/></svg></button>
+                  <span x-show="wizardSaved['amazon_associate_tag']" class="text-success text-xs">✓</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Reddit -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>🟠</span><span class="font-semibold text-sm">Reddit API</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · Free</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>Powers deal alerts from r/HotUKDeals, r/buildapc, and r/pcmasterrace. Free "script" app type. <a href="https://www.reddit.com/prefs/apps" target="_blank" class="link link-hover font-semibold">reddit.com/prefs/apps →</a></span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <p class="label text-xs text-base-content/60 pb-1">Client ID</p>
+              <div class="relative">
+                <input :type="showSecrets.redditId ? 'text' : 'password'" x-model="apiKeyRedditId"
+                       @blur="wizardSaveField('reddit_client_id', apiKeyRedditId)"
+                       placeholder="…" class="input input-bordered w-full pr-14" />
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                  <button type="button" @click="showSecrets.redditId = !showSecrets.redditId" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.redditId"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.redditId"><use href="#hi-eye-slash"/></svg></button>
+                  <span x-show="wizardSaved['reddit_client_id']" class="text-success text-xs">✓</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <p class="label text-xs text-base-content/60 pb-1">Client Secret</p>
+              <div class="relative">
+                <input :type="showSecrets.redditSec ? 'text' : 'password'" x-model="apiKeyRedditSec"
+                       @blur="wizardSaveField('reddit_client_secret', apiKeyRedditSec)"
+                       placeholder="…" class="input input-bordered w-full pr-14" />
+                <div class="absolute right-1 top-1/2 -translate-y-1/2 flex gap-0.5 items-center">
+                  <button type="button" @click="showSecrets.redditSec = !showSecrets.redditSec" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.redditSec"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.redditSec"><use href="#hi-eye-slash"/></svg></button>
+                  <span x-show="wizardSaved['reddit_client_secret']" class="text-success text-xs">✓</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- YouTube -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>▶️</span><span class="font-semibold text-sm">YouTube Data API v3</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · Free 10k/day</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>Enriches component search with review videos (Gamers Nexus, Hardware Unboxed, etc). Free 10,000 units/day. Enable the API in Google Cloud Console, then create a key. <a href="https://console.cloud.google.com/apis/credentials" target="_blank" class="link link-hover font-semibold">Google Cloud Console →</a></span>
+          </div>
+          <div class="relative">
+            <input :type="showSecrets.youtube ? 'text' : 'password'" x-model="apiKeyYoutube"
+                   @blur="wizardSaveField('youtube_api_key', apiKeyYoutube)"
+                   placeholder="AIza…" class="input input-bordered w-full pr-20" />
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+              <button type="button" @click="showSecrets.youtube = !showSecrets.youtube" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.youtube"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.youtube"><use href="#hi-eye-slash"/></svg></button>
+              <span x-show="wizardSaving['youtube_api_key']" class="loading loading-spinner loading-xs text-primary"></span>
+              <span x-show="wizardSaved['youtube_api_key']" class="text-success text-xs font-bold">✓</span>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Bing -->
+        <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
+          <legend class="fieldset-legend flex items-center gap-2 px-1">
+            <span>🔍</span><span class="font-semibold text-sm">Bing Search API</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · 1k/mo free</span>
+          </legend>
+          <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+            <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+            <span>Web search enrichment for component specs and reviews. Free tier: 1,000 API calls/month via Azure. Create a "Bing Search v7" resource and copy the key. <a href="https://portal.azure.com/#create/Microsoft.BingSearch" target="_blank" class="link link-hover font-semibold">Azure Portal →</a></span>
+          </div>
+          <div class="relative">
+            <input :type="showSecrets.bing ? 'text' : 'password'" x-model="apiKeyBing"
+                   @blur="wizardSaveField('bing_api_key', apiKeyBing)"
+                   placeholder="…" class="input input-bordered w-full pr-20" />
+            <div class="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1 items-center">
+              <button type="button" @click="showSecrets.bing = !showSecrets.bing" class="btn btn-ghost btn-xs p-1"><svg class="h-4 w-4" x-show="!showSecrets.bing"><use href="#hi-eye"/></svg><svg class="h-4 w-4" x-show="showSecrets.bing"><use href="#hi-eye-slash"/></svg></button>
+              <span x-show="wizardSaving['bing_api_key']" class="loading loading-spinner loading-xs text-primary"></span>
+              <span x-show="wizardSaved['bing_api_key']" class="text-success text-xs font-bold">✓</span>
+            </div>
+          </div>
+        </fieldset>
+
+      </div>
+
+      <!-- ─ Step 5: Done! ─ -->
+      <div x-show="wizardStep === 5">
+        <p class="text-base-content/70 text-sm text-center mb-5">Here's a summary of everything connected. Head to Settings to fine-tune anything.</p>
+        <div class="grid grid-cols-3 gap-2 mb-5">
+          <template x-for="item in [
+            { label: 'PricesAPI', ok: apiKeyStatus.pricesapi, icon: '💳' },
+            { label: 'eBay',      ok: apiKeyStatus.ebay,      icon: '🛍️' },
+            { label: 'Keepa',     ok: apiKeyStatus.keepa,     icon: '📊' },
+            { label: 'AWIN',      ok: apiKeyStatus.awin,      icon: '🏷️' },
+            { label: 'Apify',     ok: apiKeyStatus.apify,     icon: '🕷️' },
+            { label: 'Amazon PA', ok: apiKeyStatus.amazon,    icon: '📦' },
+            { label: 'Discord',   ok: configStatus.discord,   icon: '💬' },
+            { label: 'Telegram',  ok: configStatus.telegram,  icon: '✈️' },
+            { label: 'ntfy',      ok: configStatus.ntfy,      icon: '📱' },
+            { label: 'Slack',     ok: configStatus.slack,     icon: '💼' },
+            { label: 'Email',     ok: configStatus.email,     icon: '📧' },
+            { label: 'Pushover',  ok: configStatus.pushover,  icon: '🔔' },
+            { label: 'Gotify',    ok: configStatus.gotify,    icon: '🏠' },
+            { label: 'Apprise',   ok: configStatus.apprise,   icon: '🌍' },
+            { label: 'Claude AI', ok: apiKeyStatus.anthropic, icon: '🤖' },
+            { label: 'OpenAI',    ok: apiKeyStatus.openai,    icon: '🧠' },
+            { label: 'YouTube',   ok: apiKeyStatus.youtube,   icon: '▶️' },
+            { label: 'Bing',      ok: apiKeyStatus.bing,      icon: '🔍' },
+          ]" :key="item.label">
+            <div :class="item.ok ? 'border-success/40 bg-success/10' : 'border-base-300 bg-base-200/60'"
+                 class="flex items-center gap-2 p-2.5 rounded-xl border text-xs transition-colors">
+              <span x-text="item.icon" class="text-base leading-none"></span>
+              <span class="text-base-content/80 truncate flex-1 text-[11px]" x-text="item.label"></span>
+              <span :class="item.ok ? 'text-success font-bold' : 'text-base-content/20'" x-text="item.ok ? '✓' : '–'"></span>
+            </div>
+          </template>
+        </div>
+        <div class="flex gap-3 justify-center">
+          <button @click="wizardStep = 1" class="btn btn-ghost btn-sm gap-1">
+            <svg class="h-4 w-4"><use href="#hi-chevron-left"/></svg>
+            Review again
+          </button>
+          <button @click="testNotification(); closeWizard()" class="btn btn-ghost btn-sm">🔔 Send test alert</button>
+        </div>
+      </div>
+
+    </div><!-- /body -->
+
+    <!-- ── Footer ────────────────────────────────────────────────────────────── -->
+    <div class="flex-shrink-0 border-t border-base-300 px-5 py-3 flex items-center justify-between bg-base-100 rounded-b-box">
+      <div class="flex gap-2">
+        <button x-show="wizardStep > 0" @click="wizardStep--" class="btn btn-ghost btn-sm gap-1">
+          <svg class="h-4 w-4"><use href="#hi-chevron-left"/></svg>
+          Back
+        </button>
+        <button x-show="wizardStep >= 1 && wizardStep <= 4" @click="wizardStep++" class="btn btn-ghost btn-sm text-base-content/40">
+          Skip →
+        </button>
+      </div>
+      <div class="flex gap-2">
+        <button x-show="wizardStep === 0" @click="wizardStep = 1" class="btn btn-primary gap-2">
+          Get Started
+          <svg class="h-4 w-4"><use href="#hi-chevron-right"/></svg>
+        </button>
+        <button x-show="wizardStep >= 1 && wizardStep <= 3" @click="wizardStep++" class="btn btn-primary gap-2">
+          Next
+          <svg class="h-4 w-4"><use href="#hi-chevron-right"/></svg>
+        </button>
+        <button x-show="wizardStep === 4" @click="wizardStep = 5; loadConfig()" class="btn btn-success gap-2">
+          Finish
+          <svg class="h-4 w-4"><use href="#hi-check"/></svg>
+        </button>
+        <button x-show="wizardStep === 5" @click="closeWizard()" class="btn btn-primary">
+          Done — Let's go! 🚀
+        </button>
+      </div>
+    </div>
+
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
 </body>
 </html>
