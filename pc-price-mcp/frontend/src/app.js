@@ -1,6 +1,10 @@
 import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler } from 'chart.js';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
+const CURRENCY_SYMS = { GBP: '£', USD: '$', EUR: '€' };
+const CHART_TICK_COLOR = '#a6adbb';
+const CHART_GRID_COLOR = 'rgba(166,173,187,0.12)';
+
 function app() {
   return {
     activeTab: 'dashboard',
@@ -15,7 +19,6 @@ function app() {
     selectedBuild: null,
     selectedBuildDetail: null,
     vatMode: 'inc_vat',
-    configStatus: { discord: false, slack: false, telegram: false, email: false, ntfy: false, pushover: false },
 
     // Help modal
     helpOpen: false,
@@ -221,7 +224,7 @@ function app() {
       { id: 'pcspecialist', label: 'PC Specialist' }, { id: 'lenovo', label: 'Lenovo UK' },
       { id: 'bedrock', label: 'Bedrock Computers' },
     ],
-    selectedPrebuiltRetailers: ['currys','argos','johnlewis','ao','very','ebuyer','scan','overclockers','box','novatech','ccl','chillblast','dell','hp','amazon','pallicomp','costco','cyberpower','pcspecialist','lenovo','bedrock'],
+    selectedPrebuiltRetailers: [],
     prebuiltSearchQuery: '',
     prebuiltSearchResults: null,
     prebuiltSearchLoading: false,
@@ -251,6 +254,21 @@ function app() {
     refreshingAll: false,
     toast: null,
     _toastTimer: null,
+    _schedulerTimer: null,
+
+    // ── Computed ───────────────────────────────────────────────────────────
+    get configStatus() {
+      return {
+        discord:  !!this.notifDiscord,
+        slack:    !!this.notifSlack,
+        telegram: !!(this.notifTelegram && this.notifTelegramChat),
+        email:    !!(this.notifResend && this.notifEmail),
+        ntfy:     !!this.notifNtfyTopic,
+        pushover: !!(this.notifPushoverToken && this.notifPushoverUser),
+        gotify:   !!(this.notifGotifyUrl && this.notifGotifyToken),
+        apprise:  !!this.notifAppriseUrl,
+      };
+    },
 
     // ── Helpers ────────────────────────────────────────────────────────────
     closeMobileDrawer() {
@@ -258,8 +276,24 @@ function app() {
       if (toggle) toggle.checked = false;
     },
 
+    async loadFrom(url, prop, silent = false) {
+      try {
+        const r = await fetch(url);
+        this[prop] = await r.json();
+      } catch (e) { if (!silent) throw e; }
+    },
+
+    async saveConfigFields(fields) {
+      await Promise.all(fields.map(f =>
+        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
+      ));
+      await this.loadConfig();
+    },
+
     // ── Init ───────────────────────────────────────────────────────────────
     async init() {
+      clearInterval(this._schedulerTimer);
+      this.selectedPrebuiltRetailers = this.allPrebuiltRetailers.map(r => r.id);
       await Promise.all([
         this.loadComponents(),
         this.loadSchedulerStatus(),
@@ -275,34 +309,22 @@ function app() {
         this.loadTags(),
         this.loadNeedsAttention(),
       ]);
-      setInterval(() => this.loadSchedulerStatus(), 30_000);
+      this._schedulerTimer = setInterval(() => this.loadSchedulerStatus(), 30_000);
     },
 
     // ── Data loaders ───────────────────────────────────────────────────────
-    async loadComponents() {
-      const r = await fetch('/api/components');
-      this.components = await r.json();
-    },
-    async loadSchedulerStatus() {
-      const r = await fetch('/api/scheduler');
-      this.schedulerStatus = await r.json();
-    },
-    async loadAlerts() {
-      const r = await fetch('/api/alerts');
-      this.alerts = await r.json();
-    },
-    async loadPriceDrops() {
-      const r = await fetch('/api/price-drops?min_percent=2');
-      this.priceDrops = await r.json();
-    },
-    async loadStockChanges() {
-      const r = await fetch('/api/stock-changes?hours=24');
-      this.stockChanges = await r.json();
-    },
-    async loadBuilds() {
-      const r = await fetch('/api/builds');
-      this.builds = await r.json();
-    },
+    async loadComponents()     { await this.loadFrom('/api/components',              'components'); },
+    async loadSchedulerStatus(){ await this.loadFrom('/api/scheduler',               'schedulerStatus'); },
+    async loadAlerts()         { await this.loadFrom('/api/alerts',                  'alerts'); },
+    async loadPriceDrops()     { await this.loadFrom('/api/price-drops?min_percent=2','priceDrops'); },
+    async loadStockChanges()   { await this.loadFrom('/api/stock-changes?hours=24',  'stockChanges'); },
+    async loadBuilds()         { await this.loadFrom('/api/builds',                  'builds'); },
+    async loadPrebuilts()      { await this.loadFrom('/api/prebuilts',               'prebuilts'); },
+    async loadSparklines()     { await this.loadFrom('/api/dashboard/sparklines',    'sparklines', true); },
+    async loadTags()           { await this.loadFrom('/api/tags',                    'tags',       true); },
+    async loadNeedsAttention() { await this.loadFrom('/api/needs-attention',         'needsAttention', true); },
+    async loadSavedSearches()  { await this.loadFrom('/api/saved-searches',          'savedSearches',  true); },
+
     async loadConfig() {
       const r = await fetch('/api/config');
       const cfg = await r.json();
@@ -322,16 +344,6 @@ function app() {
       this.notifGotifyUrl   = cfg.gotify_server_url ?? '';
       this.notifGotifyToken = cfg.gotify_app_token  ?? '';
       this.notifAppriseUrl  = cfg.apprise_url        ?? '';
-      this.configStatus = {
-        discord:  !!cfg.discord_webhook_url,
-        slack:    !!cfg.slack_webhook_url,
-        telegram: !!(cfg.telegram_bot_token && cfg.telegram_chat_id),
-        email:    !!(cfg.resend_api_key && cfg.alert_email),
-        ntfy:     !!cfg.ntfy_topic,
-        pushover: !!(cfg.pushover_app_token && cfg.pushover_user_key),
-        gotify:   !!(cfg.gotify_server_url && cfg.gotify_app_token),
-        apprise:  !!cfg.apprise_url,
-      };
       // API keys
       this.apiKeyPricesApi  = cfg.prices_api_key       ?? '';
       this.apiKeyEbayId     = cfg.ebay_client_id        ?? '';
@@ -365,27 +377,6 @@ function app() {
       // Scraper settings
       this.scraperCamofoxUrl = cfg.camofox_url     ?? '';
       this.scraperProxies    = cfg.scrape_proxies  ?? '';
-    },
-
-    async loadSparklines() {
-      try {
-        const r = await fetch('/api/dashboard/sparklines');
-        this.sparklines = await r.json();
-      } catch { /* non-fatal */ }
-    },
-
-    async loadTags() {
-      try {
-        const r = await fetch('/api/tags');
-        this.tags = await r.json();
-      } catch { /* non-fatal */ }
-    },
-
-    async loadNeedsAttention() {
-      try {
-        const r = await fetch('/api/needs-attention');
-        this.needsAttention = await r.json();
-      } catch { /* non-fatal */ }
     },
 
     // ── Tag management ──────────────────────────────────────────────────────
@@ -479,8 +470,8 @@ function app() {
     makeSvgSparkline(points) {
       if (!points || points.length < 2) return '';
       const prices = points.map(p => p.min_price);
-      const min = Math.min(...prices);
-      const max = Math.max(...prices);
+      const min = prices.reduce((a, v) => v < a ? v : a, Infinity);
+      const max = prices.reduce((a, v) => v > a ? v : a, -Infinity);
       const range = max - min || 1;
       const W = 72, H = 26;
       const coords = prices.map((p, i) => {
@@ -496,14 +487,13 @@ function app() {
     // ── Formatting ─────────────────────────────────────────────────────────
     fmtPrice(amount, currency = 'GBP') {
       if (amount == null) return '—';
-      const syms = { GBP: '£', USD: '$', EUR: '€' };
-      const sym = syms[currency] ?? (currency + ' ');
+      const sym = CURRENCY_SYMS[currency] ?? (currency + ' ');
       const v = this.vatMode === 'ex_vat' ? amount / 1.2 : amount;
       return sym + v.toFixed(2);
     },
     bestOfferPrice(offers) {
       const prices = offers.filter(o => o.inStock && o.price > 0).map(o => o.price);
-      return prices.length > 0 ? Math.min(...prices) : null;
+      return prices.length > 0 ? prices.reduce((a, v) => v < a ? v : a, Infinity) : null;
     },
     isBestOffer(offer, offers) {
       const best = this.bestOfferPrice(offers);
@@ -511,8 +501,7 @@ function app() {
     },
     fmtPriceRaw(amount, currency = 'GBP') {
       if (amount == null) return '—';
-      const syms = { GBP: '£', USD: '$', EUR: '€' };
-      return (syms[currency] ?? (currency + ' ')) + Number(amount).toFixed(2);
+      return (CURRENCY_SYMS[currency] ?? (currency + ' ')) + Number(amount).toFixed(2);
     },
     fmtDate(dt) {
       if (!dt) return '';
@@ -555,40 +544,31 @@ function app() {
         this.showToast(e.error ?? 'Error adding component', 'error');
       }
     },
-    async refreshComponent(c) {
-      c._refreshing = true;
-      this.components = [...this.components];
+
+    async _refreshOne(c) {
+      this.components = this.components.map(x => x.id === c.id ? { ...x, _refreshing: true } : x);
       try {
         const r = await fetch(`/api/components/${c.id}/refresh`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
         });
-        const data = await r.json();
-        if (r.ok) {
-          this.showToast(`✅ ${c.name}: ${data.saved} offers saved`);
-          await Promise.all([this.loadComponents(), this.loadPriceDrops(), this.loadAlerts()]);
-        } else {
-          this.showToast(`❌ ${data.error ?? 'Refresh failed'}`, 'error');
-        }
+        return await r.json();
+      } finally {
+        this.components = this.components.map(x => x.id === c.id ? { ...x, _refreshing: false } : x);
+      }
+    },
+
+    async refreshComponent(c) {
+      try {
+        const data = await this._refreshOne(c);
+        this.showToast(`✅ ${c.name}: ${data.saved} offers saved`);
+        await Promise.all([this.loadComponents(), this.loadPriceDrops(), this.loadAlerts()]);
       } catch (e) {
         this.showToast('❌ Network error', 'error');
-      } finally {
-        c._refreshing = false;
-        this.components = [...this.components];
       }
     },
     async refreshAll() {
       this.refreshingAll = true;
-      for (const c of [...this.components]) {
-        c._refreshing = true;
-        this.components = [...this.components];
-        try {
-          await fetch(`/api/components/${c.id}/refresh`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
-          });
-        } catch {}
-        c._refreshing = false;
-        this.components = [...this.components];
-      }
+      await Promise.all(this.components.map(c => this._refreshOne(c).catch(() => {})));
       this.refreshingAll = false;
       await Promise.all([this.loadComponents(), this.loadPriceDrops(), this.loadAlerts(), this.loadStockChanges(), this.loadSparklines(), this.loadNeedsAttention()]);
       this.showToast('✅ All components refreshed');
@@ -604,27 +584,18 @@ function app() {
       this.alertPrice = c.alert_price ?? '';
       this.showAlertModal = true;
     },
-    async saveAlert() {
-      const p = parseFloat(this.alertPrice);
+    async _setAlert(price) {
       await fetch(`/api/components/${this.alertComponent.id}/alert`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alert_price: isNaN(p) ? null : p }),
+        body: JSON.stringify({ alert_price: price }),
       });
       this.showAlertModal = false;
-      this.showToast('🔔 Alert saved');
+      this.showToast(price == null ? '🔕 Alert removed' : '🔔 Alert saved');
       await this.loadComponents();
     },
-    async clearAlert() {
-      await fetch(`/api/components/${this.alertComponent.id}/alert`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ alert_price: null }),
-      });
-      this.showAlertModal = false;
-      this.showToast('🔕 Alert removed');
-      await this.loadComponents();
-    },
+    async saveAlert()  { await this._setAlert(isNaN(parseFloat(this.alertPrice)) ? null : parseFloat(this.alertPrice)); },
+    async clearAlert() { await this._setAlert(null); },
 
     // ── History chart ──────────────────────────────────────────────────────
     async openHistory(c) {
@@ -673,13 +644,13 @@ function app() {
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: {
-            legend: { labels: { color: '#a6adbb', boxWidth: 12, font: { size: 11 } } },
+            legend: { labels: { color: CHART_TICK_COLOR, boxWidth: 12, font: { size: 11 } } },
           },
           scales: {
-            x: { ticks: { color: '#a6adbb', maxTicksLimit: 8 }, grid: { color: 'rgba(166,173,187,0.12)' } },
+            x: { ticks: { color: CHART_TICK_COLOR, maxTicksLimit: 8 }, grid: { color: CHART_GRID_COLOR } },
             y: {
-              ticks: { color: '#a6adbb', callback: v => '£' + Number(v).toFixed(0) },
-              grid: { color: 'rgba(166,173,187,0.12)' },
+              ticks: { color: CHART_TICK_COLOR, callback: v => '£' + Number(v).toFixed(0) },
+              grid: { color: CHART_GRID_COLOR },
             },
           },
         },
@@ -785,7 +756,7 @@ function app() {
       await this.loadSchedulerStatus();
     },
     async saveNotifications() {
-      const fields = [
+      await this.saveConfigFields([
         { key: 'notify_drop_percent', value: this.notifDropPct },
         { key: 'discord_webhook_url', value: this.notifDiscord },
         { key: 'slack_webhook_url',   value: this.notifSlack },
@@ -800,15 +771,11 @@ function app() {
         { key: 'gotify_server_url',   value: this.notifGotifyUrl },
         { key: 'gotify_app_token',    value: this.notifGotifyToken },
         { key: 'apprise_url',         value: this.notifAppriseUrl },
-      ];
-      await Promise.all(fields.map(f =>
-        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
-      ));
+      ]);
       this.showToast('✅ Notification settings saved');
-      await this.loadConfig();
     },
     async saveApiKeys() {
-      const fields = [
+      await this.saveConfigFields([
         { key: 'prices_api_key',       value: this.apiKeyPricesApi },
         { key: 'ebay_client_id',       value: this.apiKeyEbayId },
         { key: 'ebay_client_secret',   value: this.apiKeyEbaySec },
@@ -825,20 +792,15 @@ function app() {
         { key: 'anthropic_api_key',    value: this.apiKeyAnthropic },
         { key: 'openai_api_key',       value: this.apiKeyOpenAI },
         { key: 'apify_api_token',      value: this.apiKeyApify },
-      ];
-      await Promise.all(fields.map(f =>
-        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
-      ));
+      ]);
       this.showToast('✅ API keys saved');
-      await this.loadConfig();
     },
     async saveScraperSettings() {
-      await Promise.all([
-        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'camofox_url',    value: this.scraperCamofoxUrl }) }),
-        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'scrape_proxies', value: this.scraperProxies }) }),
+      await this.saveConfigFields([
+        { key: 'camofox_url',    value: this.scraperCamofoxUrl },
+        { key: 'scrape_proxies', value: this.scraperProxies },
       ]);
       this.showToast('✅ Scraper settings saved');
-      await this.loadConfig();
     },
     openWizard() {
       if (this.wizardStep === 5) this.wizardStep = 0;
@@ -889,10 +851,6 @@ function app() {
     },
 
     // ── Pre-built PCs ───────────────────────────────────────────────────────
-    async loadPrebuilts() {
-      const r = await fetch('/api/prebuilts');
-      this.prebuilts = await r.json();
-    },
     async refreshPrebuilt(s) {
       this.showToast('⏳ Refreshing prices across 15 retailers…');
       await fetch(`/api/prebuilts/${s.id}/refresh`, { method: 'POST' });
@@ -995,7 +953,10 @@ function app() {
           },
           options: {
             responsive: true, maintainAspectRatio: false,
-            scales: { y: { ticks: { callback: v => '£' + v }, grid: { color: 'rgba(166,173,187,0.12)' } }, x: { grid: { color: 'rgba(166,173,187,0.12)' } } },
+            scales: {
+              y: { ticks: { callback: v => '£' + v }, grid: { color: CHART_GRID_COLOR } },
+              x: { grid: { color: CHART_GRID_COLOR } },
+            },
             plugins: { legend: { display: false } },
           },
         });
@@ -1007,12 +968,6 @@ function app() {
     },
 
     // ── Saved Searches ─────────────────────────────────────────────────────
-    async loadSavedSearches() {
-      try {
-        const r = await fetch('/api/saved-searches');
-        this.savedSearches = await r.json();
-      } catch {}
-    },
     async addSavedSearch() {
       if (!this.savedSearchName || !this.savedSearchQuery) {
         this.showToast('Label and query are required', 'error');
