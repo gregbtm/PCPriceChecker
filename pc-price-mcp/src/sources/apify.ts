@@ -119,3 +119,273 @@ export async function apifyScrapePcPartPicker(
 export function isApifyConfigured(): boolean {
   return !!getToken();
 }
+
+// ── Shared normalised price result ────────────────────────────────────────────
+
+export interface ApifyPriceItem {
+  name: string;
+  price: number;
+  currency: string;
+  retailer: string;
+  url: string | null;
+  inStock: boolean;
+  imageUrl?: string | null;
+  ean?: string | null;
+  asin?: string | null;
+  rating?: number | null;
+  reviewCount?: number | null;
+}
+
+// ── Currys product scraper ────────────────────────────────────────────────────
+// Actor: sian.agency~currys-product-scraper
+// Searches currys.co.uk and returns product listings with price and availability.
+
+export async function apifyScrapeCurrys(
+  query: string,
+  maxItems = 20,
+): Promise<ApifyPriceItem[]> {
+  const token = getToken();
+  if (!token) return [];
+
+  const result = await runApifyActor(
+    'sian.agency~currys-product-scraper',
+    { search: query, maxItems },
+    120,
+  );
+  if (!result || result.status !== 'SUCCEEDED' || !result.datasetId) return [];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items = await getApifyDatasetItems<any>(result.datasetId, maxItems);
+  return items.map(item => ({
+    name:        item.name ?? item.title ?? item.productName ?? '',
+    price:       Number(item.price ?? item.currentPrice ?? item.salePrice ?? 0),
+    currency:    item.currency ?? 'GBP',
+    retailer:    'Currys',
+    url:         item.url ?? item.productUrl ?? item.link ?? null,
+    inStock:     item.inStock != null ? Boolean(item.inStock) : item.availability !== 'Out of stock',
+    imageUrl:    item.image ?? item.imageUrl ?? null,
+    ean:         item.ean ?? item.gtin ?? null,
+  })).filter(i => i.name.length > 2 && i.price > 0);
+}
+
+// ── Google Shopping scraper ───────────────────────────────────────────────────
+// Actor: s-r~free-google-shopping-scraper---extract-offers-from-any-ean-sku
+// Searches Google Shopping by keyword, EAN, or SKU. Returns offers from
+// multiple merchants. Best for finding the cheapest live offer across the web.
+
+export interface ApifyGoogleShoppingOffer {
+  productName: string;
+  merchant: string;
+  price: number;
+  currency: string;
+  url: string | null;
+  condition: string | null;
+  rating?: number | null;
+  reviewCount?: number | null;
+  imageUrl?: string | null;
+}
+
+export async function apifyScrapeGoogleShopping(
+  query: string,
+  countryCode = 'GB',
+  maxResults = 40,
+): Promise<ApifyGoogleShoppingOffer[]> {
+  const token = getToken();
+  if (!token) return [];
+
+  const result = await runApifyActor(
+    's-r~free-google-shopping-scraper---extract-offers-from-any-ean-sku',
+    {
+      queries: [query],
+      countryCode,
+      maxPagesPerQuery: Math.ceil(maxResults / 20),
+      languageCode: 'en',
+    },
+    180,
+  );
+  if (!result || result.status !== 'SUCCEEDED' || !result.datasetId) return [];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items = await getApifyDatasetItems<any>(result.datasetId, maxResults * 3);
+
+  const offers: ApifyGoogleShoppingOffer[] = [];
+  for (const item of items) {
+    // Actor may return top-level offers or nested shoppingResults / offers array
+    const rows: unknown[] = Array.isArray(item.shoppingResults)
+      ? item.shoppingResults
+      : Array.isArray(item.offers)
+      ? item.offers
+      : [item];
+
+    for (const row of rows as Record<string, unknown>[]) {
+      const priceRaw = row.price ?? row.extractedPrice ?? row.currentPrice;
+      const price = typeof priceRaw === 'number'
+        ? priceRaw
+        : parseFloat(String(priceRaw ?? '').replace(/[^0-9.]/g, ''));
+      if (!price || price <= 0) continue;
+      offers.push({
+        productName: String(row.title ?? row.name ?? row.productName ?? item.query ?? ''),
+        merchant:    String(row.source ?? row.merchant ?? row.seller ?? row.storeName ?? 'Unknown'),
+        price,
+        currency:    String(row.currency ?? 'GBP'),
+        url:         String(row.link ?? row.url ?? row.productLink ?? ''),
+        condition:   String(row.condition ?? row.itemCondition ?? 'New'),
+        rating:      row.rating != null ? Number(row.rating) : null,
+        reviewCount: row.reviews != null ? Number(row.reviews) : null,
+        imageUrl:    row.thumbnail != null ? String(row.thumbnail) : null,
+      });
+    }
+  }
+
+  return offers.slice(0, maxResults);
+}
+
+// ── Argos product search ──────────────────────────────────────────────────────
+// Actor: ecomscrape~argos-product-search-scraper
+// Searches argos.co.uk and returns matching products with price and availability.
+
+export async function apifyScrapeArgos(
+  query: string,
+  maxItems = 20,
+): Promise<ApifyPriceItem[]> {
+  const token = getToken();
+  if (!token) return [];
+
+  const result = await runApifyActor(
+    'ecomscrape~argos-product-search-scraper',
+    { searchTerm: query, maxItems },
+    120,
+  );
+  if (!result || result.status !== 'SUCCEEDED' || !result.datasetId) return [];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items = await getApifyDatasetItems<any>(result.datasetId, maxItems);
+  return items.map(item => ({
+    name:     item.name ?? item.title ?? item.productName ?? '',
+    price:    Number(item.price ?? item.salePrice ?? item.currentPrice ?? 0),
+    currency: item.currency ?? 'GBP',
+    retailer: 'Argos',
+    url:      item.url ?? item.productUrl ?? item.link ?? null,
+    inStock:  item.inStock != null ? Boolean(item.inStock) : item.availability !== 'Out of stock',
+    imageUrl: item.image ?? item.imageUrl ?? null,
+    ean:      item.ean ?? null,
+  })).filter(i => i.name.length > 2 && i.price > 0);
+}
+
+// ── Idealo price comparison scraper ──────────────────────────────────────────
+// Actor: studio-amba~idealo-scraper
+// Scrapes idealo.co.uk (UK price comparison) for a product URL or keyword.
+// Returns the cheapest offers from multiple UK retailers on that product.
+
+export interface ApifyIdealoOffer {
+  productName: string;
+  merchant: string;
+  price: number;
+  currency: string;
+  url: string | null;
+  shippingCost: number | null;
+  totalPrice: number | null;
+  rating?: number | null;
+}
+
+export async function apifyScrapeIdealo(
+  query: string,
+  maxItems = 30,
+): Promise<ApifyIdealoOffer[]> {
+  const token = getToken();
+  if (!token) return [];
+
+  // Idealo actor accepts either a direct product URL or a search keyword
+  const isUrl = query.startsWith('http');
+  const input = isUrl
+    ? { startUrls: [{ url: query }], maxItems }
+    : { keyword: query, maxItems };
+
+  const result = await runApifyActor('studio-amba~idealo-scraper', input, 180);
+  if (!result || result.status !== 'SUCCEEDED' || !result.datasetId) return [];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items = await getApifyDatasetItems<any>(result.datasetId, maxItems * 3);
+
+  const offers: ApifyIdealoOffer[] = [];
+  for (const item of items) {
+    // Actor may nest offers or return them flat
+    const rows: unknown[] = Array.isArray(item.offers) ? item.offers : [item];
+    for (const row of rows as Record<string, unknown>[]) {
+      const price = Number(row.price ?? row.offerPrice ?? 0);
+      if (!price || price <= 0) continue;
+      offers.push({
+        productName: String(row.productName ?? row.name ?? item.name ?? ''),
+        merchant:    String(row.merchant ?? row.shop ?? row.shopName ?? 'Unknown'),
+        price,
+        currency:    String(row.currency ?? 'GBP'),
+        url:         row.url != null ? String(row.url) : null,
+        shippingCost: row.shippingCost != null ? Number(row.shippingCost) : null,
+        totalPrice:   row.totalPrice != null ? Number(row.totalPrice) : null,
+        rating:       row.rating != null ? Number(row.rating) : null,
+      });
+    }
+  }
+
+  return offers.slice(0, maxItems);
+}
+
+// ── Amazon product details scraper ────────────────────────────────────────────
+// Actor: alpha-scraper~amazon-product-details-scraper-single-rental
+// Returns detailed product data from Amazon UK: price, rating, features,
+// variants, seller info. Useful when Keepa / PA-API quota is exhausted.
+
+export interface ApifyAmazonProduct {
+  asin: string;
+  name: string;
+  price: number;
+  currency: string;
+  inStock: boolean;
+  url: string;
+  rating: number | null;
+  reviewCount: number | null;
+  seller: string | null;
+  brand: string | null;
+  imageUrl: string | null;
+  features: string[];
+}
+
+export async function apifyScrapeAmazon(
+  asinOrUrl: string,
+  countryCode = 'GB',
+): Promise<ApifyAmazonProduct | null> {
+  const token = getToken();
+  if (!token) return null;
+
+  const isUrl = asinOrUrl.startsWith('http');
+  const input = isUrl
+    ? { productUrl: asinOrUrl, countryCode }
+    : { asin: asinOrUrl, countryCode };
+
+  const result = await runApifyActor(
+    'alpha-scraper~amazon-product-details-scraper-single-rental',
+    input,
+    120,
+  );
+  if (!result || result.status !== 'SUCCEEDED' || !result.datasetId) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items = await getApifyDatasetItems<any>(result.datasetId, 1);
+  const item = items[0];
+  if (!item) return null;
+
+  return {
+    asin:        item.asin ?? item.ASIN ?? '',
+    name:        item.name ?? item.title ?? item.productName ?? '',
+    price:       Number(item.price ?? item.currentPrice ?? item.salePrice ?? 0),
+    currency:    item.currency ?? 'GBP',
+    inStock:     item.inStock ?? item.availability !== 'Currently unavailable',
+    url:         item.url ?? item.productUrl ?? `https://www.amazon.co.uk/dp/${item.asin ?? ''}`,
+    rating:      item.rating != null ? Number(item.rating) : null,
+    reviewCount: item.reviewCount ?? item.ratingsCount ?? item.numberOfReviews ?? null,
+    seller:      item.seller ?? item.soldBy ?? item.sellerName ?? null,
+    brand:       item.brand ?? item.brandName ?? null,
+    imageUrl:    item.image ?? item.imageUrl ?? item.mainImage ?? null,
+    features:    Array.isArray(item.features) ? item.features.slice(0, 8) : [],
+  };
+}

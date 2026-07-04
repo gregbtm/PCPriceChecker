@@ -143,7 +143,7 @@ They are synced to `process.env` at server startup and on every update.
 | `bing_api_key` | Bing Web Search API key |
 | `anthropic_api_key` | Anthropic API key (used for AI price extraction fallback) |
 | `openai_api_key` | OpenAI API key (alternative AI extraction) |
-| `apify_api_token` | Apify platform token (PCPartPicker Apify actor) |
+| `apify_api_token` | Apify platform token — unlocks all six Apify cloud actor scrapers (Currys, Google Shopping, Argos, Idealo, Amazon, PCPartPicker) |
 | `camofox_url` | Camoufox CDP/WebSocket endpoint — self-hosted anti-detect Firefox (priority 2 scraping backend) |
 | `novada_browser_ws` | Novada Browser API WebSocket endpoint (CDP) — cloud anti-detect (priority 1 scraping backend) |
 | `novada_api_key` | Novada API key |
@@ -473,7 +473,23 @@ Browse the static component benchmark / pricing dataset.
 |--------|------|-------------|
 | GET | `/api/pcpartpicker/search` | Search PCPartPicker UK — `?q=query&category=` |
 | GET | `/api/pcpartpicker/product` | Product detail — `?url=https://uk.pcpartpicker.com/...` |
-| POST | `/api/pcpartpicker/apify` | Trigger Apify scraper — `{ url }` (requires `apify_api_token`) |
+| POST | `/api/pcpartpicker/apify` | Trigger Apify scraper — `{ startUrls: [...] }` (requires `apify_api_token`) |
+
+---
+
+### Apify Cloud Actor Scrapers
+
+All endpoints below require `APIFY_API_TOKEN`. They run real cloud actors on the Apify platform and return
+live data. Allow 30–180 s per call (actor cold-start + execution). The token can be set in the web UI under
+Settings → API Keys or via the `configure_api_keys` MCP tool.
+
+| Method | Path | Query params | Description |
+|--------|------|--------------|-------------|
+| GET | `/api/apify/currys` | `q`, `max` (default 20) | Search Currys.co.uk — returns name, price, stock status, URL |
+| GET | `/api/apify/google-shopping` | `q`, `country` (default `GB`), `max` (default 40) | Google Shopping multi-merchant offers |
+| GET | `/api/apify/argos` | `q`, `max` (default 20) | Search Argos.co.uk — returns name, price, stock status, URL |
+| GET | `/api/apify/idealo` | `q`, `max` (default 30) | idealo.co.uk comparison — includes shipping & total prices |
+| GET | `/api/apify/amazon` | `asin` or `url`, `country` (default `GB`) | Amazon product detail (price, rating, features, seller) |
 
 ---
 
@@ -672,6 +688,18 @@ The MCP server exposes the following tools over stdio. All tool names are listed
 | `compare_prebuilt_systems` | `ids` (2–5) | — | Side-by-side comparison |
 | `set_prebuilt_alert` | `id`, `alert_price` | — | Set/remove alert |
 | `remove_tracked_prebuilt` | `id` | — | Stop tracking |
+
+### Apify Cloud Actor Scrapers
+
+Requires `apify_api_token`. Calls run ~30–180 s each (actor cold-start + execution).
+
+| Tool | Required | Optional | Description |
+|------|----------|----------|-------------|
+| `apify_currys` | `query` | `max_items` (default 20) | Live Currys.co.uk search — name, price, stock, URL |
+| `apify_google_shopping` | `query` | `country_code` (default `GB`), `max_results` (default 40) | Google Shopping multi-merchant offers — cheapest price across the web |
+| `apify_argos` | `query` | `max_items` (default 20) | Live Argos.co.uk search — name, price, stock, URL |
+| `apify_idealo` | `query` | `max_items` (default 30) | idealo.co.uk price comparison — shipping & total prices per retailer |
+| `apify_amazon` | `asin_or_url` | `country_code` (default `GB`) | Amazon product detail — price, rating, seller, brand, features |
 
 ### Keepa
 

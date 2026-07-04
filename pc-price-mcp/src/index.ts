@@ -46,6 +46,10 @@ import { startWebServer } from './web.js';
 import { searchCex, getCexProduct, formatCexProduct } from './sources/cex.js';
 import { sendTelegram, sendEmail, sendNtfy, sendPushover } from './notifications.js';
 import { scrapeProductUrl } from './sources/url-scraper.js';
+import {
+  apifyScrapeCurrys, apifyScrapeGoogleShopping, apifyScrapeArgos,
+  apifyScrapeIdealo, apifyScrapeAmazon, isApifyConfigured,
+} from './sources/apify.js';
 
 // ── Argument schemas ───────────────────────────────────────────────────────
 
@@ -354,6 +358,32 @@ const DatasetBrowseSchema = z.object({
   part_type: z.enum(DATASET_SLUGS),
   priced_only: z.boolean().default(false),
   limit: z.number().int().min(1).max(100).default(20),
+});
+
+const ApifyCurrysSchema = z.object({
+  query:     z.string().min(1),
+  max_items: z.number().int().min(1).max(100).default(20),
+});
+
+const ApifyGoogleShoppingSchema = z.object({
+  query:        z.string().min(1),
+  country_code: z.string().length(2).default('GB'),
+  max_results:  z.number().int().min(1).max(100).default(40),
+});
+
+const ApifyArgosSchema = z.object({
+  query:     z.string().min(1),
+  max_items: z.number().int().min(1).max(100).default(20),
+});
+
+const ApifyIdealoSchema = z.object({
+  query:     z.string().min(1),
+  max_items: z.number().int().min(1).max(100).default(30),
+});
+
+const ApifyAmazonSchema = z.object({
+  asin_or_url:  z.string().min(1),
+  country_code: z.string().length(2).default('GB'),
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1738,6 +1768,84 @@ const TOOLS = [
       'Read current app configuration: which API keys are set, notification channels, scheduler status, VAT mode, etc. ' +
       'Key values are masked for security — only set/not-set status is shown.',
     inputSchema: { type: 'object' as const, properties: {} },
+  },
+
+  // ── Apify cloud actor scrapers ───────────────────────────────────────────
+  {
+    name: 'apify_currys',
+    description:
+      'Search Currys.co.uk for PC components and electronics via an Apify cloud actor. ' +
+      'Returns product name, price, stock status, and direct product URL. ' +
+      'Requires APIFY_API_TOKEN. Best for live Currys pricing without bot detection issues.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:     { type: 'string', description: 'Search term, e.g. "RTX 4070 graphics card"' },
+        max_items: { type: 'number', default: 20, description: 'Max products to return (1–100)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'apify_google_shopping',
+    description:
+      'Search Google Shopping for any product and get offers from multiple UK merchants. ' +
+      'Returns merchant name, price, condition, rating, and direct offer URL. ' +
+      'Best for finding the cheapest live offer across the entire web. Requires APIFY_API_TOKEN.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:        { type: 'string', description: 'Search term, EAN, SKU, or product name' },
+        country_code: { type: 'string', default: 'GB', description: 'ISO 3166-1 alpha-2 country code (default: GB)' },
+        max_results:  { type: 'number', default: 40, description: 'Max offers to return (1–100)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'apify_argos',
+    description:
+      'Search Argos.co.uk for products via an Apify cloud actor. ' +
+      'Returns name, price, stock status, and product URL. ' +
+      'Requires APIFY_API_TOKEN. Covers tech, gaming, and home electronics.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:     { type: 'string', description: 'Search term, e.g. "gaming monitor 27 inch"' },
+        max_items: { type: 'number', default: 20, description: 'Max products to return (1–100)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'apify_idealo',
+    description:
+      'Search idealo.co.uk (UK price comparison) for a product and get offers from multiple retailers, ' +
+      'including shipping costs and total prices. Accepts a keyword or a direct idealo product URL. ' +
+      'Requires APIFY_API_TOKEN.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:     { type: 'string', description: 'Product keyword or idealo.co.uk product URL' },
+        max_items: { type: 'number', default: 30, description: 'Max offers to return (1–100)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'apify_amazon',
+    description:
+      'Fetch detailed product data from Amazon UK (or another marketplace) for a given ASIN or product URL. ' +
+      'Returns price, rating, review count, seller, brand, features list, and stock status. ' +
+      'Useful as a fallback when Keepa / PA-API quota is exhausted. Requires APIFY_API_TOKEN.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        asin_or_url:  { type: 'string', description: 'Amazon ASIN (e.g. "B09XYZ1234") or full product URL' },
+        country_code: { type: 'string', default: 'GB', description: 'Marketplace country (GB, US, DE, …)' },
+      },
+      required: ['asin_or_url'],
+    },
   },
 ];
 
@@ -4177,6 +4285,92 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           '### Display',
           `- VAT mode: ${cfg.vat_mode ?? 'inc_vat'}`,
         ];
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_currys ──────────────────────────────────────────────────────
+      case 'apify_currys': {
+        const { query, max_items } = ApifyCurrysSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const items = await apifyScrapeCurrys(query, max_items);
+        if (items.length === 0) return ok(`No Currys results found for "${query}".`);
+        const lines = [`## Currys — "${query}" (${items.length} results)\n`];
+        for (const item of items) {
+          lines.push(`### ${item.name}`);
+          lines.push(`- **${fmt(item.price, item.currency)}** — ${item.inStock ? '✅ In stock' : '❌ Out of stock'}`);
+          if (item.url) lines.push(`- ${item.url}`);
+          lines.push('');
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_google_shopping ─────────────────────────────────────────────
+      case 'apify_google_shopping': {
+        const { query, country_code, max_results } = ApifyGoogleShoppingSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const offers = await apifyScrapeGoogleShopping(query, country_code, max_results);
+        if (offers.length === 0) return ok(`No Google Shopping results found for "${query}".`);
+        const lines = [`## Google Shopping — "${query}" (${country_code}) — ${offers.length} offer(s)\n`];
+        lines.push('| Merchant | Price | Condition | Rating |');
+        lines.push('|----------|-------|-----------|--------|');
+        for (const o of offers) {
+          const rating = o.rating ? `${o.rating}★ (${o.reviewCount ?? 0})` : '—';
+          lines.push(`| [${o.merchant}](${o.url ?? '#'}) | **${fmt(o.price, o.currency)}** | ${o.condition ?? 'New'} | ${rating} |`);
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_argos ───────────────────────────────────────────────────────
+      case 'apify_argos': {
+        const { query, max_items } = ApifyArgosSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const items = await apifyScrapeArgos(query, max_items);
+        if (items.length === 0) return ok(`No Argos results found for "${query}".`);
+        const lines = [`## Argos — "${query}" (${items.length} results)\n`];
+        for (const item of items) {
+          lines.push(`### ${item.name}`);
+          lines.push(`- **${fmt(item.price, item.currency)}** — ${item.inStock ? '✅ In stock' : '❌ Out of stock'}`);
+          if (item.url) lines.push(`- ${item.url}`);
+          lines.push('');
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_idealo ──────────────────────────────────────────────────────
+      case 'apify_idealo': {
+        const { query, max_items } = ApifyIdealoSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const offers = await apifyScrapeIdealo(query, max_items);
+        if (offers.length === 0) return ok(`No Idealo results found for "${query}".`);
+        const lines = [`## Idealo — "${query}" — ${offers.length} offer(s)\n`];
+        lines.push('| Merchant | Price | Shipping | Total | Rating |');
+        lines.push('|----------|-------|----------|-------|--------|');
+        for (const o of offers) {
+          const shipping = o.shippingCost != null ? fmt(o.shippingCost, o.currency) : 'n/a';
+          const total = o.totalPrice != null ? fmt(o.totalPrice, o.currency) : '—';
+          const rating = o.rating ? `${o.rating}★` : '—';
+          lines.push(`| [${o.merchant}](${o.url ?? '#'}) | **${fmt(o.price, o.currency)}** | ${shipping} | ${total} | ${rating} |`);
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_amazon ──────────────────────────────────────────────────────
+      case 'apify_amazon': {
+        const { asin_or_url, country_code } = ApifyAmazonSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const product = await apifyScrapeAmazon(asin_or_url, country_code);
+        if (!product) return ok(`❌ Could not fetch Amazon product for "${asin_or_url}". Check the ASIN/URL and try again.`);
+        const lines = [
+          `## Amazon — ${product.name}`,
+          `**${fmt(product.price, product.currency)}** — ${product.inStock ? '✅ In stock' : '❌ Out of stock'}`,
+          `ASIN: ${product.asin} · Seller: ${product.seller ?? 'Unknown'} · Brand: ${product.brand ?? '—'}`,
+        ];
+        if (product.rating) lines.push(`Rating: ${product.rating}★ (${product.reviewCount?.toLocaleString() ?? 0} reviews)`);
+        if (product.url) lines.push(`\n${product.url}`);
+        if (product.features.length > 0) {
+          lines.push('\n**Key features:**');
+          for (const f of product.features) lines.push(`- ${f}`);
+        }
         return ok(lines.join('\n'));
       }
 

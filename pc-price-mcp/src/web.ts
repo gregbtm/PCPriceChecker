@@ -23,7 +23,11 @@ import {
   exportBuildCsv, exportBuildJson, exportTrackedComponentsCsv,
 } from './export.js';
 import { searchPcPartPicker, getPcPartPickerProductPrices } from './sources/pcpartpicker-live.js';
-import { apifyScrapePcPartPicker, isApifyConfigured } from './sources/apify.js';
+import {
+  apifyScrapePcPartPicker, isApifyConfigured,
+  apifyScrapeCurrys, apifyScrapeGoogleShopping, apifyScrapeArgos,
+  apifyScrapeIdealo, apifyScrapeAmazon,
+} from './sources/apify.js';
 import { budgetBuilder, buildVsBuy, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
 import { checkCompatibility } from './services/compatibility.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
@@ -695,6 +699,48 @@ export function startWebServer(port: number): void {
     }
     const items = await apifyScrapePcPartPicker(startUrls.map(String));
     res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/currys', h(async (req, res) => {
+    const { q, max } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q (search query) is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const items = await apifyScrapeCurrys(q, max ? parseInt(max) : 20);
+    res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/google-shopping', h(async (req, res) => {
+    const { q, country, max } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q (search query) is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const items = await apifyScrapeGoogleShopping(q, country ?? 'GB', max ? parseInt(max) : 40);
+    res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/argos', h(async (req, res) => {
+    const { q, max } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q (search query) is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const items = await apifyScrapeArgos(q, max ? parseInt(max) : 20);
+    res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/idealo', h(async (req, res) => {
+    const { q, max } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q (search query or product URL) is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const items = await apifyScrapeIdealo(q, max ? parseInt(max) : 30);
+    res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/amazon', h(async (req, res) => {
+    const { asin, url, country } = req.query as Record<string, string>;
+    const target = asin ?? url;
+    if (!target) { res.status(400).json({ error: 'asin or url is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const product = await apifyScrapeAmazon(target, country ?? 'GB');
+    if (!product) { res.status(404).json({ error: 'Product not found or scrape failed' }); return; }
+    res.json(product);
   }));
 
   // ── Import / export ───────────────────────────────────────────────────────
