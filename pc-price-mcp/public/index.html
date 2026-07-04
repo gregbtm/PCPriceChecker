@@ -12,6 +12,7 @@
   <style>
     [x-cloak] { display: none !important; }
     body { font-family: Inter, system-ui, -apple-system, sans-serif; }
+    .dock { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: var(--color-base-200); }
     ::-webkit-scrollbar-thumb { background: var(--color-base-300); border-radius: 3px; }
@@ -21,7 +22,7 @@
     .mono { font-family: ui-monospace, 'Cascadia Code', 'Fira Code', Consolas, monospace; }
   </style>
 </head>
-<body class="h-screen overflow-hidden" x-data="app()" x-init="init()">
+<body class="h-[100dvh] overflow-hidden" x-data="app()" x-init="init()">
 
 <!-- ── Heroicons v2 SVG sprite (https://heroicons.com/) ─────────────────── -->
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
@@ -103,10 +104,10 @@
   </symbol>
 </svg>
 
-<div class="drawer lg:drawer-open h-screen">
+<div class="drawer lg:drawer-open h-full">
   <input id="app-drawer" type="checkbox" class="drawer-toggle" />
 
-  <div class="drawer-content flex flex-col overflow-hidden">
+  <div class="drawer-content flex flex-col h-full">
 
     <!-- ── Mobile navbar (visible on small screens only) ─────────────────── -->
     <div class="navbar bg-base-200 border-b border-base-300 lg:hidden flex-shrink-0 min-h-12 px-2">
@@ -585,48 +586,47 @@
   </div>
 
     <!-- ── Main content ─────────────────────────────────────────────────────── -->
-    <main class="flex-1 overflow-auto bg-base-100 pb-16 lg:pb-0">
+    <main class="flex-1 min-h-0 overflow-y-auto bg-base-100 pb-16 lg:pb-0">
 
     <!-- ══ DASHBOARD TAB ══════════════════════════════════════════════════ -->
     <div x-show="activeTab === 'dashboard'" class="p-6 space-y-5">
 
       <!-- Stat cards -->
-      <div class="stats stats-vertical sm:stats-horizontal shadow w-full bg-base-200 border border-base-300 rounded-xl">
-        <div class="stat">
-          <div class="stat-figure text-base-content/30">
-            <svg class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-archive-box"/></svg>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="bg-base-200 border border-base-300 rounded-xl p-4 flex flex-col gap-1">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-base-content/60 uppercase tracking-wide">Tracked</span>
+            <svg class="h-5 w-5 text-base-content/30" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-archive-box"/></svg>
           </div>
-          <div class="stat-title">Tracked</div>
-          <div class="stat-value text-base-content" x-text="components.length"></div>
-          <div class="stat-desc">components</div>
+          <div class="text-3xl font-bold text-base-content price-num" x-text="components.length"></div>
+          <div class="text-xs text-base-content/50">components</div>
         </div>
-        <div class="stat">
-          <div class="stat-figure text-success">
-            <svg class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-bell"/></svg>
+        <div class="bg-base-200 border border-base-300 rounded-xl p-4 flex flex-col gap-1">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-base-content/60 uppercase tracking-wide">Alerts</span>
+            <svg class="h-5 w-5 text-success" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-bell"/></svg>
           </div>
-          <div class="stat-title">Price Alerts</div>
-          <div class="stat-value" :class="alerts.length > 0 ? 'text-success' : 'text-base-content'"
-               x-text="alerts.length"></div>
-          <div class="stat-desc">triggered</div>
-          <div class="stat-actions">
+          <div class="text-3xl font-bold price-num" :class="alerts.length > 0 ? 'text-success' : 'text-base-content'" x-text="alerts.length"></div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-base-content/50">triggered</span>
             <button @click="activeTab = 'dashboard'" class="btn btn-success btn-xs">View</button>
           </div>
         </div>
-        <div class="stat">
-          <div class="stat-figure text-info">
-            <svg class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-arrow-trending-down"/></svg>
+        <div class="bg-base-200 border border-base-300 rounded-xl p-4 flex flex-col gap-1">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-base-content/60 uppercase tracking-wide">Price Drops</span>
+            <svg class="h-5 w-5 text-info" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-arrow-trending-down"/></svg>
           </div>
-          <div class="stat-title">Price Drops</div>
-          <div class="stat-value text-info" x-text="priceDrops.length"></div>
-          <div class="stat-desc">last 24h</div>
+          <div class="text-3xl font-bold text-info price-num" x-text="priceDrops.length"></div>
+          <div class="text-xs text-base-content/50">last 24h</div>
         </div>
-        <div class="stat">
-          <div class="stat-figure text-warning">
-            <svg class="h-8 w-8" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-arrow-path"/></svg>
+        <div class="bg-base-200 border border-base-300 rounded-xl p-4 flex flex-col gap-1">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-base-content/60 uppercase tracking-wide">Stock Changes</span>
+            <svg class="h-5 w-5 text-warning" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-arrow-path"/></svg>
           </div>
-          <div class="stat-title">Stock Changes</div>
-          <div class="stat-value text-warning" x-text="stockChanges.length"></div>
-          <div class="stat-desc">last 24h</div>
+          <div class="text-3xl font-bold text-warning price-num" x-text="stockChanges.length"></div>
+          <div class="text-xs text-base-content/50">last 24h</div>
         </div>
       </div>
 
