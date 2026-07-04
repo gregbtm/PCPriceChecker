@@ -1,0 +1,6 @@
+# Claude Code local tooling — never needed in the Docker image
+.agents/
+.claude/skills/
+
+# Node modules
+node_modules/

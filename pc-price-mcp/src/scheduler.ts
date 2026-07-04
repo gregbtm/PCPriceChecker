@@ -6,6 +6,7 @@
  */
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
+import { scrapeProductUrl } from './sources/url-scraper.js';
 import { notifyAll } from './notifications.js';
 
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -85,29 +86,69 @@ async function scheduledRefreshAll(): Promise<void> {
 
   const country = db.getConfig('default_country') ?? 'gb';
   const dropThresholdPct = Number(db.getConfig('notify_drop_percent') ?? 5);
+  const globalIntervalMs = Number(db.getConfig('auto_refresh_interval_minutes') ?? 60) * 60_000;
 
   for (const component of components) {
     try {
+      // Skip paused components
+      if (component.paused) { continue; }
+
+      // Respect per-component check interval
+      if (component.check_interval_minutes != null && component.last_checked) {
+        const componentIntervalMs = component.check_interval_minutes * 60_000;
+        const elapsed = Date.now() - new Date(component.last_checked + 'Z').getTime();
+        if (elapsed < Math.max(componentIntervalMs, globalIntervalMs)) continue;
+      }
+
       // Snapshot previous state before refresh
       const prevLatest = db.getLatestPricePerRetailer(component.id);
       const prevBestPrice = prevLatest[0]?.price ?? null;
       const prevStockMap = new Map(prevLatest.map(r => [r.retailer, r.in_stock === 1]));
 
-      const { products } = await searchWithRetry(component.search_query, country, 3, 15);
       const snapshots: db.PriceSnapshot[] = [];
 
-      for (const product of products) {
-        for (const offer of product.offers) {
-          if (offer.price > 0) {
+      // Gather URLs to scrape: component_urls table takes priority, then source_url fallback
+      const componentUrls = db.getComponentUrls(component.id);
+      const urlsToScrape = componentUrls.length > 0
+        ? componentUrls.map(u => ({ url: u.url, retailer: u.retailer ?? undefined }))
+        : component.source_url
+          ? [{ url: component.source_url, retailer: undefined }]
+          : [];
+
+      if (urlsToScrape.length > 0) {
+        for (const { url, retailer } of urlsToScrape) {
+          const scraped = await scrapeProductUrl(url);
+          if (scraped.price != null) {
+            const domain = retailer ?? (() => {
+              try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'url'; }
+            })();
             snapshots.push({
-              source: 'pricesapi', price: offer.price, currency: offer.currency,
-              retailer: offer.merchant, url: offer.url || null, inStock: offer.inStock,
+              source: scraped.method, price: scraped.price, currency: scraped.currency,
+              retailer: domain, url, inStock: scraped.inStock,
             });
+          }
+        }
+      } else {
+        const { products } = await searchWithRetry(component.search_query, country, 3, 15);
+        for (const product of products) {
+          for (const offer of product.offers) {
+            if (offer.price > 0) {
+              snapshots.push({
+                source: 'pricesapi', price: offer.price, currency: offer.currency,
+                retailer: offer.merchant, url: offer.url || null, inStock: offer.inStock,
+              });
+            }
           }
         }
       }
 
-      if (snapshots.length === 0) { await sleep(2_000); continue; }
+      if (snapshots.length === 0) {
+        db.markScrapeFailed(component.id);
+        await sleep(2_000);
+        continue;
+      }
+
+      db.clearScrapeFailed(component.id);
 
       // Detect stock changes before saving
       for (const snap of snapshots) {
@@ -130,20 +171,23 @@ async function scheduledRefreshAll(): Promise<void> {
       const newBest = db.getLatestPricePerRetailer(component.id)[0];
       if (!newBest) { await sleep(2_000); continue; }
 
-      // Price alert check
-      if (component.alert_price != null && newBest.price <= component.alert_price) {
+      // Price alert check (with 24h cooldown to prevent repeat spam)
+      if (component.alert_price != null && newBest.price <= component.alert_price
+          && db.shouldSendAlert(component.id, 1440)) {
         await notifyAll({ type: 'price_alert', componentName: component.name,
           price: newBest.price, currency: newBest.currency, retailer: newBest.retailer,
           alertThreshold: component.alert_price, url: newBest.url });
+        db.markLastAlerted(component.id);
       }
 
-      // Price drop notification (vs previous best, must exceed threshold %)
+      // Price drop notification (vs previous best, must exceed threshold %, 6h cooldown)
       if (prevBestPrice != null && newBest.price < prevBestPrice) {
         const dropPct = ((prevBestPrice - newBest.price) / prevBestPrice) * 100;
-        if (dropPct >= dropThresholdPct) {
+        if (dropPct >= dropThresholdPct && db.shouldSendAlert(component.id, 360)) {
           await notifyAll({ type: 'price_drop', componentName: component.name,
             price: newBest.price, currency: newBest.currency, retailer: newBest.retailer,
             dropAmount: prevBestPrice - newBest.price, dropPercent: dropPct, url: newBest.url });
+          db.markLastAlerted(component.id);
         }
       }
 

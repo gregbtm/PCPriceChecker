@@ -9,6 +9,7 @@
  */
 
 import { searchWithRetry } from './pricesapi.js';
+import { scrapeDellPrebuilt, scrapeHpPrebuilt } from './playwright-scraper.js';
 
 export interface PrebuiltResult {
   retailer: string;
@@ -423,13 +424,24 @@ export async function chillblastPrebuiltSearch(query: string): Promise<PrebuiltS
 }
 
 export async function dellPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  const t0 = Date.now();
+  const { items, error } = await scrapeDellPrebuilt(query);
+  if (items.length > 0) {
+    return {
+      retailer: 'Dell UK',
+      results: items as PrebuiltResult[],
+      scrapedAt: new Date().toISOString(),
+      durationMs: Date.now() - t0,
+    };
+  }
+
+  // Playwright failed or unavailable — fall back to plain fetch + JSON-LD extraction
   return scrapePrebuiltRetailer('Dell UK',
     `https://www.dell.com/en-gb/shop/desktop-computers/sc/desktops?q=${encodeURIComponent(query)}`,
     'dell.com',
     (html, url) => {
       const results = extractJsonLd(html, 'Dell UK', url);
       if (results.length > 0) return results;
-      // Dell sometimes uses data-product attributes
       for (const [, raw] of html.matchAll(/data-product-json="([^"]+)"/g)) {
         try {
           const p = JSON.parse(raw.replace(/&quot;/g, '"').replace(/&amp;/g, '&')) as Record<string, unknown>;
@@ -449,10 +461,22 @@ export async function dellPrebuiltSearch(query: string): Promise<PrebuiltSearchR
       }
       return results;
     },
-  );
+  ).then(r => error ? { ...r, error: r.error ?? error } : r);
 }
 
 export async function hpPrebuiltSearch(query: string): Promise<PrebuiltSearchResult> {
+  const t0 = Date.now();
+  const { items, error } = await scrapeHpPrebuilt(query);
+  if (items.length > 0) {
+    return {
+      retailer: 'HP UK',
+      results: items as PrebuiltResult[],
+      scrapedAt: new Date().toISOString(),
+      durationMs: Date.now() - t0,
+    };
+  }
+
+  // Playwright failed or unavailable — plain fetch fallback
   return scrapePrebuiltRetailer('HP UK',
     `https://www.hp.com/gb-en/shop/discover/desktop-computers?q=${encodeURIComponent(query)}`,
     'hp.com',
@@ -468,7 +492,7 @@ export async function hpPrebuiltSearch(query: string): Promise<PrebuiltSearchRes
         scraperNote: 'HP product listing — visit site for individual specs', brand: 'HP',
       }];
     },
-  );
+  ).then(r => error ? { ...r, error: r.error ?? error } : r);
 }
 
 // ── Specialist PC retailer scrapers ────────────────────────────────────────
@@ -766,9 +790,111 @@ const PREBUILT_FNS: Record<PrebuiltRetailerId, (q: string) => Promise<PrebuiltSe
   bedrock: bedrockPrebuiltSearch,
 };
 
+// Retailers whose sites block server-side requests (403/404) — served via PricesAPI instead.
+const API_BACKED_IDS: ReadonlySet<PrebuiltRetailerId> = new Set([
+  'currys', 'argos', 'johnlewis', 'ao', 'very',
+  'ebuyer', 'scan', 'overclockers', 'box', 'novatech', 'ccl', 'amazon',
+]);
+
+// Keyword(s) in the PricesAPI offer `merchant` field that identify each retailer.
+const MERCHANT_MAP: Array<{ keywords: string[]; id: PrebuiltRetailerId; label: string; fallbackUrl: string }> = [
+  { keywords: ['currys'],                        id: 'currys',       label: 'Currys',         fallbackUrl: 'https://www.currys.co.uk' },
+  { keywords: ['argos'],                         id: 'argos',        label: 'Argos',          fallbackUrl: 'https://www.argos.co.uk' },
+  { keywords: ['john lewis'],                    id: 'johnlewis',    label: 'John Lewis',     fallbackUrl: 'https://www.johnlewis.com' },
+  { keywords: ['ao.com', 'ao '],                 id: 'ao',           label: 'AO.com',         fallbackUrl: 'https://ao.com' },
+  { keywords: ['very'],                          id: 'very',         label: 'Very',           fallbackUrl: 'https://www.very.co.uk' },
+  { keywords: ['ebuyer'],                        id: 'ebuyer',       label: 'Ebuyer',         fallbackUrl: 'https://www.ebuyer.com' },
+  { keywords: ['scan'],                          id: 'scan',         label: 'Scan.co.uk',     fallbackUrl: 'https://www.scan.co.uk' },
+  { keywords: ['overclockers', 'oc.co.uk'],      id: 'overclockers', label: 'Overclockers UK',fallbackUrl: 'https://www.overclockers.co.uk' },
+  { keywords: ['box.co.uk'],                     id: 'box',          label: 'Box.co.uk',      fallbackUrl: 'https://www.box.co.uk' },
+  { keywords: ['novatech'],                      id: 'novatech',     label: 'Novatech',       fallbackUrl: 'https://www.novatech.co.uk' },
+  { keywords: ['ccl'],                           id: 'ccl',          label: 'CCL Online',     fallbackUrl: 'https://www.cclonline.com' },
+  { keywords: ['amazon'],                        id: 'amazon',       label: 'Amazon UK',      fallbackUrl: 'https://www.amazon.co.uk' },
+];
+
+function merchantToEntry(merchantName: string) {
+  const ml = merchantName.toLowerCase();
+  return MERCHANT_MAP.find(m => m.keywords.some(kw => ml.includes(kw))) ?? null;
+}
+
+async function searchMainstreamViaApi(
+  query: string,
+  requestedIds: PrebuiltRetailerId[],
+): Promise<PrebuiltSearchResult[]> {
+  const t0 = Date.now();
+  try {
+    const { products } = await searchWithRetry(query, 'gb', 10, 20);
+    const byId = new Map<PrebuiltRetailerId, PrebuiltResult[]>();
+
+    for (const p of products) {
+      for (const o of p.offers) {
+        const entry = merchantToEntry(o.merchant);
+        if (!entry || !requestedIds.includes(entry.id)) continue;
+        const bucket = byId.get(entry.id) ?? [];
+        bucket.push({
+          retailer: entry.label,
+          name: p.name,
+          price: o.price,
+          currency: o.currency,
+          inStock: o.inStock,
+          url: o.url || p.url || entry.fallbackUrl,
+          ...extractSpecs(p.name),
+        });
+        byId.set(entry.id, bucket);
+      }
+    }
+
+    const elapsed = Date.now() - t0;
+    return requestedIds.map(id => {
+      const entry = MERCHANT_MAP.find(m => m.id === id)!;
+      const results = (byId.get(id) ?? []).slice(0, MAX_RESULTS);
+      return {
+        retailer: entry.label,
+        results,
+        scrapedAt: new Date().toISOString(),
+        durationMs: elapsed,
+        error: results.length === 0 ? `No ${entry.label} listings found via PricesAPI for this query` : undefined,
+      };
+    });
+  } catch (err) {
+    const elapsed = Date.now() - t0;
+    return requestedIds.map(id => {
+      const entry = MERCHANT_MAP.find(m => m.id === id)!;
+      return {
+        retailer: entry.label, results: [], scrapedAt: new Date().toISOString(),
+        durationMs: elapsed, error: `PricesAPI error: ${(err as Error).message}`,
+      };
+    });
+  }
+}
+
 export async function searchAllPrebuiltRetailers(
   query: string,
   retailers: PrebuiltRetailerId[] = ALL_PREBUILT_RETAILER_IDS,
 ): Promise<PrebuiltSearchResult[]> {
-  return Promise.all(retailers.map(r => PREBUILT_FNS[r](query)));
+  const hasApiKey = !!process.env.PRICES_API_KEY;
+  const apiRetailers  = retailers.filter(r => API_BACKED_IDS.has(r));
+  const scraperRetailers = retailers.filter(r => !API_BACKED_IDS.has(r));
+
+  const [apiResults, scraperResults] = await Promise.all([
+    apiRetailers.length > 0
+      ? (hasApiKey
+          ? searchMainstreamViaApi(query, apiRetailers)
+          // No key: fall back to per-retailer scrapers (may hit 403s)
+          : Promise.all(apiRetailers.map(r => PREBUILT_FNS[r](query))))
+      : Promise.resolve([]),
+    Promise.all(scraperRetailers.map(r => PREBUILT_FNS[r](query))),
+  ]);
+
+  // Reassemble in the original requested order
+  const apiMap  = new Map(apiResults.map(r => [r.retailer, r]));
+  const scraperMap = new Map(scraperResults.map(r => [r.retailer, r]));
+
+  return retailers.map(id => {
+    const entry = MERCHANT_MAP.find(m => m.id === id);
+    const label = entry?.label ?? id;
+    return apiMap.get(label) ?? scraperMap.get(label) ?? {
+      retailer: label, results: [], scrapedAt: new Date().toISOString(), durationMs: 0,
+    };
+  });
 }

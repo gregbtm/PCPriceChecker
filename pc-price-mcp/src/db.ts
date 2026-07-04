@@ -11,6 +11,32 @@ export interface TrackedComponent {
   id: number; name: string; category: string; search_query: string;
   alert_price: number | null; notes: string | null;
   created_at: string; last_checked: string | null;
+  source_url: string | null;
+  paused: number;                    // 0 | 1
+  check_interval_minutes: number | null;
+  last_scrape_failed: number;        // 0 | 1
+  unit_quantity: number | null;
+  unit_type: string | null;
+}
+
+export interface ComponentUrl {
+  id: number; component_id: number; url: string;
+  retailer: string | null; label: string | null; added_at: string;
+}
+
+export interface Tag {
+  id: number; name: string; color: string; created_at: string;
+}
+
+export interface ScrapeRule {
+  domain: string;
+  name_selector: string | null;
+  price_selector: string | null;
+  avail_selector: string | null;
+  price_attribute: string | null;
+  price_regex: string | null;
+  notes: string | null;
+  updated_at: string;
 }
 export interface PriceRecord {
   id: number; component_id: number; source: string; price: number;
@@ -190,20 +216,75 @@ function initSchema(db: Database.Database): void {
       ON prebuilt_price_records(system_id, recorded_at DESC);
     CREATE INDEX IF NOT EXISTS idx_prebuilt_price_system_retailer
       ON prebuilt_price_records(system_id, retailer, source);
+
+    CREATE TABLE IF NOT EXISTS saved_searches (
+      id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+      name               TEXT    NOT NULL,
+      query              TEXT    NOT NULL,
+      max_price          REAL,
+      category           TEXT,
+      created_at         TEXT    NOT NULL DEFAULT (datetime('now')),
+      last_checked       TEXT,
+      last_result_count  INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS scrape_rules (
+      domain           TEXT PRIMARY KEY,
+      name_selector    TEXT,
+      price_selector   TEXT,
+      avail_selector   TEXT,
+      price_attribute  TEXT,
+      price_regex      TEXT,
+      notes            TEXT,
+      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS component_urls (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      component_id INTEGER NOT NULL REFERENCES tracked_components(id) ON DELETE CASCADE,
+      url          TEXT    NOT NULL,
+      retailer     TEXT,
+      label        TEXT,
+      added_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(component_id, url)
+    );
+
+    CREATE TABLE IF NOT EXISTS tags (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT    NOT NULL UNIQUE,
+      color      TEXT    NOT NULL DEFAULT '#6366f1',
+      created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS component_tags (
+      component_id INTEGER NOT NULL REFERENCES tracked_components(id) ON DELETE CASCADE,
+      tag_id       INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+      PRIMARY KEY (component_id, tag_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_component_urls_component
+      ON component_urls(component_id);
+    CREATE INDEX IF NOT EXISTS idx_component_tags_component
+      ON component_tags(component_id);
+    CREATE INDEX IF NOT EXISTS idx_component_tags_tag
+      ON component_tags(tag_id);
   `);
 }
 
 function runMigrations(db: Database.Database): void {
-  const cols = (db.prepare('PRAGMA table_info(price_records)').all() as Array<{ name: string }>).map(c => c.name);
-  if (!cols.includes('is_outlier')) {
-    db.exec('ALTER TABLE price_records ADD COLUMN is_outlier INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!cols.includes('confidence')) {
-    db.exec('ALTER TABLE price_records ADD COLUMN confidence REAL DEFAULT 1.0');
-  }
-  if (!cols.includes('z_score')) {
-    db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
-  }
+  const prCols = (db.prepare('PRAGMA table_info(price_records)').all() as Array<{ name: string }>).map(c => c.name);
+  if (!prCols.includes('is_outlier')) db.exec('ALTER TABLE price_records ADD COLUMN is_outlier INTEGER NOT NULL DEFAULT 0');
+  if (!prCols.includes('confidence'))  db.exec('ALTER TABLE price_records ADD COLUMN confidence REAL DEFAULT 1.0');
+  if (!prCols.includes('z_score'))     db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
+
+  const tcCols = (db.prepare('PRAGMA table_info(tracked_components)').all() as Array<{ name: string }>).map(c => c.name);
+  if (!tcCols.includes('source_url'))             db.exec('ALTER TABLE tracked_components ADD COLUMN source_url TEXT');
+  if (!tcCols.includes('last_alerted_at'))         db.exec('ALTER TABLE tracked_components ADD COLUMN last_alerted_at TEXT');
+  if (!tcCols.includes('paused'))                  db.exec('ALTER TABLE tracked_components ADD COLUMN paused INTEGER NOT NULL DEFAULT 0');
+  if (!tcCols.includes('check_interval_minutes'))  db.exec('ALTER TABLE tracked_components ADD COLUMN check_interval_minutes INTEGER');
+  if (!tcCols.includes('last_scrape_failed'))      db.exec('ALTER TABLE tracked_components ADD COLUMN last_scrape_failed INTEGER NOT NULL DEFAULT 0');
+  if (!tcCols.includes('unit_quantity'))            db.exec('ALTER TABLE tracked_components ADD COLUMN unit_quantity REAL');
+  if (!tcCols.includes('unit_type'))               db.exec('ALTER TABLE tracked_components ADD COLUMN unit_type TEXT');
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -233,12 +314,12 @@ export function getAllConfig(): Record<string, string> {
 
 export function addTrackedComponent(
   name: string, category: string, searchQuery: string,
-  alertPrice?: number | null, notes?: string | null,
+  alertPrice?: number | null, notes?: string | null, sourceUrl?: string | null,
 ): TrackedComponent {
   return getDb().prepare(`
-    INSERT INTO tracked_components (name, category, search_query, alert_price, notes)
-    VALUES (?, ?, ?, ?, ?) RETURNING *
-  `).get(name, category, searchQuery, alertPrice ?? null, notes ?? null) as TrackedComponent;
+    INSERT INTO tracked_components (name, category, search_query, alert_price, notes, source_url)
+    VALUES (?, ?, ?, ?, ?, ?) RETURNING *
+  `).get(name, category, searchQuery, alertPrice ?? null, notes ?? null, sourceUrl ?? null) as TrackedComponent;
 }
 
 export function getTrackedComponents(): TrackedComponent[] {
@@ -257,8 +338,229 @@ export function updateAlertPrice(id: number, alertPrice: number | null): boolean
   return getDb().prepare('UPDATE tracked_components SET alert_price = ? WHERE id = ?').run(alertPrice, id).changes > 0;
 }
 
+export interface BulkImportRow {
+  name: string; category?: string; search_query: string;
+  alert_price?: number | null; notes?: string | null; source_url?: string | null;
+}
+
+export function bulkImportComponents(rows: BulkImportRow[]): { imported: number; skipped: number } {
+  const db = getDb();
+  let imported = 0; let skipped = 0;
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO tracked_components (name, category, search_query, alert_price, notes, source_url)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  db.transaction(() => {
+    for (const r of rows) {
+      if (!r.name?.trim() || !r.search_query?.trim()) { skipped++; continue; }
+      const changes = insert.run(
+        r.name.trim(), r.category?.trim() || 'other', r.search_query.trim(),
+        r.alert_price ?? null, r.notes ?? null, r.source_url ?? null,
+      ).changes;
+      if (changes > 0) imported++; else skipped++;
+    }
+  })();
+  return { imported, skipped };
+}
+
+export function exportFullBackupJson(): object {
+  const db = getDb();
+  return {
+    version: 1,
+    exported_at: new Date().toISOString(),
+    components: db.prepare('SELECT * FROM tracked_components').all(),
+    tags: db.prepare('SELECT * FROM tags').all(),
+    component_tags: db.prepare('SELECT * FROM component_tags').all(),
+    component_urls: db.prepare('SELECT * FROM component_urls').all(),
+    scrape_rules: db.prepare('SELECT * FROM scrape_rules').all(),
+    config: db.prepare("SELECT key, value FROM config WHERE key NOT LIKE '%_key%' AND key NOT LIKE '%_token%' AND key NOT LIKE '%_secret%' AND key NOT LIKE '%_password%'").all(),
+  };
+}
+
+export function importFullBackupJson(data: Record<string, unknown>): { components: number; tags: number; rules: number } {
+  const db = getDb();
+  let components = 0; let tags = 0; let rules = 0;
+
+  db.transaction(() => {
+    if (Array.isArray(data.components)) {
+      const ins = db.prepare(`
+        INSERT OR IGNORE INTO tracked_components (name, category, search_query, alert_price, notes, source_url)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const c of data.components as any[]) {
+        if (!c.name || !c.search_query) continue;
+        if (ins.run(c.name, c.category ?? 'other', c.search_query, c.alert_price ?? null, c.notes ?? null, c.source_url ?? null).changes > 0) components++;
+      }
+    }
+    if (Array.isArray(data.tags)) {
+      const ins = db.prepare('INSERT OR IGNORE INTO tags (name, color) VALUES (?, ?)');
+      for (const t of data.tags as any[]) {
+        if (!t.name) continue;
+        if (ins.run(t.name, t.color ?? '#6366f1').changes > 0) tags++;
+      }
+    }
+    if (Array.isArray(data.scrape_rules)) {
+      const ins = db.prepare(`
+        INSERT OR IGNORE INTO scrape_rules (domain, name_selector, price_selector, avail_selector, price_attribute, price_regex, notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const r of data.scrape_rules as any[]) {
+        if (!r.domain) continue;
+        if (ins.run(r.domain, r.name_selector ?? null, r.price_selector ?? null, r.avail_selector ?? null, r.price_attribute ?? null, r.price_regex ?? null, r.notes ?? null).changes > 0) rules++;
+      }
+    }
+  })();
+
+  return { components, tags, rules };
+}
+
 export function markLastChecked(id: number): void {
   getDb().prepare("UPDATE tracked_components SET last_checked = datetime('now') WHERE id = ?").run(id);
+}
+
+export function markLastAlerted(id: number): void {
+  getDb().prepare("UPDATE tracked_components SET last_alerted_at = datetime('now') WHERE id = ?").run(id);
+}
+
+export function shouldSendAlert(id: number, cooldownMinutes = 1440): boolean {
+  const row = getDb().prepare('SELECT last_alerted_at FROM tracked_components WHERE id = ?').get(id) as { last_alerted_at: string | null } | undefined;
+  if (!row?.last_alerted_at) return true;
+  const elapsedMinutes = (Date.now() - new Date(row.last_alerted_at + 'Z').getTime()) / 60_000;
+  return elapsedMinutes >= cooldownMinutes;
+}
+
+export function pauseComponent(id: number): void {
+  getDb().prepare('UPDATE tracked_components SET paused = 1 WHERE id = ?').run(id);
+}
+
+export function resumeComponent(id: number): void {
+  getDb().prepare('UPDATE tracked_components SET paused = 0 WHERE id = ?').run(id);
+}
+
+export function setComponentInterval(id: number, minutes: number | null): void {
+  getDb().prepare('UPDATE tracked_components SET check_interval_minutes = ? WHERE id = ?').run(minutes, id);
+}
+
+export function markScrapeFailed(id: number): void {
+  getDb().prepare('UPDATE tracked_components SET last_scrape_failed = 1 WHERE id = ?').run(id);
+}
+
+export function clearScrapeFailed(id: number): void {
+  getDb().prepare('UPDATE tracked_components SET last_scrape_failed = 0 WHERE id = ?').run(id);
+}
+
+export function getComponentsNeedingAttention(): TrackedComponent[] {
+  return getDb().prepare(`
+    SELECT * FROM tracked_components
+    WHERE last_scrape_failed = 1 AND paused = 0
+    ORDER BY last_checked ASC
+  `).all() as TrackedComponent[];
+}
+
+export function setComponentUnitPricing(id: number, quantity: number | null, unitType: string | null): void {
+  getDb().prepare('UPDATE tracked_components SET unit_quantity = ?, unit_type = ? WHERE id = ?').run(quantity, unitType, id);
+}
+
+// ── Component URLs ─────────────────────────────────────────────────────────
+
+export function addComponentUrl(
+  componentId: number, url: string, retailer?: string | null, label?: string | null,
+): ComponentUrl {
+  getDb().prepare(`
+    INSERT INTO component_urls (component_id, url, retailer, label)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(component_id, url) DO UPDATE SET retailer = excluded.retailer, label = excluded.label
+  `).run(componentId, url, retailer ?? null, label ?? null);
+  return getDb().prepare('SELECT * FROM component_urls WHERE component_id = ? AND url = ?')
+    .get(componentId, url) as ComponentUrl;
+}
+
+export function removeComponentUrl(id: number): boolean {
+  return getDb().prepare('DELETE FROM component_urls WHERE id = ?').run(id).changes > 0;
+}
+
+export function getComponentUrls(componentId: number): ComponentUrl[] {
+  return getDb().prepare('SELECT * FROM component_urls WHERE component_id = ? ORDER BY added_at ASC')
+    .all(componentId) as ComponentUrl[];
+}
+
+// ── Tags ───────────────────────────────────────────────────────────────────
+
+export function createTag(name: string, color = '#6366f1'): Tag {
+  return getDb().prepare(`
+    INSERT INTO tags (name, color) VALUES (?, ?)
+    ON CONFLICT(name) DO UPDATE SET color = excluded.color
+    RETURNING *
+  `).get(name, color) as Tag;
+}
+
+export function getTags(): Tag[] {
+  return getDb().prepare('SELECT * FROM tags ORDER BY name ASC').all() as Tag[];
+}
+
+export function getTagById(id: number): Tag | undefined {
+  return getDb().prepare('SELECT * FROM tags WHERE id = ?').get(id) as Tag | undefined;
+}
+
+export function deleteTag(id: number): boolean {
+  return getDb().prepare('DELETE FROM tags WHERE id = ?').run(id).changes > 0;
+}
+
+export function getTagsForComponent(componentId: number): Tag[] {
+  return getDb().prepare(`
+    SELECT t.* FROM tags t
+    JOIN component_tags ct ON ct.tag_id = t.id
+    WHERE ct.component_id = ?
+    ORDER BY t.name ASC
+  `).all(componentId) as Tag[];
+}
+
+export function setComponentTags(componentId: number, tagIds: number[]): void {
+  const db = getDb();
+  db.transaction(() => {
+    db.prepare('DELETE FROM component_tags WHERE component_id = ?').run(componentId);
+    const insert = db.prepare('INSERT OR IGNORE INTO component_tags (component_id, tag_id) VALUES (?, ?)');
+    for (const tagId of tagIds) insert.run(componentId, tagId);
+  })();
+}
+
+export function addTagToComponent(componentId: number, tagId: number): void {
+  getDb().prepare('INSERT OR IGNORE INTO component_tags (component_id, tag_id) VALUES (?, ?)').run(componentId, tagId);
+}
+
+export function removeTagFromComponent(componentId: number, tagId: number): void {
+  getDb().prepare('DELETE FROM component_tags WHERE component_id = ? AND tag_id = ?').run(componentId, tagId);
+}
+
+export function getComponentsByTag(tagId: number): TrackedComponent[] {
+  return getDb().prepare(`
+    SELECT tc.* FROM tracked_components tc
+    JOIN component_tags ct ON ct.component_id = tc.id
+    WHERE ct.tag_id = ?
+    ORDER BY tc.name ASC
+  `).all(tagId) as TrackedComponent[];
+}
+
+export interface SparklinePoint { date: string; min_price: number; }
+
+export function getBatchSparklines(ids: number[], days = 7): Map<number, SparklinePoint[]> {
+  if (ids.length === 0) return new Map();
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = getDb().prepare(`
+    SELECT component_id, date(recorded_at) AS date, MIN(price) AS min_price
+    FROM price_records
+    WHERE component_id IN (${placeholders}) AND is_outlier = 0
+      AND recorded_at >= datetime('now', '-${days} days')
+    GROUP BY component_id, date(recorded_at)
+    ORDER BY component_id, date ASC
+  `).all(...ids) as { component_id: number; date: string; min_price: number }[];
+
+  const result = new Map<number, SparklinePoint[]>();
+  for (const row of rows) {
+    if (!result.has(row.component_id)) result.set(row.component_id, []);
+    result.get(row.component_id)!.push({ date: row.date, min_price: row.min_price });
+  }
+  return result;
 }
 
 // ── Price records ──────────────────────────────────────────────────────────
@@ -664,4 +966,139 @@ export function getPrebuiltsBelowAlertPrice(): {
     }
   }
   return results;
+}
+
+// ── Saved searches ──────────────────────────────────────────────────────────
+
+export interface SavedSearch {
+  id: number;
+  name: string;
+  query: string;
+  max_price: number | null;
+  category: string | null;
+  created_at: string;
+  last_checked: string | null;
+  last_result_count: number;
+}
+
+export function addSavedSearch(name: string, query: string, maxPrice?: number | null, category?: string | null): SavedSearch {
+  return getDb().prepare(`
+    INSERT INTO saved_searches (name, query, max_price, category)
+    VALUES (?, ?, ?, ?) RETURNING *
+  `).get(name, query, maxPrice ?? null, category ?? null) as SavedSearch;
+}
+
+export function getSavedSearches(): SavedSearch[] {
+  return getDb().prepare('SELECT * FROM saved_searches ORDER BY created_at DESC').all() as SavedSearch[];
+}
+
+export function getSavedSearchById(id: number): SavedSearch | undefined {
+  return getDb().prepare('SELECT * FROM saved_searches WHERE id = ?').get(id) as SavedSearch | undefined;
+}
+
+export function removeSavedSearch(id: number): boolean {
+  return getDb().prepare('DELETE FROM saved_searches WHERE id = ?').run(id).changes > 0;
+}
+
+export function updateSavedSearchChecked(id: number, resultCount: number): void {
+  getDb().prepare(`
+    UPDATE saved_searches SET last_checked = datetime('now'), last_result_count = ? WHERE id = ?
+  `).run(resultCount, id);
+}
+
+// ── Batch deal ratios (for UI "best time to buy" badges) ──────────────────
+
+export interface DealRatio {
+  component_id: number;
+  all_time_low: number | null;
+  current_best: number | null;
+  avg_30d: number | null;
+  deal_ratio: number | null;  // current_best / all_time_low — lower is better
+}
+
+export function getBatchDealRatios(componentIds: number[]): Map<number, DealRatio> {
+  if (componentIds.length === 0) return new Map();
+  const db = getDb();
+  const placeholders = componentIds.map(() => '?').join(',');
+
+  const atl = db.prepare(`
+    SELECT component_id, MIN(price) AS all_time_low
+    FROM price_records WHERE component_id IN (${placeholders}) AND is_outlier = 0
+    GROUP BY component_id
+  `).all(...componentIds) as { component_id: number; all_time_low: number }[];
+
+  const current = db.prepare(`
+    SELECT component_id, MIN(price) AS current_best
+    FROM price_records
+    WHERE component_id IN (${placeholders}) AND is_outlier = 0
+      AND recorded_at >= datetime('now', '-48 hours')
+    GROUP BY component_id
+  `).all(...componentIds) as { component_id: number; current_best: number }[];
+
+  const avg30 = db.prepare(`
+    SELECT component_id, ROUND(AVG(price), 2) AS avg_30d
+    FROM price_records
+    WHERE component_id IN (${placeholders}) AND is_outlier = 0
+      AND recorded_at >= datetime('now', '-30 days')
+    GROUP BY component_id
+  `).all(...componentIds) as { component_id: number; avg_30d: number }[];
+
+  const atlMap = new Map(atl.map(r => [r.component_id, r.all_time_low]));
+  const currentMap = new Map(current.map(r => [r.component_id, r.current_best]));
+  const avg30Map = new Map(avg30.map(r => [r.component_id, r.avg_30d]));
+
+  const result = new Map<number, DealRatio>();
+  for (const id of componentIds) {
+    const atl = atlMap.get(id) ?? null;
+    const cur = currentMap.get(id) ?? null;
+    result.set(id, {
+      component_id: id,
+      all_time_low: atl,
+      current_best: cur,
+      avg_30d: avg30Map.get(id) ?? null,
+      deal_ratio: atl && cur ? Math.round((cur / atl) * 100) / 100 : null,
+    });
+  }
+  return result;
+}
+
+// ── Scrape rules ───────────────────────────────────────────────────────────
+
+export function setScrapeRule(
+  domain: string,
+  rule: Omit<ScrapeRule, 'domain' | 'updated_at'>,
+): ScrapeRule {
+  return getDb().prepare(`
+    INSERT INTO scrape_rules (domain, name_selector, price_selector, avail_selector, price_attribute, price_regex, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(domain) DO UPDATE SET
+      name_selector  = excluded.name_selector,
+      price_selector = excluded.price_selector,
+      avail_selector = excluded.avail_selector,
+      price_attribute = excluded.price_attribute,
+      price_regex    = excluded.price_regex,
+      notes          = excluded.notes,
+      updated_at     = datetime('now')
+    RETURNING *
+  `).get(
+    domain,
+    rule.name_selector ?? null,
+    rule.price_selector ?? null,
+    rule.avail_selector ?? null,
+    rule.price_attribute ?? null,
+    rule.price_regex ?? null,
+    rule.notes ?? null,
+  ) as ScrapeRule;
+}
+
+export function getScrapeRule(domain: string): ScrapeRule | undefined {
+  return getDb().prepare('SELECT * FROM scrape_rules WHERE domain = ?').get(domain) as ScrapeRule | undefined;
+}
+
+export function deleteScrapeRule(domain: string): boolean {
+  return getDb().prepare('DELETE FROM scrape_rules WHERE domain = ?').run(domain).changes > 0;
+}
+
+export function getAllScrapeRules(): ScrapeRule[] {
+  return getDb().prepare('SELECT * FROM scrape_rules ORDER BY domain ASC').all() as ScrapeRule[];
 }

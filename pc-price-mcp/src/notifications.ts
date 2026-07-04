@@ -4,7 +4,7 @@
  */
 import * as db from './db.js';
 
-export type NotificationType = 'price_alert' | 'price_drop' | 'restock' | 'test';
+export type NotificationType = 'price_alert' | 'price_drop' | 'restock' | 'test' | 'saved_search';
 
 export interface NotificationPayload {
   type: NotificationType;
@@ -20,17 +20,19 @@ export interface NotificationPayload {
 }
 
 const DISCORD_COLORS: Record<NotificationType, number> = {
-  price_alert: 0x00C851, // green
-  price_drop:  0x4A90D9, // blue
-  restock:     0xFF8800, // orange
-  test:        0x9B59B6, // purple
+  price_alert:   0x00C851,
+  price_drop:    0x4A90D9,
+  restock:       0xFF8800,
+  test:          0x9B59B6,
+  saved_search:  0xF59E0B,
 };
 
 const DISCORD_TITLES: Record<NotificationType, string> = {
-  price_alert: '🔔 Price Alert Triggered!',
-  price_drop:  '📉 Price Drop Detected',
-  restock:     '📦 Back In Stock!',
-  test:        '🧪 Test Notification',
+  price_alert:   '🔔 Price Alert Triggered!',
+  price_drop:    '📉 Price Drop Detected',
+  restock:       '📦 Back In Stock!',
+  test:          '🧪 Test Notification',
+  saved_search:  '🔍 Saved Search Match!',
 };
 
 function fmtPrice(amount: number, currency = 'GBP'): string {
@@ -104,14 +106,201 @@ export async function sendSlack(webhookUrl: string, payload: NotificationPayload
   } catch { return false; }
 }
 
-export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean }> {
-  const discordUrl = db.getConfig('discord_webhook_url');
-  const slackUrl = db.getConfig('slack_webhook_url');
+// ── Telegram ───────────────────────────────────────────────────────────────
 
-  const [discord, slack] = await Promise.all([
-    discordUrl ? sendDiscord(discordUrl, payload) : Promise.resolve(false),
-    slackUrl ? sendSlack(slackUrl, payload) : Promise.resolve(false),
+export async function sendTelegram(botToken: string, chatId: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  let text = `*${DISCORD_TITLES[payload.type]}*\n\n*${payload.componentName}*`;
+  if (payload.price != null) text += `\nPrice: *${sym}${payload.price.toFixed(2)}*`;
+  if (payload.retailer)      text += ` at ${payload.retailer}`;
+  if (payload.alertThreshold != null) text += `\nTarget: ${sym}${payload.alertThreshold.toFixed(2)}`;
+  if (payload.dropAmount != null && payload.dropPercent != null)
+    text += `\nSaving: ${sym}${payload.dropAmount.toFixed(2)} (${payload.dropPercent.toFixed(1)}% off)`;
+  if (payload.message) text += `\n${payload.message}`;
+  if (payload.url)     text += `\n[View product](${payload.url})`;
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'Markdown', disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+// ── Email via Resend ────────────────────────────────────────────────────────
+
+export async function sendEmail(resendApiKey: string, toEmail: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  const title = DISCORD_TITLES[payload.type];
+
+  let bodyRows = `<tr><td style="padding:4px 8px;color:#9ca3af">Component</td><td style="padding:4px 8px;color:#fff;font-weight:600">${payload.componentName}</td></tr>`;
+  if (payload.price != null)
+    bodyRows += `<tr><td style="padding:4px 8px;color:#9ca3af">Price</td><td style="padding:4px 8px;color:#34d399;font-weight:700">${sym}${payload.price.toFixed(2)}</td></tr>`;
+  if (payload.retailer)
+    bodyRows += `<tr><td style="padding:4px 8px;color:#9ca3af">Retailer</td><td style="padding:4px 8px;color:#fff">${payload.retailer}</td></tr>`;
+  if (payload.alertThreshold != null)
+    bodyRows += `<tr><td style="padding:4px 8px;color:#9ca3af">Your target</td><td style="padding:4px 8px;color:#fbbf24">${sym}${payload.alertThreshold.toFixed(2)}</td></tr>`;
+  if (payload.dropAmount != null && payload.dropPercent != null)
+    bodyRows += `<tr><td style="padding:4px 8px;color:#9ca3af">Saving</td><td style="padding:4px 8px;color:#60a5fa">${sym}${payload.dropAmount.toFixed(2)} (${payload.dropPercent.toFixed(1)}%)</td></tr>`;
+
+  const html = `<!DOCTYPE html><html><body style="background:#111827;font-family:sans-serif;padding:24px">
+<div style="max-width:480px;margin:0 auto;background:#1f2937;border-radius:12px;padding:24px;border:1px solid #374151">
+  <h2 style="color:#fff;margin:0 0 16px">${title}</h2>
+  <table style="width:100%;border-collapse:collapse">${bodyRows}</table>
+  ${payload.message ? `<p style="color:#d1d5db;margin-top:12px">${payload.message}</p>` : ''}
+  ${payload.url ? `<a href="${payload.url}" style="display:inline-block;margin-top:16px;padding:10px 20px;background:#2563eb;color:#fff;border-radius:8px;text-decoration:none">View Product →</a>` : ''}
+  <p style="color:#6b7280;font-size:11px;margin-top:20px">UK PC Price MCP</p>
+</div></body></html>`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${resendApiKey}` },
+      body: JSON.stringify({
+        from: 'PC Price Alerts <alerts@resend.dev>',
+        to: [toEmail],
+        subject: `${title} — ${payload.componentName}`,
+        html,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+// ── ntfy (simple HTTP push) ────────────────────────────────────────────────
+
+export async function sendNtfy(topic: string, server: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  let body = payload.componentName;
+  if (payload.price != null) body += ` — ${sym}${payload.price.toFixed(2)}`;
+  if (payload.retailer) body += ` at ${payload.retailer}`;
+  if (payload.dropAmount != null && payload.dropPercent != null) body += ` (${payload.dropPercent.toFixed(1)}% off)`;
+  if (payload.message) body += `\n${payload.message}`;
+
+  const headers: Record<string, string> = {
+    Title: DISCORD_TITLES[payload.type],
+    Tags: payload.type === 'price_drop' ? 'chart_with_downwards_trend' : (payload.type === 'restock' ? 'package' : 'bell'),
+    Priority: payload.type === 'price_alert' ? 'high' : 'default',
+  };
+  if (payload.url) headers['Click'] = payload.url;
+
+  try {
+    const res = await fetch(`${server.replace(/\/$/, '')}/${topic}`, {
+      method: 'POST', body,
+      headers: { 'Content-Type': 'text/plain', ...headers },
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+// ── Pushover ───────────────────────────────────────────────────────────────
+
+export async function sendPushover(appToken: string, userKey: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  let message = `<b>${payload.componentName}</b>`;
+  if (payload.price != null) message += `\nPrice: <b>${sym}${payload.price.toFixed(2)}</b>`;
+  if (payload.retailer) message += ` at ${payload.retailer}`;
+  if (payload.dropAmount != null && payload.dropPercent != null) message += `\nSaving: ${sym}${payload.dropAmount.toFixed(2)} (${payload.dropPercent.toFixed(1)}% off)`;
+  if (payload.alertThreshold != null) message += `\nYour target: ${sym}${payload.alertThreshold.toFixed(2)}`;
+  if (payload.message) message += `\n${payload.message}`;
+
+  const body: Record<string, string> = {
+    token: appToken, user: userKey,
+    title: DISCORD_TITLES[payload.type],
+    message, html: '1',
+    priority: payload.type === 'price_alert' ? '1' : '0',
+  };
+  if (payload.url) { body.url = payload.url; body.url_title = 'View Product'; }
+
+  try {
+    const res = await fetch('https://api.pushover.net/1/messages.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+// ── Gotify ─────────────────────────────────────────────────────────────────
+
+export async function sendGotify(serverUrl: string, appToken: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  let message = payload.componentName;
+  if (payload.price != null) message += ` — ${sym}${payload.price.toFixed(2)}`;
+  if (payload.retailer) message += ` at ${payload.retailer}`;
+  if (payload.dropAmount != null && payload.dropPercent != null) message += ` (${payload.dropPercent.toFixed(1)}% off)`;
+  if (payload.message) message += `\n${payload.message}`;
+  if (payload.url) message += `\n${payload.url}`;
+
+  const priority = payload.type === 'price_alert' ? 8 : (payload.type === 'price_drop' ? 6 : 4);
+
+  try {
+    const res = await fetch(`${serverUrl.replace(/\/$/, '')}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Gotify-Key': appToken },
+      body: JSON.stringify({ title: DISCORD_TITLES[payload.type], message, priority }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+// ── Apprise ────────────────────────────────────────────────────────────────
+
+export async function sendApprise(appriseUrl: string, payload: NotificationPayload): Promise<boolean> {
+  const sym = payload.currency === 'GBP' ? '£' : (payload.currency ?? '£');
+  let body = payload.componentName;
+  if (payload.price != null) body += ` — ${sym}${payload.price.toFixed(2)}`;
+  if (payload.retailer) body += ` at ${payload.retailer}`;
+  if (payload.dropAmount != null && payload.dropPercent != null) body += ` (${payload.dropPercent.toFixed(1)}% off)`;
+  if (payload.message) body += `\n${payload.message}`;
+  if (payload.url) body += `\n${payload.url}`;
+
+  try {
+    const res = await fetch(`${appriseUrl.replace(/\/$/, '')}/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: DISCORD_TITLES[payload.type], body }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+// ── notifyAll ───────────────────────────────────────────────────────────────
+
+export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean; telegram: boolean; email: boolean; ntfy: boolean; pushover: boolean; gotify: boolean; apprise: boolean }> {
+  const discordUrl    = db.getConfig('discord_webhook_url');
+  const slackUrl      = db.getConfig('slack_webhook_url');
+  const tgToken       = db.getConfig('telegram_bot_token');
+  const tgChatId      = db.getConfig('telegram_chat_id');
+  const resendKey     = db.getConfig('resend_api_key');
+  const alertEmail    = db.getConfig('alert_email');
+  const ntfyTopic     = db.getConfig('ntfy_topic');
+  const ntfyServer    = db.getConfig('ntfy_server') ?? 'https://ntfy.sh';
+  const pushToken     = db.getConfig('pushover_app_token');
+  const pushUser      = db.getConfig('pushover_user_key');
+  const gotifyUrl     = db.getConfig('gotify_server_url');
+  const gotifyToken   = db.getConfig('gotify_app_token');
+  const appriseUrl    = db.getConfig('apprise_url');
+
+  const [discord, slack, telegram, email, ntfy, pushover, gotify, apprise] = await Promise.all([
+    discordUrl                      ? sendDiscord(discordUrl, payload)                          : Promise.resolve(false),
+    slackUrl                        ? sendSlack(slackUrl, payload)                              : Promise.resolve(false),
+    tgToken && tgChatId             ? sendTelegram(tgToken, tgChatId, payload)                 : Promise.resolve(false),
+    resendKey && alertEmail         ? sendEmail(resendKey, alertEmail, payload)                 : Promise.resolve(false),
+    ntfyTopic                       ? sendNtfy(ntfyTopic, ntfyServer, payload)                 : Promise.resolve(false),
+    pushToken && pushUser           ? sendPushover(pushToken, pushUser, payload)               : Promise.resolve(false),
+    gotifyUrl && gotifyToken        ? sendGotify(gotifyUrl, gotifyToken, payload)              : Promise.resolve(false),
+    appriseUrl                      ? sendApprise(appriseUrl, payload)                         : Promise.resolve(false),
   ]);
 
-  return { discord, slack };
+  return { discord, slack, telegram, email, ntfy, pushover, gotify, apprise };
 }

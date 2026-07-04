@@ -43,6 +43,13 @@ import {
 } from './export.js';
 import { startScheduler, stopScheduler, restartScheduler, getSchedulerStatus } from './scheduler.js';
 import { startWebServer } from './web.js';
+import { searchCex, getCexProduct, formatCexProduct } from './sources/cex.js';
+import { sendTelegram, sendEmail, sendNtfy, sendPushover } from './notifications.js';
+import { scrapeProductUrl } from './sources/url-scraper.js';
+import {
+  apifyScrapeCurrys, apifyScrapeGoogleShopping, apifyScrapeArgos,
+  apifyScrapeIdealo, apifyScrapeAmazon, isApifyConfigured,
+} from './sources/apify.js';
 
 // ── Argument schemas ───────────────────────────────────────────────────────
 
@@ -56,6 +63,7 @@ const SearchSchema = z.object({
 const ALL_RETAILER_ENUM = [
   'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit',
   'corsair', 'nzxt', 'coolermaster', 'lianli', 'fractal', 'thermaltake',
+  'currys', 'argos', 'johnlewis',
 ] as const;
 
 const ALL_PREBUILT_ENUM = [
@@ -350,6 +358,32 @@ const DatasetBrowseSchema = z.object({
   part_type: z.enum(DATASET_SLUGS),
   priced_only: z.boolean().default(false),
   limit: z.number().int().min(1).max(100).default(20),
+});
+
+const ApifyCurrysSchema = z.object({
+  query:     z.string().min(1),
+  max_items: z.number().int().min(1).max(100).default(20),
+});
+
+const ApifyGoogleShoppingSchema = z.object({
+  query:        z.string().min(1),
+  country_code: z.string().length(2).default('GB'),
+  max_results:  z.number().int().min(1).max(100).default(40),
+});
+
+const ApifyArgosSchema = z.object({
+  query:     z.string().min(1),
+  max_items: z.number().int().min(1).max(100).default(20),
+});
+
+const ApifyIdealoSchema = z.object({
+  query:     z.string().min(1),
+  max_items: z.number().int().min(1).max(100).default(30),
+});
+
+const ApifyAmazonSchema = z.object({
+  asin_or_url:  z.string().min(1),
+  country_code: z.string().length(2).default('GB'),
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -742,28 +776,103 @@ const TOOLS = [
       required: ['url'],
     },
   },
+  // ── URL-based product tracking (PriceBuddy-style) ────────────────────────
+  {
+    name: 'track_url',
+    description:
+      'Paste any product URL from any retailer — scrapes name, price and availability ' +
+      'then adds it to your watchlist. Falls back through JSON-LD → meta tags → CSS rules → Playwright → AI extraction. ' +
+      'Set a scrape rule first with set_scrape_rule if automatic extraction fails for a site.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        url: { type: 'string', description: 'Full product page URL to track (e.g. https://www.ebuyer.com/product/123)' },
+        category: { type: 'string', description: 'Component category: cpu, gpu, ram, motherboard, storage, psu, case, cooling, monitor, other' },
+        alert_price: { type: 'number', description: 'Optional GBP price to alert at or below' },
+        notes: { type: 'string', description: 'Optional notes about this product' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'set_scrape_rule',
+    description:
+      'Set CSS selector rules for a domain to help the URL scraper reliably extract price and name. ' +
+      'Use this when track_url fails on a specific site. Selectors are applied to the raw HTML.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        domain: { type: 'string', description: 'Domain to apply rule to, e.g. "ebuyer.com" or "scan.co.uk"' },
+        price_selector: { type: 'string', description: 'CSS selector for the price element, e.g. ".product-price" or "#ctl00_ContentMainPage_lblPrice"' },
+        name_selector: { type: 'string', description: 'CSS selector for the product name element' },
+        avail_selector: { type: 'string', description: 'CSS selector for the availability/stock element' },
+        price_attribute: { type: 'string', description: 'If price is in an attribute rather than text, specify it here (e.g. "content", "data-price")' },
+        price_regex: { type: 'string', description: 'Optional regex to extract the number from the price element text, e.g. "(\\\\d+\\\\.\\\\d{2})"' },
+        notes: { type: 'string', description: 'Notes about this rule' },
+      },
+      required: ['domain'],
+    },
+  },
+  {
+    name: 'delete_scrape_rule',
+    description: 'Delete a scrape rule for a domain.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        domain: { type: 'string', description: 'Domain to remove rule for' },
+      },
+      required: ['domain'],
+    },
+  },
+  {
+    name: 'list_scrape_rules',
+    description: 'List all saved per-domain CSS scrape rules.',
+    inputSchema: { type: 'object' as const, properties: {} },
+  },
+  // ── PCPartPicker export ───────────────────────────────────────────────────
+  {
+    name: 'export_to_pcpartpicker',
+    description:
+      'Export a tracked build to PCPartPicker by generating a search link for each component. ' +
+      'Returns a formatted summary with PCPartPicker search URLs you can use to find and add each part to a PCPartPicker list.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        build_id: { type: 'number', description: 'Build ID to export (from list_builds)' },
+      },
+      required: ['build_id'],
+    },
+  },
   // ── Notifications ─────────────────────────────────────────────────────────
   {
     name: 'configure_notifications',
     description:
-      'Set Discord and/or Slack webhook URLs for price drop and restock alerts. ' +
-      'Also configure the minimum drop percentage that triggers a notification.',
+      'Configure notification channels for price drop and restock alerts. ' +
+      'Supports Discord, Slack, Telegram, email (Resend), ntfy (simple push — no bot needed), and Pushover.',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        discord_webhook_url: { type: ['string', 'null'], description: 'Discord webhook URL, or null to remove' },
-        slack_webhook_url: { type: ['string', 'null'], description: 'Slack webhook URL, or null to remove' },
-        notify_drop_percent: { type: 'number', description: 'Minimum % drop to trigger notification (default: 5)' },
+        discord_webhook_url:  { type: ['string', 'null'], description: 'Discord webhook URL, or null to remove' },
+        slack_webhook_url:    { type: ['string', 'null'], description: 'Slack webhook URL, or null to remove' },
+        telegram_bot_token:   { type: ['string', 'null'], description: 'Telegram bot token' },
+        telegram_chat_id:     { type: ['string', 'null'], description: 'Telegram chat ID' },
+        resend_api_key:       { type: ['string', 'null'], description: 'Resend API key for email alerts' },
+        alert_email:          { type: ['string', 'null'], description: 'Email address for alerts' },
+        ntfy_topic:           { type: ['string', 'null'], description: 'ntfy topic name (e.g. "my-pc-alerts") — subscribe at ntfy.sh/my-pc-alerts or the ntfy app' },
+        ntfy_server:          { type: ['string', 'null'], description: 'ntfy server URL (default: https://ntfy.sh, or your self-hosted instance)' },
+        pushover_app_token:   { type: ['string', 'null'], description: 'Pushover application token' },
+        pushover_user_key:    { type: ['string', 'null'], description: 'Pushover user/group key' },
+        notify_drop_percent:  { type: 'number', description: 'Minimum % drop to trigger notification (default: 5)' },
       },
     },
   },
   {
     name: 'test_notification',
-    description: 'Send a test notification to configured Discord and/or Slack webhooks.',
+    description: 'Send a test notification to all configured channels (Discord, Slack, Telegram, email, ntfy, Pushover).',
     inputSchema: {
       type: 'object' as const,
       properties: {
-        channel: { type: 'string', enum: ['discord', 'slack', 'all'], default: 'all' },
+        channel: { type: 'string', enum: ['discord', 'slack', 'telegram', 'ntfy', 'pushover', 'all'], default: 'all' },
       },
     },
   },
@@ -1506,6 +1615,238 @@ const TOOLS = [
       required: ['part_type'],
     },
   },
+
+  // ── CeX UK ───────────────────────────────────────────────────────────────
+  {
+    name: 'cex_search',
+    description:
+      'Search CeX (Computer Exchange) UK for used, refurbished, and second-hand PC components. ' +
+      'CeX offers warrantied used hardware at competitive prices — great for GPUs, CPUs, RAM, and consoles. ' +
+      'Returns sell price (what you pay), exchange price (trade-in value), and cash price (what CeX pays you).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query: { type: 'string', description: 'Search term e.g. "RTX 4070" or "Ryzen 7 5800X"' },
+        in_stock_only: { type: 'boolean', default: false, description: 'Only show items available to buy online' },
+        limit: { type: 'number', default: 25, description: 'Max results (1–50)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'cex_get_product',
+    description: 'Get full details for a specific CeX product by its box ID (e.g. "5055910913656"). ' +
+      'Use after cex_search to get up-to-date stock and all three price types.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        box_id: { type: 'string', description: 'CeX box ID from a cex_search result' },
+      },
+      required: ['box_id'],
+    },
+  },
+
+  // ── Saved search alerts ───────────────────────────────────────────────────
+  {
+    name: 'save_search_alert',
+    description:
+      'Save a search query so the scheduler checks it automatically on every refresh cycle. ' +
+      'Sends a notification when any result for the query drops below max_price. ' +
+      'Useful for monitoring categories (e.g. "RTX 5070") rather than specific tracked components.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        name:      { type: 'string', description: 'Friendly label for this saved search' },
+        query:     { type: 'string', description: 'Search query to run on each cycle' },
+        max_price: { type: 'number', description: 'Alert when any result is at or below this GBP price' },
+        category:  { type: 'string', description: 'Optional category hint (e.g. gpu, cpu, memory)' },
+      },
+      required: ['name', 'query'],
+    },
+  },
+  {
+    name: 'list_saved_search_alerts',
+    description: 'List all saved search alerts with their last check time and result count.',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] },
+  },
+  {
+    name: 'delete_saved_search_alert',
+    description: 'Delete a saved search alert by its ID.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'number', description: 'Saved search ID from list_saved_search_alerts' },
+      },
+      required: ['id'],
+    },
+  },
+
+  // ── Power workflows ──────────────────────────────────────────────────────
+  {
+    name: 'search_and_track_component',
+    description:
+      'Search for a PC component via PricesAPI and immediately add matching products to the price tracker. ' +
+      'One-step alternative to calling search_components then track_component separately. ' +
+      'Pass max_track to limit how many products are tracked (default 3, max 10). ' +
+      'Returns the IDs of newly tracked components so you can reference them later.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:       { type: 'string', description: 'Component to find, e.g. "RTX 5070 Ti" or "Ryzen 9 9950X"' },
+        category:    { type: 'string', enum: ['gpu','cpu','ram','motherboard','storage','psu','case','cooling','monitor','other'], default: 'other' },
+        alert_price: { type: 'number', description: 'GBP alert threshold applied to all tracked results' },
+        max_track:   { type: 'number', default: 3, description: 'How many of the top results to track (1–10)' },
+        notes:       { type: 'string' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'search_and_track_prebuilt',
+    description:
+      'Search for pre-built PC systems and immediately add the top results to the prebuilt watchlist. ' +
+      'One-step alternative to calling search_prebuilt_pcs then track_prebuilt_pc separately. ' +
+      'Great for saying "find me gaming desktops under £1200 and track the best ones".',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:      { type: 'string', description: 'Search term e.g. "gaming desktop RTX 4070"' },
+        max_price:  { type: 'number', description: 'Only track results at or below this GBP price' },
+        alert_price:{ type: 'number', description: 'GBP alert threshold applied to tracked results' },
+        category:   { type: 'string', enum: ['gaming','workstation','office','home','mini','aio','other'], default: 'gaming' },
+        max_track:  { type: 'number', default: 3, description: 'How many of the top results to track (1–10)' },
+        retailers:  { type: 'array', items: { type: 'string', enum: [...ALL_PREBUILT_ENUM] }, description: 'Retailers to search (default: all)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'plan_and_track_build',
+    description:
+      'Design an optimal PC build for a given budget and use case, then automatically: ' +
+      '(1) create a named build in your watchlist, (2) add every recommended component to price tracking. ' +
+      'Combines budget_builder + create_build + track_component in one step. ' +
+      'After this, use refresh_prices to fetch live UK prices for all parts.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        budget:     { type: 'number', description: 'Total budget in GBP' },
+        use_case:   { type: 'string', enum: ['gaming_1080p','gaming_1440p','gaming_4k','workstation','streaming','general'], default: 'gaming_1440p' },
+        build_name: { type: 'string', description: 'Name for the saved build, e.g. "1440p Gaming Rig 2025"' },
+      },
+      required: ['budget'],
+    },
+  },
+  {
+    name: 'configure_api_keys',
+    description:
+      'Set or view API keys for the integrated services (PricesAPI, eBay, Keepa, Amazon PA, AWIN, Reddit, YouTube, Bing). ' +
+      'Keys are saved to the local database and take effect immediately — no restart needed. ' +
+      'Omit a field to leave it unchanged. Pass null to remove a key.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        prices_api_key:       { type: ['string','null'], description: 'PricesAPI key — get free at pricesapi.io (50k calls/month)' },
+        ebay_client_id:       { type: ['string','null'], description: 'eBay App ID (developer.ebay.com)' },
+        ebay_client_secret:   { type: ['string','null'], description: 'eBay Cert ID (developer.ebay.com)' },
+        keepa_api_key:        { type: ['string','null'], description: 'Keepa API key (keepa.com/api)' },
+        amazon_access_key:    { type: ['string','null'], description: 'Amazon PA API Access Key' },
+        amazon_secret_key:    { type: ['string','null'], description: 'Amazon PA API Secret Key' },
+        amazon_associate_tag: { type: ['string','null'], description: 'Amazon associate tag (e.g. yourtag-21)' },
+        awin_publisher_id:    { type: ['string','null'], description: 'AWIN publisher/affiliate ID' },
+        awin_api_key:         { type: ['string','null'], description: 'AWIN API key' },
+        reddit_client_id:     { type: ['string','null'], description: 'Reddit app client ID (reddit.com/prefs/apps)' },
+        reddit_client_secret: { type: ['string','null'], description: 'Reddit app client secret' },
+        youtube_api_key:      { type: ['string','null'], description: 'YouTube Data API v3 key (Google Cloud Console)' },
+        bing_api_key:         { type: ['string','null'], description: 'Bing Search v7 API key (Azure)' },
+      },
+    },
+  },
+  {
+    name: 'get_config',
+    description:
+      'Read current app configuration: which API keys are set, notification channels, scheduler status, VAT mode, etc. ' +
+      'Key values are masked for security — only set/not-set status is shown.',
+    inputSchema: { type: 'object' as const, properties: {} },
+  },
+
+  // ── Apify cloud actor scrapers ───────────────────────────────────────────
+  {
+    name: 'apify_currys',
+    description:
+      'Search Currys.co.uk for PC components and electronics via an Apify cloud actor. ' +
+      'Returns product name, price, stock status, and direct product URL. ' +
+      'Requires APIFY_API_TOKEN. Best for live Currys pricing without bot detection issues.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:     { type: 'string', description: 'Search term, e.g. "RTX 4070 graphics card"' },
+        max_items: { type: 'number', default: 20, description: 'Max products to return (1–100)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'apify_google_shopping',
+    description:
+      'Search Google Shopping for any product and get offers from multiple UK merchants. ' +
+      'Returns merchant name, price, condition, rating, and direct offer URL. ' +
+      'Best for finding the cheapest live offer across the entire web. Requires APIFY_API_TOKEN.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:        { type: 'string', description: 'Search term, EAN, SKU, or product name' },
+        country_code: { type: 'string', default: 'GB', description: 'ISO 3166-1 alpha-2 country code (default: GB)' },
+        max_results:  { type: 'number', default: 40, description: 'Max offers to return (1–100)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'apify_argos',
+    description:
+      'Search Argos.co.uk for products via an Apify cloud actor. ' +
+      'Returns name, price, stock status, and product URL. ' +
+      'Requires APIFY_API_TOKEN. Covers tech, gaming, and home electronics.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:     { type: 'string', description: 'Search term, e.g. "gaming monitor 27 inch"' },
+        max_items: { type: 'number', default: 20, description: 'Max products to return (1–100)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'apify_idealo',
+    description:
+      'Search idealo.co.uk (UK price comparison) for a product and get offers from multiple retailers, ' +
+      'including shipping costs and total prices. Accepts a keyword or a direct idealo product URL. ' +
+      'Requires APIFY_API_TOKEN.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        query:     { type: 'string', description: 'Product keyword or idealo.co.uk product URL' },
+        max_items: { type: 'number', default: 30, description: 'Max offers to return (1–100)' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'apify_amazon',
+    description:
+      'Fetch detailed product data from Amazon UK (or another marketplace) for a given ASIN or product URL. ' +
+      'Returns price, rating, review count, seller, brand, features list, and stock status. ' +
+      'Useful as a fallback when Keepa / PA-API quota is exhausted. Requires APIFY_API_TOKEN.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        asin_or_url:  { type: 'string', description: 'Amazon ASIN (e.g. "B09XYZ1234") or full product URL' },
+        country_code: { type: 'string', default: 'GB', description: 'Marketplace country (GB, US, DE, …)' },
+      },
+      required: ['asin_or_url'],
+    },
+  },
 ];
 
 // ── Server ─────────────────────────────────────────────────────────────────
@@ -2179,6 +2520,138 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return ok(`✅ Exported to: \`${filePath}\``);
       }
 
+      // ── track_url ────────────────────────────────────────────────────────
+      case 'track_url': {
+        const a = args as Record<string, unknown>;
+        const url = String(a.url ?? '');
+        if (!url.startsWith('http')) throw new McpError(ErrorCode.InvalidParams, 'url must be a full https:// URL');
+
+        const scraped = await scrapeProductUrl(url);
+        const category = String(a.category ?? 'general');
+        const alertPrice = a.alert_price != null ? Number(a.alert_price) : undefined;
+        const notes = a.notes != null ? String(a.notes) : undefined;
+
+        const component = db.addTrackedComponent(
+          scraped.name,
+          category,
+          url,  // search_query = the URL, so refresh_prices knows where to rescrape
+          alertPrice,
+          notes,
+          url,  // source_url
+        );
+
+        // Record initial price snapshot if we got one
+        if (scraped.price != null) {
+          const domain = new URL(url).hostname.replace(/^www\./, '');
+          db.savePriceSnapshots(component.id, [{
+            source: 'url-scraper',
+            price: scraped.price,
+            currency: scraped.currency,
+            retailer: domain,
+            url,
+            inStock: scraped.inStock,
+          }]);
+        }
+
+        const lines = [
+          `## ✅ Now tracking: ${scraped.name}`,
+          `**ID:** ${component.id} | **Method:** ${scraped.method}`,
+        ];
+        if (scraped.price != null) lines.push(`**Current price:** ${fmtRaw(scraped.price)} ${scraped.inStock ? '(In stock)' : '(Out of stock)'}`);
+        else lines.push(`⚠️ Could not extract price — try running \`set_scrape_rule\` for \`${new URL(url).hostname.replace(/^www\./, '')}\` with the correct price CSS selector.`);
+        if (alertPrice) lines.push(`**Alert when price ≤** ${fmtRaw(alertPrice)}`);
+        lines.push(`\n*Run \`refresh_prices\` to update, or the scheduler will update on its next cycle.*`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── set_scrape_rule ──────────────────────────────────────────────────
+      case 'set_scrape_rule': {
+        const a = args as Record<string, unknown>;
+        const domain = String(a.domain ?? '').replace(/^https?:\/\/(?:www\.)?/, '').split('/')[0];
+        if (!domain) throw new McpError(ErrorCode.InvalidParams, 'domain is required');
+        const rule = db.setScrapeRule(domain, {
+          name_selector:  a.name_selector  != null ? String(a.name_selector)  : null,
+          price_selector: a.price_selector != null ? String(a.price_selector) : null,
+          avail_selector: a.avail_selector != null ? String(a.avail_selector) : null,
+          price_attribute:a.price_attribute != null ? String(a.price_attribute): null,
+          price_regex:    a.price_regex    != null ? String(a.price_regex)    : null,
+          notes:          a.notes          != null ? String(a.notes)          : null,
+        });
+        const lines = [`## ✅ Scrape rule saved for \`${rule.domain}\``];
+        if (rule.price_selector)  lines.push(`**Price selector:** \`${rule.price_selector}\``);
+        if (rule.name_selector)   lines.push(`**Name selector:** \`${rule.name_selector}\``);
+        if (rule.avail_selector)  lines.push(`**Availability selector:** \`${rule.avail_selector}\``);
+        if (rule.price_attribute) lines.push(`**Price attribute:** \`${rule.price_attribute}\``);
+        if (rule.price_regex)     lines.push(`**Price regex:** \`${rule.price_regex}\``);
+        lines.push(`\nNow run \`track_url\` with a URL from this domain to test the rule.`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── delete_scrape_rule ───────────────────────────────────────────────
+      case 'delete_scrape_rule': {
+        const domain = String((args as Record<string, unknown>).domain ?? '').replace(/^https?:\/\/(?:www\.)?/, '').split('/')[0];
+        const deleted = db.deleteScrapeRule(domain);
+        return ok(deleted ? `✅ Scrape rule for \`${domain}\` deleted.` : `No rule found for \`${domain}\`.`);
+      }
+
+      // ── list_scrape_rules ────────────────────────────────────────────────
+      case 'list_scrape_rules': {
+        const rules = db.getAllScrapeRules();
+        if (rules.length === 0) return ok('No scrape rules saved yet.\nUse `set_scrape_rule` to add a rule for a domain.');
+        const lines = ['## Saved Scrape Rules\n', '| Domain | Price Selector | Name Selector | Notes |', '|--------|----------------|---------------|-------|'];
+        for (const r of rules) {
+          lines.push(`| \`${r.domain}\` | ${r.price_selector ? `\`${r.price_selector}\`` : '—'} | ${r.name_selector ? `\`${r.name_selector}\`` : '—'} | ${r.notes ?? ''} |`);
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── export_to_pcpartpicker ───────────────────────────────────────────
+      case 'export_to_pcpartpicker': {
+        const buildId = Number((args as Record<string, unknown>).build_id);
+        if (!buildId) throw new McpError(ErrorCode.InvalidParams, 'build_id is required');
+
+        const summary = db.getBuildSummary(buildId);
+        if (!summary) throw new McpError(ErrorCode.InvalidParams, `Build ${buildId} not found`);
+
+        // PCPartPicker category slugs for search URLs
+        const PCP_CATEGORY_SLUG: Record<string, string> = {
+          cpu: 'cpu', gpu: 'video-card', ram: 'memory', motherboard: 'motherboard',
+          storage: 'internal-hard-drive', psu: 'power-supply', case: 'case',
+          cooling: 'cpu-cooler', monitor: 'monitor', other: 'all',
+        };
+
+        const lines: string[] = [
+          `## PCPartPicker Export: "${summary.build.name}"`,
+          `*Build ID: ${buildId} | ${summary.items.length} component(s)*\n`,
+          `Use the links below to find each part on PCPartPicker UK, then click **[+ Add]** to build your list.\n`,
+          `> Open this link to start a new list: **<https://uk.pcpartpicker.com/list/>**\n`,
+          `| Category | Component | PCPartPicker Search |`,
+          `|----------|-----------|---------------------|`,
+        ];
+
+        for (const item of summary.items) {
+          const cat = item.component_category ?? 'other';
+          const pcpSlug = PCP_CATEGORY_SLUG[cat] ?? 'all';
+          const searchUrl = `https://uk.pcpartpicker.com/search/#g=${pcpSlug}&query=${encodeURIComponent(item.component_name)}`;
+          const qty = item.quantity > 1 ? ` ×${item.quantity}` : '';
+          const best = summary.bestPrices.get(item.component_id);
+          const priceStr = best ? ` — ${fmtRaw(best.price)}` : '';
+          lines.push(`| ${cat} | **${item.component_name}**${qty}${priceStr} | [Search PCPartPicker ↗](${searchUrl}) |`);
+        }
+
+        if (summary.totalCost > 0) {
+          lines.push(`\n**Tracked total: ${fmtRaw(summary.totalCost)}**`);
+          if (summary.missingPrices > 0) {
+            lines.push(`*(${summary.missingPrices} component(s) have no tracked price yet — run \`refresh_prices\` to fetch)*`);
+          }
+        }
+
+        lines.push(`\n---`);
+        lines.push(`*PCPartPicker prices may differ from UK retail. After adding all parts, save your list to get a shareable URL.*`);
+
+        return ok(lines.join('\n'));
+      }
+
       // ── import_pcpartpicker ──────────────────────────────────────────────
       case 'import_pcpartpicker': {
         const { url, create_build: shouldCreateBuild, track_components: shouldTrack } = ImportPCPSchema.parse(args);
@@ -2227,42 +2700,53 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // ── configure_notifications ──────────────────────────────────────────
       case 'configure_notifications': {
-        const { discord_webhook_url, slack_webhook_url, notify_drop_percent } = ConfigNotificationsSchema.parse(args);
+        const a = args as Record<string, unknown>;
         const changes: string[] = [];
 
-        if (discord_webhook_url !== undefined) {
-          if (discord_webhook_url === null) {
-            db.deleteConfig('discord_webhook_url');
-            changes.push('Discord webhook removed');
+        const notifFields: Array<{ arg: string; key: string; label: string }> = [
+          { arg: 'discord_webhook_url',  key: 'discord_webhook_url',  label: 'Discord webhook' },
+          { arg: 'slack_webhook_url',    key: 'slack_webhook_url',    label: 'Slack webhook' },
+          { arg: 'telegram_bot_token',   key: 'telegram_bot_token',   label: 'Telegram bot token' },
+          { arg: 'telegram_chat_id',     key: 'telegram_chat_id',     label: 'Telegram chat ID' },
+          { arg: 'resend_api_key',       key: 'resend_api_key',       label: 'Resend API key' },
+          { arg: 'alert_email',          key: 'alert_email',          label: 'Alert email' },
+          { arg: 'ntfy_topic',           key: 'ntfy_topic',           label: 'ntfy topic' },
+          { arg: 'ntfy_server',          key: 'ntfy_server',          label: 'ntfy server' },
+          { arg: 'pushover_app_token',   key: 'pushover_app_token',   label: 'Pushover app token' },
+          { arg: 'pushover_user_key',    key: 'pushover_user_key',    label: 'Pushover user key' },
+        ];
+
+        for (const f of notifFields) {
+          const val = a[f.arg];
+          if (val === undefined) continue;
+          if (val === null || val === '') {
+            db.deleteConfig(f.key);
+            changes.push(`${f.label} removed`);
           } else {
-            db.setConfig('discord_webhook_url', discord_webhook_url);
-            changes.push(`Discord webhook set`);
+            db.setConfig(f.key, String(val));
+            changes.push(`${f.label} set`);
           }
         }
-        if (slack_webhook_url !== undefined) {
-          if (slack_webhook_url === null) {
-            db.deleteConfig('slack_webhook_url');
-            changes.push('Slack webhook removed');
-          } else {
-            db.setConfig('slack_webhook_url', slack_webhook_url);
-            changes.push(`Slack webhook set`);
-          }
-        }
-        if (notify_drop_percent !== undefined) {
-          db.setConfig('notify_drop_percent', String(notify_drop_percent));
-          changes.push(`Notification threshold set to ${notify_drop_percent}%`);
+
+        const dropPct = a.notify_drop_percent;
+        if (dropPct !== undefined && dropPct !== null) {
+          db.setConfig('notify_drop_percent', String(dropPct));
+          changes.push(`Drop threshold set to ${dropPct}%`);
         }
 
         if (changes.length === 0) {
-          const discordUrl = db.getConfig('discord_webhook_url');
-          const slackUrl = db.getConfig('slack_webhook_url');
-          const threshold = db.getConfig('notify_drop_percent') ?? '5';
+          const cfg = db.getAllConfig();
+          const threshold = cfg.notify_drop_percent ?? '5';
           return ok(
             `## Notification Configuration\n` +
-            `- Discord: ${discordUrl ? '✅ Configured' : '❌ Not set'}\n` +
-            `- Slack: ${slackUrl ? '✅ Configured' : '❌ Not set'}\n` +
+            `- Discord:  ${cfg.discord_webhook_url  ? '✅ Configured' : '❌ Not set'}\n` +
+            `- Slack:    ${cfg.slack_webhook_url    ? '✅ Configured' : '❌ Not set'}\n` +
+            `- Telegram: ${cfg.telegram_bot_token && cfg.telegram_chat_id ? '✅ Configured' : '❌ Not set'}\n` +
+            `- Email:    ${cfg.resend_api_key && cfg.alert_email ? '✅ Configured' : '❌ Not set'}\n` +
+            `- ntfy:     ${cfg.ntfy_topic ? `✅ Topic: ${cfg.ntfy_topic} (${cfg.ntfy_server ?? 'https://ntfy.sh'})` : '❌ Not set'}\n` +
+            `- Pushover: ${cfg.pushover_app_token && cfg.pushover_user_key ? '✅ Configured' : '❌ Not set'}\n` +
             `- Drop threshold: ${threshold}%\n\n` +
-            `Use \`test_notification\` to verify webhooks are working.`,
+            `Use \`test_notification\` to verify channels are working.`,
           );
         }
 
@@ -2271,41 +2755,36 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // ── test_notification ────────────────────────────────────────────────
       case 'test_notification': {
-        const { channel } = TestNotificationSchema.parse(args);
-        const discordUrl = db.getConfig('discord_webhook_url');
-        const slackUrl = db.getConfig('slack_webhook_url');
-
-        if (!discordUrl && !slackUrl) {
-          return ok(
-            '⚠️ No webhooks configured.\nUse `configure_notifications` to set Discord and/or Slack webhook URLs.',
-          );
-        }
+        const a = args as Record<string, unknown>;
+        const channel = String(a.channel ?? 'all');
+        const cfg = db.getAllConfig();
 
         const payload = {
           type: 'test' as const,
           componentName: 'Test Component',
-          message: 'This is a test notification from UK PC Price MCP.',
+          message: 'Test notification from UK PC Price MCP.',
         };
 
+        const anyConfigured = cfg.discord_webhook_url || cfg.slack_webhook_url || cfg.telegram_bot_token
+          || cfg.resend_api_key || cfg.ntfy_topic || cfg.pushover_app_token;
+        if (!anyConfigured) {
+          return ok('⚠️ No notification channels configured.\nUse `configure_notifications` to add one.');
+        }
+
         const lines = ['## Test Notification Results\n'];
+        const test = async (name: string, active: boolean, fn: () => Promise<boolean>) => {
+          if (channel !== 'all' && channel !== name.toLowerCase()) return;
+          if (!active) { lines.push(`${name}: ⚠️ Not configured`); return; }
+          const sent = await fn();
+          lines.push(`${name}: ${sent ? '✅ Sent' : '❌ Failed'}`);
+        };
 
-        if (channel === 'discord' || channel === 'all') {
-          if (discordUrl) {
-            const ok2 = await sendDiscord(discordUrl, payload);
-            lines.push(`Discord: ${ok2 ? '✅ Sent successfully' : '❌ Failed — check your webhook URL'}`);
-          } else {
-            lines.push('Discord: ⚠️ Not configured');
-          }
-        }
-
-        if (channel === 'slack' || channel === 'all') {
-          if (slackUrl) {
-            const ok2 = await sendSlack(slackUrl, payload);
-            lines.push(`Slack: ${ok2 ? '✅ Sent successfully' : '❌ Failed — check your webhook URL'}`);
-          } else {
-            lines.push('Slack: ⚠️ Not configured');
-          }
-        }
+        await test('Discord',  !!cfg.discord_webhook_url,   () => sendDiscord(cfg.discord_webhook_url!, payload));
+        await test('Slack',    !!cfg.slack_webhook_url,      () => sendSlack(cfg.slack_webhook_url!, payload));
+        await test('Telegram', !!(cfg.telegram_bot_token && cfg.telegram_chat_id), () => sendTelegram(cfg.telegram_bot_token!, cfg.telegram_chat_id!, payload));
+        await test('Email',    !!(cfg.resend_api_key && cfg.alert_email), () => sendEmail(cfg.resend_api_key!, cfg.alert_email!, payload));
+        await test('ntfy',     !!cfg.ntfy_topic, () => sendNtfy(cfg.ntfy_topic!, cfg.ntfy_server ?? 'https://ntfy.sh', payload));
+        await test('Pushover', !!(cfg.pushover_app_token && cfg.pushover_user_key), () => sendPushover(cfg.pushover_app_token!, cfg.pushover_user_key!, payload));
 
         return ok(lines.join('\n'));
       }
@@ -3553,6 +4032,344 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         for (const [i, c] of results.entries()) {
           lines.push(formatDatasetComponent(c, i));
           lines.push('');
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── CeX UK ──────────────────────────────────────────────────────────
+      case 'cex_search': {
+        const { query, in_stock_only = false, limit = 25 } = args as { query: string; in_stock_only?: boolean; limit?: number };
+        const result = await searchCex(String(query), Boolean(in_stock_only), Math.min(Number(limit) || 25, 50));
+        if (result.products.length === 0) {
+          return ok(`No CeX listings found for "${query}"${in_stock_only ? ' (in stock only)' : ''}.`);
+        }
+        const sym = '£';
+        const lines = [
+          `## CeX UK: "${query}"`,
+          `*${result.products.length} of ${result.total} results · Buy price = what CeX sells to you · Exchange = trade-in value*\n`,
+        ];
+        for (const p of result.products) {
+          const stock = p.outOfStock ? '❌' : `✅ (${p.ecomQuantityOnHand})`;
+          lines.push(
+            `**${p.boxName}**  \n` +
+            `Buy: **${sym}${p.sellPrice.toFixed(2)}** | Exchange: ${sym}${p.exchangePrice.toFixed(2)} | Cash: ${sym}${p.cashPrice.toFixed(2)} | ${stock}  \n` +
+            `ID: \`${p.boxId}\` · ${p.url}\n`
+          );
+        }
+        return ok(lines.join('\n'));
+      }
+
+      case 'cex_get_product': {
+        const { box_id } = args as { box_id: string };
+        const product = await getCexProduct(String(box_id));
+        if (!product) return ok(`CeX product "${box_id}" not found.`);
+        return ok(formatCexProduct(product));
+      }
+
+      // ── Saved search alerts ──────────────────────────────────────────────
+      case 'save_search_alert': {
+        const { name, query, max_price, category } = args as { name: string; query: string; max_price?: number; category?: string };
+        const saved = db.addSavedSearch(String(name), String(query), max_price ? Number(max_price) : null, category ? String(category) : null);
+        return ok(
+          `Saved search alert created (ID: ${saved.id}).\n\n` +
+          `**"${saved.name}"** — query: \`${saved.query}\`\n` +
+          (saved.max_price ? `Alert when any result is at or below **£${saved.max_price.toFixed(2)}**\n` : '') +
+          `The scheduler will check this on every refresh cycle and notify all configured channels.`
+        );
+      }
+
+      case 'list_saved_search_alerts': {
+        const searches = db.getSavedSearches();
+        if (searches.length === 0) return ok('No saved search alerts. Use `save_search_alert` to create one.');
+        const lines = ['## Saved Search Alerts\n'];
+        for (const s of searches) {
+          lines.push(
+            `**${s.id}. ${s.name}** — \`${s.query}\`  \n` +
+            (s.max_price ? `Alert: ≤ £${s.max_price.toFixed(2)}  \n` : '') +
+            `Last checked: ${s.last_checked ?? 'Never'} · Results: ${s.last_result_count}\n`
+          );
+        }
+        return ok(lines.join('\n'));
+      }
+
+      case 'delete_saved_search_alert': {
+        const { id } = args as { id: number };
+        const removed = db.removeSavedSearch(Number(id));
+        return ok(removed ? `Saved search alert ${id} deleted.` : `No saved search with ID ${id}.`);
+      }
+
+      // ── search_and_track_component ────────────────────────────────────────
+      case 'search_and_track_component': {
+        const { query, category = 'other', alert_price, max_track = 3, notes } = args as {
+          query: string; category?: string; alert_price?: number; max_track?: number; notes?: string;
+        };
+        const limit = Math.min(Math.max(1, max_track), 10);
+        const { products, cacheSource, durationMs } = await searchWithRetry(query, 'gb', limit, 5);
+
+        if (products.length === 0) return ok(`No products found for "${query}". Try a broader search term.`);
+
+        const lines = [
+          `## Search + Track: "${query}"`,
+          `*${products.length} result(s) found · ${cacheSource} · ${(durationMs / 1000).toFixed(1)}s*\n`,
+        ];
+        const tracked: Array<{ id: number; name: string; price: string }> = [];
+
+        for (const p of products.slice(0, limit)) {
+          const component = db.addTrackedComponent(
+            p.name, category, p.name, alert_price, notes,
+          );
+          const bestOffer = p.offers.filter(o => o.inStock && o.price > 0).sort((a, b) => a.price - b.price)[0];
+          const priceStr = bestOffer ? `from ${fmt(bestOffer.price, bestOffer.currency)} at ${bestOffer.merchant}` : 'price unknown';
+          lines.push(`✅ **[ID: ${component.id}]** ${p.name}`);
+          lines.push(`   ${priceStr}${alert_price ? ` · alert set at ${fmt(alert_price)}` : ''}`);
+          if (p.url) lines.push(`   <${p.url}>`);
+          tracked.push({ id: component.id, name: p.name, price: priceStr });
+        }
+
+        lines.push('');
+        lines.push(`Tracked ${tracked.length} component(s). Use \`refresh_prices\` to keep prices up to date.`);
+        if (alert_price) lines.push(`You'll be notified when any drops below **${fmt(alert_price)}**.`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── search_and_track_prebuilt ─────────────────────────────────────────
+      case 'search_and_track_prebuilt': {
+        const { query, max_price, alert_price, category = 'gaming', max_track = 3, retailers } = args as {
+          query: string; max_price?: number; alert_price?: number; category?: string; max_track?: number; retailers?: string[];
+        };
+        const limit = Math.min(Math.max(1, max_track), 10);
+
+        const results = await searchAllPrebuiltRetailers(query, retailers as any);
+        const allFound = results
+          .flatMap(r => r.results.map(p => ({ ...p, _retailer: r.retailer })))
+          .filter(p => p.price != null && p.price > 0)
+          .filter(p => max_price == null || p.price! <= max_price)
+          .sort((a, b) => a.price! - b.price!);
+
+        if (allFound.length === 0) {
+          return ok(`No prebuilt results found for "${query}"${max_price ? ` under £${max_price}` : ''}. Try broader terms or remove the price filter.`);
+        }
+
+        const lines = [
+          `## Search + Track Prebuilts: "${query}"`,
+          `*${allFound.length} result(s) found across ${results.length} retailers*\n`,
+        ];
+
+        for (const p of allFound.slice(0, limit)) {
+          const system = db.addPrebuiltSystem(p.name, category as any, p.name, {
+            brand: p.brand, cpu: p.cpu, gpu: p.gpu, ram: p.ram, storage: p.storage, os: p.os,
+            formFactor: p.formFactor, alertPrice: alert_price,
+          });
+          const specs = [p.cpu, p.gpu, p.ram, p.storage].filter(Boolean).join(' · ');
+          lines.push(`✅ **[ID: ${system.id}]** ${p.name}`);
+          lines.push(`   **${fmt(p.price!, p.currency)}** at ${p._retailer}${p.inStock ? ' ✅' : ' ❌ Out of stock'}`);
+          if (specs) lines.push(`   *${specs}*`);
+          if (p.url) lines.push(`   <${p.url}>`);
+          if (alert_price) lines.push(`   Alert set at ${fmt(alert_price)}`);
+          lines.push('');
+        }
+
+        lines.push(`Tracking ${Math.min(allFound.length, limit)} prebuilt(s). Use \`refresh_prebuilt_prices\` to update.`);
+        return ok(lines.join('\n'));
+      }
+
+      // ── plan_and_track_build ──────────────────────────────────────────────
+      case 'plan_and_track_build': {
+        const { budget, use_case = 'gaming_1440p', build_name } = args as {
+          budget: number; use_case?: string; build_name?: string;
+        };
+        const result = budgetBuilder(budget, use_case as UseCase);
+        const name = build_name ?? `${result.useCaseLabel} — £${budget.toLocaleString()} Build`;
+
+        const build = db.createBuild(name);
+        const lines = [
+          `## Plan + Track: ${name}`,
+          `*Build ID: ${build.id} · ${result.useCaseLabel} · £${budget.toLocaleString()} budget*\n`,
+          '| Component | Budget | Suggestion |',
+          '|---|---|---|',
+          ...result.allocations.map(a => `| ${a.label} | £${a.budgetPounds} | ${a.suggestion} |`),
+          '',
+          `**Total allocated:** £${result.totalAllocated.toLocaleString()}\n`,
+          '### Tracking components…',
+        ];
+
+        for (const a of result.allocations) {
+          const cat = a.label.toLowerCase().includes('gpu') ? 'gpu'
+            : a.label.toLowerCase().includes('cpu') ? 'cpu'
+            : a.label.toLowerCase().includes('ram') || a.label.toLowerCase().includes('memory') ? 'ram'
+            : a.label.toLowerCase().includes('motherboard') ? 'motherboard'
+            : a.label.toLowerCase().includes('storage') || a.label.toLowerCase().includes('ssd') ? 'storage'
+            : a.label.toLowerCase().includes('psu') || a.label.toLowerCase().includes('power') ? 'psu'
+            : a.label.toLowerCase().includes('case') ? 'case'
+            : a.label.toLowerCase().includes('cool') ? 'cooling'
+            : 'other';
+          const component = db.addTrackedComponent(
+            a.suggestion, cat, a.searchQuery ?? a.suggestion, undefined,
+            `Part of build "${name}" (ID ${build.id})`,
+          );
+          db.addBuildItem(build.id, component.id, 1, undefined);
+          lines.push(`- ✅ **[${component.id}]** ${a.label}: ${a.suggestion} *(search: "${a.searchQuery ?? a.suggestion}")*`);
+        }
+
+        lines.push('', `\n**Build "${name}" created (ID: ${build.id})** with ${result.allocations.length} components tracked.`);
+        lines.push('Run `refresh_prices` to fetch current UK prices for all parts.');
+        if (result.notes.length > 0) {
+          lines.push('', '### Build notes', ...result.notes.map(n => `- ${n}`));
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── configure_api_keys ────────────────────────────────────────────────
+      case 'configure_api_keys': {
+        const a = args as Record<string, string | null | undefined>;
+        const keyMap: Array<{ arg: string; dbKey: string; envVar: string; label: string }> = [
+          { arg: 'prices_api_key',       dbKey: 'prices_api_key',       envVar: 'PRICES_API_KEY',       label: 'PricesAPI' },
+          { arg: 'ebay_client_id',       dbKey: 'ebay_client_id',       envVar: 'EBAY_CLIENT_ID',       label: 'eBay Client ID' },
+          { arg: 'ebay_client_secret',   dbKey: 'ebay_client_secret',   envVar: 'EBAY_CLIENT_SECRET',   label: 'eBay Client Secret' },
+          { arg: 'keepa_api_key',        dbKey: 'keepa_api_key',        envVar: 'KEEPA_API_KEY',        label: 'Keepa' },
+          { arg: 'amazon_access_key',    dbKey: 'amazon_access_key',    envVar: 'AMAZON_ACCESS_KEY',    label: 'Amazon Access Key' },
+          { arg: 'amazon_secret_key',    dbKey: 'amazon_secret_key',    envVar: 'AMAZON_SECRET_KEY',    label: 'Amazon Secret Key' },
+          { arg: 'amazon_associate_tag', dbKey: 'amazon_associate_tag', envVar: 'AMAZON_ASSOCIATE_TAG', label: 'Amazon Associate Tag' },
+          { arg: 'awin_publisher_id',    dbKey: 'awin_publisher_id',    envVar: 'AWIN_PUBLISHER_ID',    label: 'AWIN Publisher ID' },
+          { arg: 'awin_api_key',         dbKey: 'awin_api_key',         envVar: 'AWIN_API_KEY',         label: 'AWIN API Key' },
+          { arg: 'reddit_client_id',     dbKey: 'reddit_client_id',     envVar: 'REDDIT_CLIENT_ID',     label: 'Reddit Client ID' },
+          { arg: 'reddit_client_secret', dbKey: 'reddit_client_secret', envVar: 'REDDIT_CLIENT_SECRET', label: 'Reddit Client Secret' },
+          { arg: 'youtube_api_key',      dbKey: 'youtube_api_key',      envVar: 'YOUTUBE_API_KEY',      label: 'YouTube' },
+          { arg: 'bing_api_key',         dbKey: 'bing_api_key',         envVar: 'BING_API_KEY',         label: 'Bing' },
+        ];
+        const changes: string[] = [];
+        for (const k of keyMap) {
+          const val = a[k.arg];
+          if (val === undefined) continue;
+          if (val === null || val === '') {
+            db.deleteConfig(k.dbKey);
+            delete process.env[k.envVar];
+            changes.push(`${k.label} removed`);
+          } else {
+            db.setConfig(k.dbKey, val);
+            process.env[k.envVar] = val;
+            changes.push(`${k.label} set`);
+          }
+        }
+        if (changes.length === 0) {
+          const cfg = db.getAllConfig();
+          const status = keyMap.map(k => `- ${k.label}: ${cfg[k.dbKey] ? '✅ Set' : '❌ Not set'}`);
+          return ok(`## API Key Status\n\n${status.join('\n')}`);
+        }
+        return ok(`✅ API keys updated:\n${changes.map(c => `- ${c}`).join('\n')}`);
+      }
+
+      // ── get_config ────────────────────────────────────────────────────────
+      case 'get_config': {
+        const cfg = db.getAllConfig();
+        const apiKeys = ['prices_api_key','ebay_client_id','ebay_client_secret','keepa_api_key',
+          'amazon_access_key','amazon_secret_key','amazon_associate_tag',
+          'awin_publisher_id','awin_api_key','reddit_client_id','reddit_client_secret',
+          'youtube_api_key','bing_api_key'];
+        const lines = [
+          '## App Configuration',
+          '',
+          '### Scheduler',
+          `- Status: ${db.getConfig('auto_refresh_interval_minutes') ? `Active — every ${cfg.auto_refresh_interval_minutes} minute(s)` : 'Stopped'}`,
+          '',
+          '### Notifications',
+          `- Discord:  ${cfg.discord_webhook_url  ? '✅ Set' : '❌ Not set'}`,
+          `- Slack:    ${cfg.slack_webhook_url    ? '✅ Set' : '❌ Not set'}`,
+          `- Telegram: ${cfg.telegram_bot_token && cfg.telegram_chat_id ? '✅ Set' : '❌ Not set'}`,
+          `- Email:    ${cfg.resend_api_key && cfg.alert_email ? `✅ Set (${cfg.alert_email})` : '❌ Not set'}`,
+          `- Drop threshold: ${cfg.notify_drop_percent ?? '5'}%`,
+          '',
+          '### API Keys',
+          ...apiKeys.map(k => `- ${k.replace(/_/g, ' ')}: ${cfg[k] ? '✅ Set' : '❌ Not set'}`),
+          '',
+          '### Display',
+          `- VAT mode: ${cfg.vat_mode ?? 'inc_vat'}`,
+        ];
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_currys ──────────────────────────────────────────────────────
+      case 'apify_currys': {
+        const { query, max_items } = ApifyCurrysSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const items = await apifyScrapeCurrys(query, max_items);
+        if (items.length === 0) return ok(`No Currys results found for "${query}".`);
+        const lines = [`## Currys — "${query}" (${items.length} results)\n`];
+        for (const item of items) {
+          lines.push(`### ${item.name}`);
+          lines.push(`- **${fmt(item.price, item.currency)}** — ${item.inStock ? '✅ In stock' : '❌ Out of stock'}`);
+          if (item.url) lines.push(`- ${item.url}`);
+          lines.push('');
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_google_shopping ─────────────────────────────────────────────
+      case 'apify_google_shopping': {
+        const { query, country_code, max_results } = ApifyGoogleShoppingSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const offers = await apifyScrapeGoogleShopping(query, country_code, max_results);
+        if (offers.length === 0) return ok(`No Google Shopping results found for "${query}".`);
+        const lines = [`## Google Shopping — "${query}" (${country_code}) — ${offers.length} offer(s)\n`];
+        lines.push('| Merchant | Price | Condition | Rating |');
+        lines.push('|----------|-------|-----------|--------|');
+        for (const o of offers) {
+          const rating = o.rating ? `${o.rating}★ (${o.reviewCount ?? 0})` : '—';
+          lines.push(`| [${o.merchant}](${o.url ?? '#'}) | **${fmt(o.price, o.currency)}** | ${o.condition ?? 'New'} | ${rating} |`);
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_argos ───────────────────────────────────────────────────────
+      case 'apify_argos': {
+        const { query, max_items } = ApifyArgosSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const items = await apifyScrapeArgos(query, max_items);
+        if (items.length === 0) return ok(`No Argos results found for "${query}".`);
+        const lines = [`## Argos — "${query}" (${items.length} results)\n`];
+        for (const item of items) {
+          lines.push(`### ${item.name}`);
+          lines.push(`- **${fmt(item.price, item.currency)}** — ${item.inStock ? '✅ In stock' : '❌ Out of stock'}`);
+          if (item.url) lines.push(`- ${item.url}`);
+          lines.push('');
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_idealo ──────────────────────────────────────────────────────
+      case 'apify_idealo': {
+        const { query, max_items } = ApifyIdealoSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const offers = await apifyScrapeIdealo(query, max_items);
+        if (offers.length === 0) return ok(`No Idealo results found for "${query}".`);
+        const lines = [`## Idealo — "${query}" — ${offers.length} offer(s)\n`];
+        lines.push('| Merchant | Price | Shipping | Total | Rating |');
+        lines.push('|----------|-------|----------|-------|--------|');
+        for (const o of offers) {
+          const shipping = o.shippingCost != null ? fmt(o.shippingCost, o.currency) : 'n/a';
+          const total = o.totalPrice != null ? fmt(o.totalPrice, o.currency) : '—';
+          const rating = o.rating ? `${o.rating}★` : '—';
+          lines.push(`| [${o.merchant}](${o.url ?? '#'}) | **${fmt(o.price, o.currency)}** | ${shipping} | ${total} | ${rating} |`);
+        }
+        return ok(lines.join('\n'));
+      }
+
+      // ── apify_amazon ──────────────────────────────────────────────────────
+      case 'apify_amazon': {
+        const { asin_or_url, country_code } = ApifyAmazonSchema.parse(args);
+        if (!isApifyConfigured()) return ok('❌ APIFY_API_TOKEN is not configured. Add it via `configure_api_keys`.');
+        const product = await apifyScrapeAmazon(asin_or_url, country_code);
+        if (!product) return ok(`❌ Could not fetch Amazon product for "${asin_or_url}". Check the ASIN/URL and try again.`);
+        const lines = [
+          `## Amazon — ${product.name}`,
+          `**${fmt(product.price, product.currency)}** — ${product.inStock ? '✅ In stock' : '❌ Out of stock'}`,
+          `ASIN: ${product.asin} · Seller: ${product.seller ?? 'Unknown'} · Brand: ${product.brand ?? '—'}`,
+        ];
+        if (product.rating) lines.push(`Rating: ${product.rating}★ (${product.reviewCount?.toLocaleString() ?? 0} reviews)`);
+        if (product.url) lines.push(`\n${product.url}`);
+        if (product.features.length > 0) {
+          lines.push('\n**Key features:**');
+          for (const f of product.features) lines.push(`- ${f}`);
         }
         return ok(lines.join('\n'));
       }

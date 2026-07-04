@@ -16,10 +16,22 @@ import { ebayBrowseSearch, ebayBrowseGetItem, type EbayCondition } from './sourc
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
 import { getSchedulerStatus, restartScheduler, stopScheduler } from './scheduler.js';
 import { notifyAll } from './notifications.js';
+import { searchCex, getCexProduct } from './sources/cex.js';
+import { searchDataset, browseDataset, DATASET_SLUGS, type DatasetSlug } from './sources/pcpartpicker-dataset.js';
 import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
   exportBuildCsv, exportBuildJson, exportTrackedComponentsCsv,
 } from './export.js';
+import { searchPcPartPicker, getPcPartPickerProductPrices } from './sources/pcpartpicker-live.js';
+import {
+  apifyScrapePcPartPicker, isApifyConfigured,
+  apifyScrapeCurrys, apifyScrapeGoogleShopping, apifyScrapeArgos,
+  apifyScrapeIdealo, apifyScrapeAmazon,
+} from './sources/apify.js';
+import { budgetBuilder, buildVsBuy, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
+import { checkCompatibility } from './services/compatibility.js';
+import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
+import { getDealScoresForAll } from './services/deal-scorer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -38,18 +50,59 @@ function param(p: string | string[]): string {
   return Array.isArray(p) ? p[0] : p;
 }
 
+// DB config keys that map directly to environment variables used by the source modules.
+const DB_KEY_TO_ENV: Record<string, string> = {
+  prices_api_key:       'PRICES_API_KEY',
+  ebay_client_id:       'EBAY_CLIENT_ID',
+  ebay_client_secret:   'EBAY_CLIENT_SECRET',
+  keepa_api_key:        'KEEPA_API_KEY',
+  amazon_access_key:    'AMAZON_ACCESS_KEY',
+  amazon_secret_key:    'AMAZON_SECRET_KEY',
+  amazon_associate_tag: 'AMAZON_ASSOCIATE_TAG',
+  awin_publisher_id:    'AWIN_PUBLISHER_ID',
+  awin_api_key:         'AWIN_API_KEY',
+  reddit_client_id:     'REDDIT_CLIENT_ID',
+  reddit_client_secret: 'REDDIT_CLIENT_SECRET',
+  youtube_api_key:      'YOUTUBE_API_KEY',
+  bing_api_key:         'BING_API_KEY',
+  anthropic_api_key:    'ANTHROPIC_API_KEY',
+  camofox_url:          'CAMOFOX_URL',
+  novada_browser_ws:    'NOVADA_BROWSER_WS',
+  novada_api_key:       'NOVADA_API_KEY',
+  gotify_server_url:    'GOTIFY_SERVER_URL',
+  gotify_app_token:     'GOTIFY_APP_TOKEN',
+  apprise_url:          'APPRISE_URL',
+  openai_api_key:       'OPENAI_API_KEY',
+  apify_api_token:      'APIFY_API_TOKEN',
+};
+
+function syncEnvFromDb(): void {
+  const cfg = db.getAllConfig();
+  for (const [dbKey, envVar] of Object.entries(DB_KEY_TO_ENV)) {
+    if (cfg[dbKey]) {
+      process.env[envVar] = cfg[dbKey];
+    }
+  }
+}
+
 export function startWebServer(port: number): void {
   const app = express();
   app.use(express.json());
   app.use(express.static(PUBLIC_DIR));
 
+  // Seed process.env from any API keys previously saved in the DB.
+  syncEnvFromDb();
+
   // ── Components ───────────────────────────────────────────────────────────
 
   app.get('/api/components', h(async (_req, res) => {
     const components = db.getTrackedComponents();
+    const ids = components.map(c => c.id);
+    const dealRatios = db.getBatchDealRatios(ids);
     const result = components.map(c => {
       const latest = db.getLatestPricePerRetailer(c.id);
       const best = latest[0] ?? null;
+      const dr = dealRatios.get(c.id);
       return {
         ...c,
         best_price: best?.price ?? null,
@@ -57,6 +110,9 @@ export function startWebServer(port: number): void {
         best_in_stock: best?.in_stock ?? null,
         best_currency: best?.currency ?? 'GBP',
         best_url: best?.url ?? null,
+        deal_ratio: dr?.deal_ratio ?? null,
+        all_time_low: dr?.all_time_low ?? null,
+        avg_30d: dr?.avg_30d ?? null,
       };
     });
     res.json(result);
@@ -120,6 +176,15 @@ export function startWebServer(port: number): void {
     const history = db.getPriceHistory(id, days);
     const trend = db.getDailyPriceTrend(id, days);
     res.json({ history, trend });
+  }));
+
+  app.get('/api/dashboard/sparklines', h(async (_req, res) => {
+    const components = db.getTrackedComponents();
+    const ids = components.map(c => c.id);
+    const sparklines = db.getBatchSparklines(ids, 7);
+    const result: Record<number, { date: string; min_price: number }[]> = {};
+    for (const [id, points] of sparklines) result[id] = points;
+    res.json(result);
   }));
 
   app.get('/api/components/:id/stats', h(async (req, res) => {
@@ -226,13 +291,7 @@ export function startWebServer(port: number): void {
   // ── Config ────────────────────────────────────────────────────────────────
 
   app.get('/api/config', h(async (_req, res) => {
-    const config = db.getAllConfig();
-    // Mask webhook URLs — return only a presence indicator
-    const safe: Record<string, string | boolean> = {};
-    for (const [k, v] of Object.entries(config)) {
-      safe[k] = k.includes('webhook_url') ? Boolean(v) : v;
-    }
-    res.json(safe);
+    res.json(db.getAllConfig());
   }));
 
   app.post('/api/config', h(async (req, res) => {
@@ -240,8 +299,10 @@ export function startWebServer(port: number): void {
     if (!key) { res.status(400).json({ error: 'key is required' }); return; }
     if (value === null || value === '' || value === undefined) {
       db.deleteConfig(key);
+      if (DB_KEY_TO_ENV[key]) delete process.env[DB_KEY_TO_ENV[key]];
     } else {
       db.setConfig(key, String(value));
+      if (DB_KEY_TO_ENV[key]) process.env[DB_KEY_TO_ENV[key]] = String(value);
     }
     if (key === 'auto_refresh_interval_minutes') restartScheduler();
     res.json({ ok: true });
@@ -449,6 +510,406 @@ export function startWebServer(port: number): void {
     const item = await ebayBrowseGetItem(param(req.params.itemId));
     if (!item) { res.status(404).json({ error: 'Item not found' }); return; }
     res.json(item);
+  }));
+
+  // ── CeX UK ───────────────────────────────────────────────────────────────
+
+  app.get('/api/cex/search', h(async (req, res) => {
+    const { q, in_stock = 'false', limit = '25' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    res.json(await searchCex(q, in_stock === 'true', Math.min(parseInt(limit) || 25, 50)));
+  }));
+
+  app.get('/api/cex/product/:boxId', h(async (req, res) => {
+    const product = await getCexProduct(param(req.params.boxId));
+    if (!product) { res.status(404).json({ error: 'Product not found' }); return; }
+    res.json(product);
+  }));
+
+  // ── Saved searches ────────────────────────────────────────────────────────
+
+  app.get('/api/saved-searches', h(async (_req, res) => {
+    res.json(db.getSavedSearches());
+  }));
+
+  app.post('/api/saved-searches', h(async (req, res) => {
+    const { name, query, max_price, category } = req.body;
+    if (!name || !query) { res.status(400).json({ error: 'name and query are required' }); return; }
+    res.json(db.addSavedSearch(name, query, max_price ? Number(max_price) : null, category || null));
+  }));
+
+  app.delete('/api/saved-searches/:id', h(async (req, res) => {
+    const removed = db.removeSavedSearch(parseInt(param(req.params.id)));
+    res.json({ removed });
+  }));
+
+  // ── Parts database (docyx dataset) ───────────────────────────────────────
+
+  app.get('/api/dataset/browse', h(async (req, res) => {
+    const { part_type, priced_only = 'false', limit = '40' } = req.query as Record<string, string>;
+    if (!part_type || !(DATASET_SLUGS as readonly string[]).includes(part_type)) {
+      res.status(400).json({ error: `part_type must be one of: ${DATASET_SLUGS.join(', ')}` });
+      return;
+    }
+    const result = await browseDataset(part_type as DatasetSlug, priced_only === 'true', Math.min(parseInt(limit) || 40, 100));
+    res.json(result);
+  }));
+
+  app.get('/api/dataset/search', h(async (req, res) => {
+    const { q, part_type, priced_only = 'false', limit = '40' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    if (!part_type || !(DATASET_SLUGS as readonly string[]).includes(part_type)) {
+      res.status(400).json({ error: `part_type must be one of: ${DATASET_SLUGS.join(', ')}` });
+      return;
+    }
+    const slug = part_type as DatasetSlug;
+    const results = await searchDataset(q, slug, priced_only === 'true', Math.min(parseInt(limit) || 40, 100));
+    res.json({ results, query: q, part_type: slug });
+  }));
+
+  app.get('/api/dataset/slugs', (_req, res) => {
+    res.json({ slugs: DATASET_SLUGS });
+  });
+
+  // ── Component pause / resume / interval / unit pricing ───────────────────
+
+  app.post('/api/components/:id/pause', h(async (req, res) => {
+    db.pauseComponent(parseInt(param(req.params.id)));
+    res.json({ ok: true, paused: true });
+  }));
+
+  app.post('/api/components/:id/resume', h(async (req, res) => {
+    db.resumeComponent(parseInt(param(req.params.id)));
+    res.json({ ok: true, paused: false });
+  }));
+
+  app.patch('/api/components/:id/interval', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const minutes = req.body.minutes != null ? Number(req.body.minutes) : null;
+    db.setComponentInterval(id, minutes);
+    res.json({ ok: true, check_interval_minutes: minutes });
+  }));
+
+  app.patch('/api/components/:id/unit', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const { quantity, unit_type } = req.body;
+    db.setComponentUnitPricing(id, quantity != null ? Number(quantity) : null, unit_type ?? null);
+    res.json({ ok: true });
+  }));
+
+  // ── Component URLs ────────────────────────────────────────────────────────
+
+  app.get('/api/components/:id/urls', h(async (req, res) => {
+    res.json(db.getComponentUrls(parseInt(param(req.params.id))));
+  }));
+
+  app.post('/api/components/:id/urls', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const { url, retailer, label } = req.body;
+    if (!url) { res.status(400).json({ error: 'url is required' }); return; }
+    const record = db.addComponentUrl(id, url, retailer, label);
+    res.json(record);
+  }));
+
+  app.delete('/api/component-urls/:urlId', h(async (req, res) => {
+    const removed = db.removeComponentUrl(parseInt(param(req.params.urlId)));
+    res.json({ removed });
+  }));
+
+  // ── Tags ──────────────────────────────────────────────────────────────────
+
+  app.get('/api/tags', h(async (_req, res) => {
+    res.json(db.getTags());
+  }));
+
+  app.post('/api/tags', h(async (req, res) => {
+    const { name, color } = req.body;
+    if (!name) { res.status(400).json({ error: 'name is required' }); return; }
+    res.json(db.createTag(name, color));
+  }));
+
+  app.delete('/api/tags/:id', h(async (req, res) => {
+    const removed = db.deleteTag(parseInt(param(req.params.id)));
+    res.json({ removed });
+  }));
+
+  app.get('/api/components/:id/tags', h(async (req, res) => {
+    res.json(db.getTagsForComponent(parseInt(param(req.params.id))));
+  }));
+
+  app.put('/api/components/:id/tags', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const { tag_ids } = req.body;
+    if (!Array.isArray(tag_ids)) { res.status(400).json({ error: 'tag_ids must be an array' }); return; }
+    db.setComponentTags(id, tag_ids.map(Number));
+    res.json({ ok: true });
+  }));
+
+  app.post('/api/components/:id/tags/:tagId', h(async (req, res) => {
+    db.addTagToComponent(parseInt(param(req.params.id)), parseInt(param(req.params.tagId)));
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/components/:id/tags/:tagId', h(async (req, res) => {
+    db.removeTagFromComponent(parseInt(param(req.params.id)), parseInt(param(req.params.tagId)));
+    res.json({ ok: true });
+  }));
+
+  // ── Needs attention ───────────────────────────────────────────────────────
+
+  app.get('/api/needs-attention', h(async (_req, res) => {
+    res.json(db.getComponentsNeedingAttention());
+  }));
+
+  // ── AI bootstrap: auto-detect selectors from a URL ───────────────────────
+
+  app.post('/api/scrape-rules/bootstrap', h(async (req, res) => {
+    const { url } = req.body;
+    if (!url) { res.status(400).json({ error: 'url is required' }); return; }
+    const { scrapeProductUrl } = await import('./sources/url-scraper.js');
+    const result = await scrapeProductUrl(url);
+    const domain = (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } })();
+    const existing = db.getScrapeRule(domain);
+    res.json({ scraped: result, domain, rule: existing ?? null });
+  }));
+
+  // ── PCPartPicker live search ──────────────────────────────────────────────
+
+  app.get('/api/pcpartpicker/search', h(async (req, res) => {
+    const { category = 'gpu', q, limit = '20' } = req.query as Record<string, string>;
+    const products = await searchPcPartPicker(category, q || undefined, Math.min(parseInt(limit) || 20, 50));
+    res.json({ products, category, query: q ?? null, source: 'pcpartpicker-live' });
+  }));
+
+  app.get('/api/pcpartpicker/product', h(async (req, res) => {
+    const { url } = req.query as Record<string, string>;
+    if (!url) { res.status(400).json({ error: 'url is required' }); return; }
+    const product = await getPcPartPickerProductPrices(url);
+    if (!product) { res.status(404).json({ error: 'Product not found or scrape failed' }); return; }
+    res.json(product);
+  }));
+
+  app.post('/api/pcpartpicker/apify', h(async (req, res) => {
+    const { startUrls } = req.body;
+    if (!Array.isArray(startUrls) || startUrls.length === 0) {
+      res.status(400).json({ error: 'startUrls array is required' }); return;
+    }
+    if (!isApifyConfigured()) {
+      res.status(400).json({ error: 'APIFY_API_TOKEN not configured — add it in Settings → API Keys' }); return;
+    }
+    const items = await apifyScrapePcPartPicker(startUrls.map(String));
+    res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/currys', h(async (req, res) => {
+    const { q, max } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q (search query) is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const items = await apifyScrapeCurrys(q, max ? parseInt(max) : 20);
+    res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/google-shopping', h(async (req, res) => {
+    const { q, country, max } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q (search query) is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const items = await apifyScrapeGoogleShopping(q, country ?? 'GB', max ? parseInt(max) : 40);
+    res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/argos', h(async (req, res) => {
+    const { q, max } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q (search query) is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const items = await apifyScrapeArgos(q, max ? parseInt(max) : 20);
+    res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/idealo', h(async (req, res) => {
+    const { q, max } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q (search query or product URL) is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const items = await apifyScrapeIdealo(q, max ? parseInt(max) : 30);
+    res.json({ items, count: items.length });
+  }));
+
+  app.get('/api/apify/amazon', h(async (req, res) => {
+    const { asin, url, country } = req.query as Record<string, string>;
+    const target = asin ?? url;
+    if (!target) { res.status(400).json({ error: 'asin or url is required' }); return; }
+    if (!isApifyConfigured()) { res.status(400).json({ error: 'APIFY_API_TOKEN not configured' }); return; }
+    const product = await apifyScrapeAmazon(target, country ?? 'GB');
+    if (!product) { res.status(404).json({ error: 'Product not found or scrape failed' }); return; }
+    res.json(product);
+  }));
+
+  // ── Import / export ───────────────────────────────────────────────────────
+
+  app.post('/api/import/csv', h(async (req, res) => {
+    const { csv } = req.body;
+    if (typeof csv !== 'string' || !csv.trim()) {
+      res.status(400).json({ error: 'csv string body field is required' }); return;
+    }
+    const lines = csv.trim().split('\n').filter(l => l.trim());
+    if (lines.length < 2) {
+      res.status(400).json({ error: 'CSV must have a header row and at least one data row' }); return;
+    }
+
+    const parseRow = (line: string): string[] => {
+      const result: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+          else { inQuotes = !inQuotes; }
+        } else if (ch === ',' && !inQuotes) {
+          result.push(current.trim()); current = '';
+        } else { current += ch; }
+      }
+      result.push(current.trim());
+      return result;
+    };
+
+    const headers = parseRow(lines[0]).map(h => h.toLowerCase());
+    const idx = (names: string[]) => names.map(n => headers.indexOf(n)).find(i => i >= 0) ?? -1;
+    const nameIdx   = idx(['name']);
+    const queryIdx  = idx(['search_query', 'query', 'search']);
+    const catIdx    = idx(['category']);
+    const alertIdx  = idx(['alert_price', 'alert']);
+    const notesIdx  = idx(['notes']);
+    const urlIdx    = idx(['source_url', 'url']);
+
+    if (nameIdx === -1) { res.status(400).json({ error: 'CSV must have a "name" column' }); return; }
+
+    const rows: db.BulkImportRow[] = [];
+    for (const line of lines.slice(1)) {
+      const cols = parseRow(line);
+      const name = cols[nameIdx]?.trim();
+      if (!name) continue;
+      rows.push({
+        name,
+        search_query: queryIdx >= 0 ? cols[queryIdx]?.trim() || name : name,
+        category:     catIdx   >= 0 ? cols[catIdx]?.trim()   || 'other' : 'other',
+        alert_price:  alertIdx >= 0 && cols[alertIdx] ? parseFloat(cols[alertIdx]) || null : null,
+        notes:        notesIdx >= 0 ? cols[notesIdx]?.trim() || null : null,
+        source_url:   urlIdx   >= 0 ? cols[urlIdx]?.trim()   || null : null,
+      });
+    }
+
+    res.json(db.bulkImportComponents(rows));
+  }));
+
+  app.post('/api/import/json', h(async (req, res) => {
+    const data = req.body;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      res.status(400).json({ error: 'A JSON backup object is required' }); return;
+    }
+    const result = db.importFullBackupJson(data as Record<string, unknown>);
+    res.json(result);
+  }));
+
+  app.get('/api/export/backup', h(async (_req, res) => {
+    const backup = db.exportFullBackupJson();
+    const filename = `pc-price-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.json(backup);
+  }));
+
+  // ── Advisor ───────────────────────────────────────────────────────────────
+
+  app.get('/api/advisor/budget', h(async (req, res) => {
+    const { budget, use_case = 'gaming_1440p' } = req.query as Record<string, string>;
+    if (!budget || isNaN(parseFloat(budget))) { res.status(400).json({ error: 'budget required' }); return; }
+    const result = budgetBuilder(parseFloat(budget), use_case as UseCase);
+    // Attach PassMark benchmark data for CPU and GPU rows
+    const enriched = {
+      ...result,
+      allocations: result.allocations.map(a => {
+        const benchmark =
+          a.category === 'CPU' ? findCpuBenchmark(a.suggestion) :
+          a.category === 'GPU' ? findGpuBenchmark(a.suggestion) :
+          null;
+        return { ...a, benchmark };
+      }),
+    };
+    res.json(enriched);
+  }));
+
+  app.get('/api/advisor/deals', h(async (_req, res) => {
+    res.json(getDealScoresForAll());
+  }));
+
+  app.get('/api/advisor/benchmark-compare', h(async (req, res) => {
+    const { a, b, type = 'auto' } = req.query as Record<string, string>;
+    if (!a || !b) { res.status(400).json({ error: 'a and b required' }); return; }
+    const lookup = (q: string) =>
+      type === 'cpu' ? findCpuBenchmark(q) :
+      type === 'gpu' ? findGpuBenchmark(q) :
+      findGpuBenchmark(q) ?? findCpuBenchmark(q);
+    const ra = lookup(a);
+    const rb = lookup(b);
+    if (!ra || !rb) {
+      res.status(404).json({ error: !ra ? `Not found: ${a}` : `Not found: ${b}` }); return;
+    }
+    const diff = Math.round(Math.abs(ra.score - rb.score) / Math.max(ra.score, rb.score) * 100);
+    res.json({ a: ra, b: rb, faster: ra.score >= rb.score ? ra.name : rb.name, differencePercent: diff });
+  }));
+
+  const TIER_PRICES: Record<string, number> = {
+    budget: 80, entry: 130, mid: 220, 'mid-high': 340, high: 520, ultra: 850,
+  };
+  app.get('/api/advisor/value', h(async (req, res) => {
+    const { type = 'gpu', budget_max, budget_min = '0', top_n = '10' } = req.query as Record<string, string>;
+    if (!budget_max) { res.status(400).json({ error: 'budget_max required' }); return; }
+    const data = type === 'gpu' ? (GPU_BENCHMARKS as readonly object[]) : (CPU_BENCHMARKS as readonly object[]);
+    const maxP = parseFloat(budget_max);
+    const minP = parseFloat(budget_min);
+    const results = (data as Array<{ name: string; score: number; tier: string }>)
+      .map(c => ({ ...c, estimatedPrice: TIER_PRICES[c.tier] ?? 300, scorePerPound: 0 }))
+      .map(c => ({ ...c, scorePerPound: Math.round(c.score / c.estimatedPrice) }))
+      .filter(c => c.estimatedPrice >= minP && c.estimatedPrice <= maxP)
+      .sort((a, b) => b.scorePerPound - a.scorePerPound)
+      .slice(0, parseInt(top_n));
+    res.json(results);
+  }));
+
+  app.post('/api/advisor/build-vs-buy', h(async (req, res) => {
+    const { cpu, gpu, ram_gb, storage_gb } = req.body as Record<string, string | number>;
+    res.json(buildVsBuy({
+      cpu: cpu as string | undefined,
+      gpu: gpu as string | undefined,
+      ramGb: ram_gb ? Number(ram_gb) : undefined,
+      storageGb: storage_gb ? Number(storage_gb) : undefined,
+    }));
+  }));
+
+  app.post('/api/advisor/upgrade', h(async (req, res) => {
+    const { current_cpu, current_gpu, budget, use_case = 'gaming_1440p' } = req.body as Record<string, string>;
+    if (!current_cpu || !current_gpu || !budget) {
+      res.status(400).json({ error: 'current_cpu, current_gpu, budget required' }); return;
+    }
+    res.json(upgradeAdvisor({
+      currentCpu: current_cpu,
+      currentGpu: current_gpu,
+      budget: parseFloat(budget),
+      useCase: use_case as UseCase,
+    }));
+  }));
+
+  app.post('/api/advisor/compat', h(async (req, res) => {
+    res.json(checkCompatibility(req.body));
+  }));
+
+  app.get('/api/benchmark', h(async (req, res) => {
+    const { q, type = 'auto' } = req.query as Record<string, string>;
+    if (!q) { res.status(400).json({ error: 'q required' }); return; }
+    const result =
+      type === 'cpu' ? findCpuBenchmark(q) :
+      type === 'gpu' ? findGpuBenchmark(q) :
+      findGpuBenchmark(q) ?? findCpuBenchmark(q);
+    res.json(result ?? { error: 'not found' });
   }));
 
   // ── Health check ──────────────────────────────────────────────────────────
