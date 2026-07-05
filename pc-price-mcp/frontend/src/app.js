@@ -1,6 +1,5 @@
-import { fmtDate } from './lib/format.js';
+import { fmtDate, fmtPrice, CURRENCY_SYMS } from './lib/format.js';
 
-const CURRENCY_SYMS = { GBP: '£', USD: '$', EUR: '€' };
 const CHART_TICK_COLOR = '#a6adbb';
 const CHART_GRID_COLOR = 'rgba(166,173,187,0.12)';
 
@@ -39,9 +38,6 @@ function app() {
     priceDrops: [],
     stockChanges: [],
     schedulerStatus: null,
-    builds: [],
-    selectedBuild: null,
-    selectedBuildDetail: null,
     vatMode: 'inc_vat',
 
     // Help modal
@@ -120,14 +116,6 @@ function app() {
     historyStats: null,
     historyDays: 30,
     historyChart: null,
-
-    showCreateBuild: false,
-    newBuildName: '',
-    newBuildDesc: '',
-
-    showAddToBuild: false,
-    addToBuildCid: '',
-    addToBuildQty: 1,
 
     // Search extras
     cexInStockOnly: false,
@@ -286,7 +274,6 @@ function app() {
         this.loadAlerts(),
         this.loadPriceDrops(),
         this.loadStockChanges(),
-        this.loadBuilds(),
         this.loadConfig(),
         this.loadPrebuilts(),
         this.loadPartsSlugs(),
@@ -306,7 +293,6 @@ function app() {
     async loadAlerts()         { await this.loadFrom('/api/alerts',                  'alerts'); },
     async loadPriceDrops()     { await this.loadFrom('/api/price-drops?min_percent=2','priceDrops'); },
     async loadStockChanges()   { await this.loadFrom('/api/stock-changes?hours=24',  'stockChanges'); },
-    async loadBuilds()         { await this.loadFrom('/api/builds',                  'builds'); },
     async loadPrebuilts()      { await this.loadFrom('/api/prebuilts',               'prebuilts'); },
     async loadSparklines()     { await this.loadFrom('/api/dashboard/sparklines',    'sparklines', true); },
     async loadTags()           { await this.loadFrom('/api/tags',                    'tags',       true); },
@@ -472,10 +458,7 @@ function app() {
 
     // ── Formatting ─────────────────────────────────────────────────────────
     fmtPrice(amount, currency = 'GBP') {
-      if (amount == null) return '—';
-      const sym = CURRENCY_SYMS[currency] ?? (currency + ' ');
-      const v = this.vatMode === 'ex_vat' ? amount / 1.2 : amount;
-      return sym + v.toFixed(2);
+      return fmtPrice(amount, currency, this.vatMode);
     },
     bestOfferPrice(offers) {
       const prices = offers.filter(o => o.inStock && o.price > 0).map(o => o.price);
@@ -675,51 +658,6 @@ function app() {
       } finally {
         this.searchLoading = false;
       }
-    },
-
-    // ── Builds ─────────────────────────────────────────────────────────────
-    async selectBuild(b) {
-      this.selectedBuild = b;
-      const r = await fetch(`/api/builds/${b.id}`);
-      this.selectedBuildDetail = await r.json();
-    },
-    openCreateBuild() { this.newBuildName = ''; this.newBuildDesc = ''; this.showCreateBuild = true; },
-    async submitCreateBuild() {
-      if (!this.newBuildName) return;
-      const r = await fetch('/api/builds', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: this.newBuildName, description: this.newBuildDesc }),
-      });
-      const b = await r.json();
-      this.showCreateBuild = false;
-      this.showToast(`✅ Build "${b.name}" created`);
-      await this.loadBuilds();
-      await this.selectBuild(b);
-    },
-    async deleteBuild(b) {
-      if (!confirm(`Delete build "${b.name}"? The tracked components will remain in your watchlist.`)) return;
-      await fetch(`/api/builds/${b.id}`, { method: 'DELETE' });
-      if (this.selectedBuild?.id === b.id) { this.selectedBuild = null; this.selectedBuildDetail = null; }
-      this.showToast(`🗑️ Build "${b.name}" deleted`);
-      await this.loadBuilds();
-    },
-    openAddToBuild() { this.addToBuildCid = ''; this.addToBuildQty = 1; this.showAddToBuild = true; },
-    async submitAddToBuild() {
-      if (!this.addToBuildCid || !this.selectedBuild) return;
-      await fetch(`/api/builds/${this.selectedBuild.id}/items`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ component_id: parseInt(this.addToBuildCid), quantity: parseInt(this.addToBuildQty) }),
-      });
-      this.showAddToBuild = false;
-      await Promise.all([this.selectBuild(this.selectedBuild), this.loadBuilds()]);
-      this.showToast('✅ Component added to build');
-    },
-    async removeFromBuild(item) {
-      await fetch(`/api/builds/${this.selectedBuild.id}/items/${item.component_id}`, { method: 'DELETE' });
-      await Promise.all([this.selectBuild(this.selectedBuild), this.loadBuilds()]);
-      this.showToast('🗑️ Component removed from build');
     },
 
     // ── Settings ───────────────────────────────────────────────────────────

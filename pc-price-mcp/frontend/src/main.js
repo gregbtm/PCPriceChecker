@@ -4,16 +4,19 @@ import { app } from './app.js'
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import SettingsTab from './components/SettingsTab.jsx'
+import BuildsTab from './components/BuildsTab.jsx'
 
 Alpine.data('app', app)
 window.Alpine = Alpine
 Alpine.start()
 
-// Mount React Settings tab into its placeholder div
-const settingsRoot = document.getElementById('settings-react-root')
-if (settingsRoot) {
-  createRoot(settingsRoot).render(createElement(SettingsTab))
+// Mount each migrated tab's React root into its Alpine-owned placeholder div.
+function mountReactTab(rootId, Component) {
+  const el = document.getElementById(rootId)
+  if (el) createRoot(el).render(createElement(Component))
 }
+mountReactTab('settings-react-root', SettingsTab)
+mountReactTab('builds-react-root', BuildsTab)
 
 // Register the service worker in production only — it caches hashed asset
 // filenames from a specific build, which would fight Vite's dev server/HMR.

@@ -1,9 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { fmtDate } from '../lib/format.js'
-
-function post(url, body) {
-  return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-}
+import { post } from '../lib/api.js'
+import { useToast, Toast } from '../lib/useToast.jsx'
 
 function EyeIcon() {
   return (
@@ -122,14 +120,7 @@ export default function SettingsTab() {
 
   // UI
   const [showSecrets, setShowSecrets] = useState({})
-  const [toast, setToast] = useState(null)
-  const toastTimer = useRef(null)
-
-  const showToast = useCallback((message, type = 'success') => {
-    clearTimeout(toastTimer.current)
-    setToast({ message, type })
-    toastTimer.current = setTimeout(() => setToast(null), 3500)
-  }, [])
+  const { toast, showToast } = useToast()
 
   const configStatus = {
     discord:  !!notifDiscord,
@@ -217,10 +208,7 @@ export default function SettingsTab() {
     loadSavedSearches()
     const onConfigChanged = e => { if (e.detail?.source !== 'react') loadConfig() }
     window.addEventListener('pc:config-changed', onConfigChanged)
-    return () => {
-      clearTimeout(toastTimer.current)
-      window.removeEventListener('pc:config-changed', onConfigChanged)
-    }
+    return () => window.removeEventListener('pc:config-changed', onConfigChanged)
   }, [loadConfig, loadSchedulerStatus, loadSavedSearches])
 
   async function saveConfigFields(fields) {
@@ -398,14 +386,7 @@ export default function SettingsTab() {
   return (
     <div className="space-y-5">
 
-      {/* Toast */}
-      {toast && (
-        <div className={`toast toast-top toast-center z-50`}>
-          <div className={`alert ${toast.type === 'error' ? 'alert-error' : 'alert-success'} shadow-lg`}>
-            <span className="text-sm">{toast.message}</span>
-          </div>
-        </div>
-      )}
+      <Toast toast={toast} />
 
       {/* Setup Wizard banner */}
       <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 flex items-center gap-4">
