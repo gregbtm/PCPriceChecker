@@ -14,3 +14,11 @@ const settingsRoot = document.getElementById('settings-react-root')
 if (settingsRoot) {
   createRoot(settingsRoot).render(createElement(SettingsTab))
 }
+
+// Register the service worker in production only — it caches hashed asset
+// filenames from a specific build, which would fight Vite's dev server/HMR.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+  })
+}

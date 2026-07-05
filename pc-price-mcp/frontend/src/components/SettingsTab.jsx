@@ -143,8 +143,11 @@ export default function SettingsTab() {
   }
 
   const loadConfig = useCallback(async () => {
-    const r = await fetch('/api/config')
-    const cfg = await r.json()
+    let cfg
+    try {
+      const r = await fetch('/api/config')
+      cfg = await r.json()
+    } catch { return }
     setVatModeState(cfg.vat_mode ?? 'inc_vat')
     setSchedulerInterval(cfg.auto_refresh_interval_minutes ?? '')
     setNotifDropPct(cfg.notify_drop_percent ?? '5')
@@ -195,8 +198,10 @@ export default function SettingsTab() {
   }, [])
 
   const loadSchedulerStatus = useCallback(async () => {
-    const r = await fetch('/api/scheduler')
-    setSchedulerStatus(await r.json())
+    try {
+      const r = await fetch('/api/scheduler')
+      setSchedulerStatus(await r.json())
+    } catch { /* silent */ }
   }, [])
 
   const loadSavedSearches = useCallback(async () => {

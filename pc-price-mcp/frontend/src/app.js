@@ -277,7 +277,10 @@ function app() {
     async init() {
       clearInterval(this._schedulerTimer);
       this.selectedPrebuiltRetailers = this.allPrebuiltRetailers.map(r => r.id);
-      await Promise.all([
+      // allSettled, not all: with the SW-driven offline shell, some of these
+      // fetches are expected to fail (no cached API data by design) and
+      // shouldn't reject the whole batch or surface as unhandled rejections.
+      await Promise.allSettled([
         this.loadComponents(),
         this.loadSchedulerStatus(),
         this.loadAlerts(),
