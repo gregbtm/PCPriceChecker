@@ -57,7 +57,7 @@ await browser.close();
 
 ## Gotchas
 
-- `window.Alpine`, `window.Chart`, `window.app` must all be defined after load (check with `page.evaluate`)
+- `window.Alpine` must be defined after load (check with `page.evaluate`); `window.Chart` and `window.app` are **not** globals — Chart.js is a named import used only inside `app.js`, and Alpine state lives behind `Alpine.$data(document.querySelector('[x-data]'))`
 - `statsCards: 31` from `.grid.grid-cols-2` is expected — other grids exist on the page; use a more specific selector for stat cards specifically
 - Backend needs `data/` directory with SQLite DB; first run creates it automatically
 - Port 3000 must be free before starting backend
