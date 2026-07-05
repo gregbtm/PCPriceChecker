@@ -310,6 +310,8 @@ function app() {
         this.loadNeedsAttention(),
       ]);
       this._schedulerTimer = setInterval(() => this.loadSchedulerStatus(), 30_000);
+      window.addEventListener('pc:vat-changed', e => { this.vatMode = e.detail; });
+      window.addEventListener('pc:components-changed', () => Promise.all([this.loadComponents(), this.loadTags()]));
     },
 
     // ── Data loaders ───────────────────────────────────────────────────────
