@@ -210,12 +210,18 @@ export default function SettingsTab() {
     loadConfig()
     loadSchedulerStatus()
     loadSavedSearches()
-    return () => clearTimeout(toastTimer.current)
+    const onConfigChanged = e => { if (e.detail?.source !== 'react') loadConfig() }
+    window.addEventListener('pc:config-changed', onConfigChanged)
+    return () => {
+      clearTimeout(toastTimer.current)
+      window.removeEventListener('pc:config-changed', onConfigChanged)
+    }
   }, [loadConfig, loadSchedulerStatus, loadSavedSearches])
 
   async function saveConfigFields(fields) {
     await Promise.all(fields.map(f => post('/api/config', f)))
     await loadConfig()
+    window.dispatchEvent(new CustomEvent('pc:config-changed', { detail: { source: 'react' } }))
   }
 
   async function saveScheduler() {

@@ -284,6 +284,7 @@ function app() {
       this._schedulerTimer = setInterval(() => this.loadSchedulerStatus(), 30_000);
       window.addEventListener('pc:vat-changed', e => { this.vatMode = e.detail; });
       window.addEventListener('pc:components-changed', () => Promise.all([this.loadComponents(), this.loadTags()]));
+      window.addEventListener('pc:config-changed', e => { if (e.detail?.source !== 'alpine') this.loadConfig(); });
     },
 
     // ── Data loaders ───────────────────────────────────────────────────────
@@ -723,6 +724,7 @@ function app() {
         this.wizardSaved  = { ...this.wizardSaved,  [configKey]: true };
         setTimeout(() => { this.wizardSaved = { ...this.wizardSaved, [configKey]: false }; }, 2000);
         await this.loadConfig();
+        window.dispatchEvent(new CustomEvent('pc:config-changed', { detail: { source: 'alpine' } }));
       } catch {
         this.wizardSaving = { ...this.wizardSaving, [configKey]: false };
       }
