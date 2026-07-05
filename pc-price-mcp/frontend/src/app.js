@@ -1,10 +1,20 @@
-import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler } from 'chart.js';
 import { fmtDate } from './lib/format.js';
-Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
 const CURRENCY_SYMS = { GBP: '£', USD: '$', EUR: '€' };
 const CHART_TICK_COLOR = '#a6adbb';
 const CHART_GRID_COLOR = 'rgba(166,173,187,0.12)';
+
+// Chart.js is only needed for the two history charts (Dashboard, Pre-Built PCs),
+// so it's dynamically imported on first use instead of bundled into the main entry.
+let ChartCtor = null;
+async function loadChart() {
+  if (!ChartCtor) {
+    const { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler } = await import('chart.js');
+    Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
+    ChartCtor = Chart;
+  }
+  return ChartCtor;
+}
 
 const RETAILER_LABELS = {
   currys: 'Currys', argos: 'Argos', johnlewis: 'John Lewis',
@@ -585,10 +595,11 @@ function app() {
       this.historyStats = await sr.json();
       this.$nextTick(() => this.renderChart());
     },
-    renderChart() {
+    async renderChart() {
       if (this.historyChart) { this.historyChart.destroy(); this.historyChart = null; }
       const canvas = document.getElementById('historyChart');
       if (!canvas || !this.historyData?.trend?.length) return;
+      const Chart = await loadChart();
       this.historyChart = new Chart(canvas, {
         type: 'line',
         data: {
@@ -835,6 +846,7 @@ function app() {
       if (this.prebuiltHistoryChart) { this.prebuiltHistoryChart.destroy(); this.prebuiltHistoryChart = null; }
       const canvas = document.getElementById('prebuiltHistoryChart');
       if (canvas && this.prebuiltHistoryData?.trend?.length > 0) {
+        const Chart = await loadChart();
         this.prebuiltHistoryChart = new Chart(canvas, {
           type: 'line',
           data: {
