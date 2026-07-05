@@ -1,10 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-
-function fmtDate(dt) {
-  if (!dt) return ''
-  const d = new Date(String(dt).endsWith('Z') ? dt : dt + 'Z')
-  return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-}
+import { fmtDate } from '../lib/format.js'
 
 function post(url, body) {
   return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -567,7 +562,7 @@ export default function SettingsTab() {
         <div className="grid grid-cols-2 gap-2 text-xs">
           {apiKeyStatusRows.map(([label, ok]) => (
             <div key={label} className="flex items-center gap-1.5">
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${ok ? 'bg-success' : 'bg-base-300'}`} />
+              <StatusDot on={ok} />
               <span className="text-base-content/70">{label}</span>
               <span className={ok ? 'text-success' : 'text-base-content/40'}>{ok ? '✅' : '❌'}</span>
             </div>

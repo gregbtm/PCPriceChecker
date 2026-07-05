@@ -1,9 +1,23 @@
 import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler } from 'chart.js';
+import { fmtDate } from './lib/format.js';
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
 const CURRENCY_SYMS = { GBP: '£', USD: '$', EUR: '€' };
 const CHART_TICK_COLOR = '#a6adbb';
 const CHART_GRID_COLOR = 'rgba(166,173,187,0.12)';
+
+const RETAILER_LABELS = {
+  currys: 'Currys', argos: 'Argos', johnlewis: 'John Lewis',
+  scan: 'Scan', overclockers: 'Overclockers', ebuyer: 'Ebuyer', ccl: 'CCL',
+  box: 'Box', novatech: 'Novatech', aria: 'Aria PC', awdit: 'AWD-IT',
+  corsair: 'Corsair UK', nzxt: 'NZXT UK', coolermaster: 'Cooler Master UK',
+  lianli: 'Lian Li', fractal: 'Fractal Design', thermaltake: 'Thermaltake UK',
+  ao: 'AO.com', very: 'Very', chillblast: 'Chillblast', dell: 'Dell UK',
+  hp: 'HP UK', amazon: 'Amazon', pallicomp: 'Pallicomp', costco: 'Costco UK',
+  cyberpower: 'CyberPower PC', pcspecialist: 'PC Specialist', lenovo: 'Lenovo UK',
+  bedrock: 'Bedrock Computers',
+};
+const retailerList = (ids) => ids.map(id => ({ id, label: RETAILER_LABELS[id] }));
 
 function app() {
   return {
@@ -74,25 +88,11 @@ function app() {
     lastSearchQuery: '',
     searchSource: 'retailers',
     selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'currys', 'argos', 'johnlewis'],
-    allRetailers: [
-      { id: 'currys',       label: 'Currys' },
-      { id: 'argos',        label: 'Argos' },
-      { id: 'johnlewis',    label: 'John Lewis' },
-      { id: 'scan',         label: 'Scan' },
-      { id: 'overclockers', label: 'Overclockers' },
-      { id: 'ebuyer',       label: 'Ebuyer' },
-      { id: 'ccl',          label: 'CCL' },
-      { id: 'box',          label: 'Box' },
-      { id: 'novatech',     label: 'Novatech' },
-      { id: 'aria',         label: 'Aria PC' },
-      { id: 'awdit',        label: 'AWD-IT' },
-      { id: 'corsair',      label: 'Corsair UK' },
-      { id: 'nzxt',         label: 'NZXT UK' },
-      { id: 'coolermaster', label: 'Cooler Master UK' },
-      { id: 'lianli',       label: 'Lian Li' },
-      { id: 'fractal',      label: 'Fractal Design' },
-      { id: 'thermaltake',  label: 'Thermaltake UK' },
-    ],
+    allRetailers: retailerList([
+      'currys', 'argos', 'johnlewis', 'scan', 'overclockers', 'ebuyer', 'ccl',
+      'box', 'novatech', 'aria', 'awdit', 'corsair', 'nzxt', 'coolermaster',
+      'lianli', 'fractal', 'thermaltake',
+    ]),
     searchResults: null,
     searchLoading: false,
 
@@ -123,7 +123,6 @@ function app() {
     cexInStockOnly: false,
 
     // Settings
-    schedulerInterval: '',
     notifDiscord: '',
     notifSlack: '',
     notifTelegram: '',
@@ -195,12 +194,6 @@ function app() {
     wizardSaving: {},
     wizardSaved: {},
 
-    // Saved searches
-    savedSearches: [],
-    savedSearchName: '',
-    savedSearchQuery: '',
-    savedSearchMaxPrice: '',
-
     // Parts DB
     partsAllSlugs: [],
     partsCategory: 'video-card',
@@ -211,19 +204,12 @@ function app() {
 
     // Pre-built PCs
     prebuilts: [],
-    allPrebuiltRetailers: [
-      { id: 'currys', label: 'Currys' }, { id: 'argos', label: 'Argos' },
-      { id: 'johnlewis', label: 'John Lewis' }, { id: 'ao', label: 'AO.com' },
-      { id: 'very', label: 'Very' }, { id: 'ebuyer', label: 'Ebuyer' },
-      { id: 'scan', label: 'Scan' }, { id: 'overclockers', label: 'Overclockers' },
-      { id: 'box', label: 'Box' }, { id: 'novatech', label: 'Novatech' },
-      { id: 'ccl', label: 'CCL' }, { id: 'chillblast', label: 'Chillblast' },
-      { id: 'dell', label: 'Dell UK' }, { id: 'hp', label: 'HP UK' },
-      { id: 'amazon', label: 'Amazon' }, { id: 'pallicomp', label: 'Pallicomp' },
-      { id: 'costco', label: 'Costco UK' }, { id: 'cyberpower', label: 'CyberPower PC' },
-      { id: 'pcspecialist', label: 'PC Specialist' }, { id: 'lenovo', label: 'Lenovo UK' },
-      { id: 'bedrock', label: 'Bedrock Computers' },
-    ],
+    allPrebuiltRetailers: retailerList([
+      'currys', 'argos', 'johnlewis', 'ao', 'very', 'ebuyer', 'scan',
+      'overclockers', 'box', 'novatech', 'ccl', 'chillblast', 'dell', 'hp',
+      'amazon', 'pallicomp', 'costco', 'cyberpower', 'pcspecialist', 'lenovo',
+      'bedrock',
+    ]),
     selectedPrebuiltRetailers: [],
     prebuiltSearchQuery: '',
     prebuiltSearchResults: null,
@@ -243,12 +229,6 @@ function app() {
     // PCPartPicker search
     pcppCategory: 'gpu',
     pcppCategories: ['gpu', 'cpu', 'ram', 'motherboard', 'storage', 'psu', 'case', 'cooling', 'monitor'],
-
-    // Import
-    importCsv: '',
-    importCsvLoading: false,
-    importJson: '',
-    importJsonLoading: false,
 
     // UI state
     refreshingAll: false,
@@ -283,13 +263,6 @@ function app() {
       } catch (e) { if (!silent) throw e; }
     },
 
-    async saveConfigFields(fields) {
-      await Promise.all(fields.map(f =>
-        fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f) })
-      ));
-      await this.loadConfig();
-    },
-
     // ── Init ───────────────────────────────────────────────────────────────
     async init() {
       clearInterval(this._schedulerTimer);
@@ -303,7 +276,6 @@ function app() {
         this.loadBuilds(),
         this.loadConfig(),
         this.loadPrebuilts(),
-        this.loadSavedSearches(),
         this.loadPartsSlugs(),
         this.loadSparklines(),
         this.loadTags(),
@@ -325,13 +297,11 @@ function app() {
     async loadSparklines()     { await this.loadFrom('/api/dashboard/sparklines',    'sparklines', true); },
     async loadTags()           { await this.loadFrom('/api/tags',                    'tags',       true); },
     async loadNeedsAttention() { await this.loadFrom('/api/needs-attention',         'needsAttention', true); },
-    async loadSavedSearches()  { await this.loadFrom('/api/saved-searches',          'savedSearches',  true); },
 
     async loadConfig() {
       const r = await fetch('/api/config');
       const cfg = await r.json();
       this.vatMode = cfg.vat_mode ?? 'inc_vat';
-      this.schedulerInterval = cfg.auto_refresh_interval_minutes ?? '';
       this.notifDropPct = cfg.notify_drop_percent ?? '5';
       this.notifDiscord        = cfg.discord_webhook_url  ?? '';
       this.notifSlack          = cfg.slack_webhook_url    ?? '';
@@ -454,13 +424,13 @@ function app() {
     },
     async addComponentUrl() {
       if (!this.urlsModalNew.url) return;
-      await fetch(`/api/components/${this.urlsModalComponent.id}/urls`, {
+      const r = await fetch(`/api/components/${this.urlsModalComponent.id}/urls`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(this.urlsModalNew),
       });
+      const created = await r.json();
+      this.urlsModalList = [...this.urlsModalList, created];
       this.urlsModalNew = { url: '', retailer: '', label: '' };
-      const r = await fetch(`/api/components/${this.urlsModalComponent.id}/urls`);
-      this.urlsModalList = await r.json();
       this.showToast('✅ URL added');
     },
     async removeComponentUrl(urlRecord) {
@@ -505,11 +475,7 @@ function app() {
       if (amount == null) return '—';
       return (CURRENCY_SYMS[currency] ?? (currency + ' ')) + Number(amount).toFixed(2);
     },
-    fmtDate(dt) {
-      if (!dt) return '';
-      const d = new Date(String(dt).endsWith('Z') ? dt : dt + 'Z');
-      return d.toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
-    },
+    fmtDate,
     showToast(message, type = 'success') {
       clearTimeout(this._toastTimer);
       this.toast = { message, type };
@@ -742,72 +708,6 @@ function app() {
     },
 
     // ── Settings ───────────────────────────────────────────────────────────
-    async saveScheduler() {
-      const mins = parseInt(this.schedulerInterval);
-      const r = await fetch('/api/scheduler', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ interval_minutes: isNaN(mins) ? 0 : mins }),
-      });
-      const d = await r.json();
-      if (r.ok) {
-        this.showToast(d.active ? `✅ Auto-refresh every ${d.intervalMinutes}m` : '✅ Scheduler disabled');
-      } else {
-        this.showToast(d.error ?? 'Error', 'error');
-      }
-      await this.loadSchedulerStatus();
-    },
-    async saveNotifications() {
-      await this.saveConfigFields([
-        { key: 'notify_drop_percent', value: this.notifDropPct },
-        { key: 'discord_webhook_url', value: this.notifDiscord },
-        { key: 'slack_webhook_url',   value: this.notifSlack },
-        { key: 'telegram_bot_token',  value: this.notifTelegram },
-        { key: 'telegram_chat_id',    value: this.notifTelegramChat },
-        { key: 'resend_api_key',      value: this.notifResend },
-        { key: 'alert_email',         value: this.notifEmail },
-        { key: 'ntfy_topic',          value: this.notifNtfyTopic },
-        { key: 'ntfy_server',         value: this.notifNtfyServer },
-        { key: 'pushover_app_token',  value: this.notifPushoverToken },
-        { key: 'pushover_user_key',   value: this.notifPushoverUser },
-        { key: 'gotify_server_url',   value: this.notifGotifyUrl },
-        { key: 'gotify_app_token',    value: this.notifGotifyToken },
-        { key: 'apprise_url',         value: this.notifAppriseUrl },
-      ]);
-      this.showToast('✅ Notification settings saved');
-    },
-    async saveApiKeys() {
-      await this.saveConfigFields([
-        { key: 'prices_api_key',       value: this.apiKeyPricesApi },
-        { key: 'ebay_client_id',       value: this.apiKeyEbayId },
-        { key: 'ebay_client_secret',   value: this.apiKeyEbaySec },
-        { key: 'keepa_api_key',        value: this.apiKeyKeepa },
-        { key: 'amazon_access_key',    value: this.apiKeyAmzAccess },
-        { key: 'amazon_secret_key',    value: this.apiKeyAmzSecret },
-        { key: 'amazon_associate_tag', value: this.apiKeyAmzTag },
-        { key: 'awin_publisher_id',    value: this.apiKeyAwinId },
-        { key: 'awin_api_key',         value: this.apiKeyAwinKey },
-        { key: 'reddit_client_id',     value: this.apiKeyRedditId },
-        { key: 'reddit_client_secret', value: this.apiKeyRedditSec },
-        { key: 'youtube_api_key',      value: this.apiKeyYoutube },
-        { key: 'bing_api_key',         value: this.apiKeyBing },
-        { key: 'anthropic_api_key',    value: this.apiKeyAnthropic },
-        { key: 'openai_api_key',       value: this.apiKeyOpenAI },
-        { key: 'apify_api_token',      value: this.apiKeyApify },
-      ]);
-      this.showToast('✅ API keys saved');
-    },
-    async saveScraperSettings() {
-      await this.saveConfigFields([
-        { key: 'camofox_url',    value: this.scraperCamofoxUrl },
-        { key: 'scrape_proxies', value: this.scraperProxies },
-      ]);
-      this.showToast('✅ Scraper settings saved');
-    },
-    openWizard() {
-      if (this.wizardStep === 5) this.wizardStep = 0;
-      document.getElementById('setup-wizard-modal').showModal();
-    },
     closeWizard() {
       document.getElementById('setup-wizard-modal').close();
     },
@@ -842,16 +742,6 @@ function app() {
       const ok = d.discord || d.slack || d.telegram || d.email || d.ntfy || d.pushover || d.gotify || d.apprise;
       this.showToast(parts.join(' · ') || 'No notifications configured', ok ? 'success' : 'error');
     },
-    async setVatMode(mode) {
-      this.vatMode = mode;
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: 'vat_mode', value: mode }),
-      });
-      this.showToast(mode === 'ex_vat' ? '✅ Prices shown ex-VAT (−20%)' : '✅ Prices shown inc. VAT');
-    },
-
     // ── Pre-built PCs ───────────────────────────────────────────────────────
     async refreshPrebuilt(s) {
       this.showToast('⏳ Refreshing prices across 15 retailers…');
@@ -967,73 +857,6 @@ function app() {
     closePrebuiltHistory() {
       this.showPrebuiltHistory = false;
       if (this.prebuiltHistoryChart) { this.prebuiltHistoryChart.destroy(); this.prebuiltHistoryChart = null; }
-    },
-
-    // ── Saved Searches ─────────────────────────────────────────────────────
-    async addSavedSearch() {
-      if (!this.savedSearchName || !this.savedSearchQuery) {
-        this.showToast('Label and query are required', 'error');
-        return;
-      }
-      const body = { name: this.savedSearchName, query: this.savedSearchQuery };
-      if (this.savedSearchMaxPrice) body.max_price = parseFloat(this.savedSearchMaxPrice);
-      await fetch('/api/saved-searches', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      this.savedSearchName = ''; this.savedSearchQuery = ''; this.savedSearchMaxPrice = '';
-      this.showToast('✅ Saved search alert added');
-      await this.loadSavedSearches();
-    },
-    async deleteSavedSearch(id) {
-      await fetch(`/api/saved-searches/${id}`, { method: 'DELETE' });
-      this.showToast('🗑️ Saved search removed');
-      await this.loadSavedSearches();
-    },
-
-    // ── Import ─────────────────────────────────────────────────────────────
-    async importFromCsv() {
-      if (!this.importCsv.trim()) return;
-      this.importCsvLoading = true;
-      try {
-        const r = await fetch('/api/import/csv', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ csv: this.importCsv }),
-        });
-        const d = await r.json();
-        if (r.ok) {
-          this.showToast(`✅ Imported ${d.imported} components, skipped ${d.skipped}`);
-          this.importCsv = '';
-          await this.loadComponents();
-        } else {
-          this.showToast('❌ ' + (d.error ?? 'Import failed'), 'error');
-        }
-      } catch (e) { this.showToast('❌ Network error', 'error'); }
-      finally { this.importCsvLoading = false; }
-    },
-
-    async importFromJson() {
-      if (!this.importJson.trim()) return;
-      this.importJsonLoading = true;
-      try {
-        let parsed;
-        try { parsed = JSON.parse(this.importJson); }
-        catch { this.showToast('❌ Invalid JSON', 'error'); this.importJsonLoading = false; return; }
-        const r = await fetch('/api/import/json', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(parsed),
-        });
-        const d = await r.json();
-        if (r.ok) {
-          this.showToast(`✅ Restored: ${d.components} components, ${d.tags} tags, ${d.rules} scrape rules`);
-          this.importJson = '';
-          await Promise.all([this.loadComponents(), this.loadTags()]);
-        } else {
-          this.showToast('❌ ' + (d.error ?? 'Restore failed'), 'error');
-        }
-      } catch (e) { this.showToast('❌ Network error', 'error'); }
-      finally { this.importJsonLoading = false; }
     },
 
     // ── Advisor ────────────────────────────────────────────────────────────

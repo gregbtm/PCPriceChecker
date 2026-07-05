@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>PC Price Checker – UK Component Monitor</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96' fill='none'%3E%3Crect width='96' height='96' rx='18' fill='%231e293b'/%3E%3Cg stroke='%233B82F6' stroke-width='4.5' stroke-linecap='round'%3E%3Cline x1='22' y1='8' x2='22' y2='17'/%3E%3Cline x1='34' y1='8' x2='34' y2='17'/%3E%3Cline x1='46' y1='8' x2='46' y2='17'/%3E%3Cline x1='22' y1='63' x2='22' y2='72'/%3E%3Cline x1='34' y1='63' x2='34' y2='72'/%3E%3Cline x1='8' y1='26' x2='17' y2='26'/%3E%3Cline x1='8' y1='38' x2='17' y2='38'/%3E%3Cline x1='8' y1='50' x2='17' y2='50'/%3E%3C/g%3E%3Crect x='17' y='17' width='39' height='39' rx='5' stroke='%233B82F6' stroke-width='4.5'/%3E%3Cpath d='M56 36 L76 36 L82 43 L82 70 L56 70 Z' stroke='%2310B981' stroke-width='4.5' stroke-linejoin='round'/%3E%3Ccircle cx='72' cy='46' r='3' fill='%2310B981'/%3E%3Cpath d='M63 57 L70 64 L79 51' stroke='%2310B981' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-  <script type="module" crossorigin src="/assets/index-vCk3ftLI.js"></script>
+  <script type="module" crossorigin src="/assets/index-CbO0pTDO.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-CSFpdDp6.css">
 </head>
 <body class="h-[100dvh] overflow-hidden" x-data="app">
@@ -1009,7 +1009,7 @@
               </div>
               <div class="divide-y divide-base-300/50">
                 <template x-for="(p, pi) in (searchResults?.products ?? [])" :key="pi">
-                  <div class="p-4">
+                  <div class="p-4" x-data="{ bestPrice: bestOfferPrice(p.offers) }">
                     <!-- Product header -->
                     <div class="flex items-start justify-between mb-3">
                       <div class="flex-1 min-w-0">
@@ -1019,9 +1019,9 @@
                             <a :href="p.url" target="_blank" rel="noopener"
                                class="text-xs text-info hover:underline">Product page →</a>
                           </template>
-                          <template x-if="bestOfferPrice(p.offers) !== null">
+                          <template x-if="bestPrice !== null">
                             <span class="text-xs font-semibold text-success"
-                                  x-text="'from ' + fmtPrice(bestOfferPrice(p.offers), p.offers[0]?.currency ?? 'GBP')"></span>
+                                  x-text="'from ' + fmtPrice(bestPrice, p.offers[0]?.currency ?? 'GBP')"></span>
                           </template>
                           <span class="text-xs text-base-content/50"
                                 x-text="p.offers.length + ' offer' + (p.offers.length !== 1 ? 's' : '')"></span>
@@ -1035,14 +1035,14 @@
                     <!-- Offers list -->
                     <div class="space-y-1.5">
                       <template x-for="(o, oi) in p.offers" :key="oi">
-                        <div :class="isBestOffer(o, p.offers)
+                        <div :class="(bestPrice !== null && o.inStock && o.price === bestPrice)
                                ? 'bg-success/10 border border-success/30'
                                : 'bg-base-200/60'"
                              class="rounded px-3 py-2">
                           <div class="flex items-center justify-between gap-2 flex-wrap">
                             <!-- Left: badges + merchant -->
                             <div class="flex items-center gap-2 min-w-0 flex-1">
-                              <template x-if="isBestOffer(o, p.offers)">
+                              <template x-if="bestPrice !== null && o.inStock && o.price === bestPrice">
                                 <span class="badge badge-success badge-sm flex-shrink-0">Best</span>
                               </template>
                               <template x-if="o.merchantUrl">
