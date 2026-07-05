@@ -192,14 +192,6 @@ function app() {
     wizardSaving: {},
     wizardSaved: {},
 
-    // Parts DB
-    partsAllSlugs: [],
-    partsCategory: 'video-card',
-    partsQuery: '',
-    partsPricedOnly: false,
-    partsLoading: false,
-    partsResults: null,
-
     // Pre-built PCs
     prebuilts: [],
     allPrebuiltRetailers: retailerList([
@@ -276,7 +268,6 @@ function app() {
         this.loadStockChanges(),
         this.loadConfig(),
         this.loadPrebuilts(),
-        this.loadPartsSlugs(),
         this.loadSparklines(),
         this.loadTags(),
         this.loadNeedsAttention(),
@@ -285,6 +276,8 @@ function app() {
       window.addEventListener('pc:vat-changed', e => { this.vatMode = e.detail; });
       window.addEventListener('pc:components-changed', () => Promise.all([this.loadComponents(), this.loadTags()]));
       window.addEventListener('pc:config-changed', e => { if (e.detail?.source !== 'alpine') this.loadConfig(); });
+      window.addEventListener('pc:track-request', e => this.prefillAdd(e.detail.name));
+      window.addEventListener('pc:search-request', e => this.quickSearchFromAdvisor(e.detail.query));
     },
 
     // ── Data loaders ───────────────────────────────────────────────────────
@@ -915,34 +908,6 @@ function app() {
       this.$nextTick(() => this.doSearch());
     },
 
-    // ── Parts DB ───────────────────────────────────────────────────────────
-    async loadPartsSlugs() {
-      try {
-        const r = await fetch('/api/dataset/slugs');
-        const data = await r.json();
-        this.partsAllSlugs = data.slugs ?? [];
-        if (this.partsAllSlugs.length > 0 && !this.partsAllSlugs.includes(this.partsCategory)) {
-          this.partsCategory = this.partsAllSlugs[0];
-        }
-      } catch {}
-    },
-    async loadPartsDb() {
-      this.partsLoading = true;
-      this.partsResults = null;
-      try {
-        const p = new URLSearchParams({ part_type: this.partsCategory, limit: '100' });
-        if (this.partsPricedOnly) p.set('priced_only', '1');
-        let endpoint = '/api/dataset/browse';
-        if (this.partsQuery) { endpoint = '/api/dataset/search'; p.set('q', this.partsQuery); }
-        const r = await fetch(`${endpoint}?${p}`);
-        const data = await r.json();
-        this.partsResults = data.results ?? [];
-      } catch (e) {
-        this.showToast('❌ Failed to load parts: ' + e.message, 'error');
-      } finally {
-        this.partsLoading = false;
-      }
-    },
   };
 }
 

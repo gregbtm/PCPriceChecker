@@ -3995,7 +3995,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       // ── pcpartpicker_specs ───────────────────────────────────────────────
       case 'pcpartpicker_specs': {
         const { query, part_type, priced_only, limit } = DatasetSearchSchema.parse(args);
-        const results = await searchDataset(query, part_type as DatasetSlug, priced_only, limit);
+        const { results } = await searchDataset(query, part_type as DatasetSlug, { pricedOnly: priced_only, limit });
         if (results.length === 0) {
           return ok(
             `No ${part_type} components matched "${query}" in the PCPartPicker specs database` +
@@ -4017,7 +4017,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'pcpartpicker_browse': {
         const { part_type, priced_only, limit } = DatasetBrowseSchema.parse(args);
         const { results, total, totalPriced } = await browseDataset(
-          part_type as DatasetSlug, priced_only, limit,
+          part_type as DatasetSlug, { pricedOnly: priced_only, limit },
         );
         if (results.length === 0) {
           return ok(

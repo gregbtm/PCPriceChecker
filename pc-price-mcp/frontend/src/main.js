@@ -5,6 +5,7 @@ import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import SettingsTab from './components/SettingsTab.jsx'
 import BuildsTab from './components/BuildsTab.jsx'
+import PartsTab from './components/PartsTab.jsx'
 
 Alpine.data('app', app)
 window.Alpine = Alpine
@@ -17,6 +18,7 @@ function mountReactTab(rootId, Component) {
 }
 mountReactTab('settings-react-root', SettingsTab)
 mountReactTab('builds-react-root', BuildsTab)
+mountReactTab('parts-react-root', PartsTab)
 
 // Register the service worker in production only — it caches hashed asset
 // filenames from a specific build, which would fight Vite's dev server/HMR.

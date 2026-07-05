@@ -17,7 +17,10 @@ import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailer
 import { getSchedulerStatus, restartScheduler, stopScheduler } from './scheduler.js';
 import { notifyAll } from './notifications.js';
 import { searchCex, getCexProduct } from './sources/cex.js';
-import { searchDataset, browseDataset, DATASET_SLUGS, type DatasetSlug } from './sources/pcpartpicker-dataset.js';
+import {
+  searchDataset, browseDataset, getFilterSchema, DATASET_SLUGS, FILTER_SCHEMA,
+  type DatasetSlug, type FilterValues,
+} from './sources/pcpartpicker-dataset.js';
 import {
   exportPriceHistoryCsv, exportPriceHistoryJson,
   exportBuildCsv, exportBuildJson, exportTrackedComponentsCsv,
@@ -545,31 +548,72 @@ export function startWebServer(port: number): void {
 
   // ── Parts database (docyx dataset) ───────────────────────────────────────
 
+  function parseFilterValues(query: Record<string, string>, slug: DatasetSlug): FilterValues {
+    const fields = FILTER_SCHEMA[slug] ?? [];
+    const filters: FilterValues = {};
+    for (const f of fields) {
+      const min = query[`min_${f.key}`] !== undefined ? Number(query[`min_${f.key}`]) : undefined;
+      const max = query[`max_${f.key}`] !== undefined ? Number(query[`max_${f.key}`]) : undefined;
+      if ((min !== undefined && !isNaN(min)) || (max !== undefined && !isNaN(max))) {
+        filters[f.key] = {
+          ...(min !== undefined && !isNaN(min) ? { min } : {}),
+          ...(max !== undefined && !isNaN(max) ? { max } : {}),
+        };
+      }
+    }
+    return filters;
+  }
+
   app.get('/api/dataset/browse', h(async (req, res) => {
-    const { part_type, priced_only = 'false', limit = '40' } = req.query as Record<string, string>;
+    const { part_type, priced_only = 'false', limit = '40', offset = '0', sort, dir } = req.query as Record<string, string>;
     if (!part_type || !(DATASET_SLUGS as readonly string[]).includes(part_type)) {
       res.status(400).json({ error: `part_type must be one of: ${DATASET_SLUGS.join(', ')}` });
       return;
     }
-    const result = await browseDataset(part_type as DatasetSlug, priced_only === 'true', Math.min(parseInt(limit) || 40, 100));
+    const slug = part_type as DatasetSlug;
+    const result = await browseDataset(slug, {
+      pricedOnly: priced_only === 'true',
+      limit: Math.min(parseInt(limit) || 40, 100),
+      offset: Math.max(parseInt(offset) || 0, 0),
+      filters: parseFilterValues(req.query as Record<string, string>, slug),
+      sortKey: sort,
+      sortDir: dir === 'desc' ? 'desc' : 'asc',
+    });
     res.json(result);
   }));
 
   app.get('/api/dataset/search', h(async (req, res) => {
-    const { q, part_type, priced_only = 'false', limit = '40' } = req.query as Record<string, string>;
+    const { q, part_type, priced_only = 'false', limit = '40', offset = '0', sort, dir } = req.query as Record<string, string>;
     if (!q) { res.status(400).json({ error: 'q is required' }); return; }
     if (!part_type || !(DATASET_SLUGS as readonly string[]).includes(part_type)) {
       res.status(400).json({ error: `part_type must be one of: ${DATASET_SLUGS.join(', ')}` });
       return;
     }
     const slug = part_type as DatasetSlug;
-    const results = await searchDataset(q, slug, priced_only === 'true', Math.min(parseInt(limit) || 40, 100));
-    res.json({ results, query: q, part_type: slug });
+    const result = await searchDataset(q, slug, {
+      pricedOnly: priced_only === 'true',
+      limit: Math.min(parseInt(limit) || 40, 100),
+      offset: Math.max(parseInt(offset) || 0, 0),
+      filters: parseFilterValues(req.query as Record<string, string>, slug),
+      sortKey: sort,
+      sortDir: dir === 'desc' ? 'desc' : 'asc',
+    });
+    res.json({ ...result, query: q, part_type: slug });
   }));
 
   app.get('/api/dataset/slugs', (_req, res) => {
     res.json({ slugs: DATASET_SLUGS });
   });
+
+  app.get('/api/dataset/filters', h(async (req, res) => {
+    const { part_type } = req.query as Record<string, string>;
+    if (!part_type || !(DATASET_SLUGS as readonly string[]).includes(part_type)) {
+      res.status(400).json({ error: `part_type must be one of: ${DATASET_SLUGS.join(', ')}` });
+      return;
+    }
+    const fields = await getFilterSchema(part_type as DatasetSlug);
+    res.json({ fields });
+  }));
 
   // ── Component pause / resume / interval / unit pricing ───────────────────
 

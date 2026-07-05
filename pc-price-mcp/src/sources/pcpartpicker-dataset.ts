@@ -34,6 +34,105 @@ export interface DatasetComponent {
   price: number | null; // USD reference price from PCPartPicker
   slug: DatasetSlug;
   specs: Record<string, string | number>;
+  filters: Record<string, number>;
+}
+
+// ── Filterable attributes ────────────────────────────────────────────────────
+// A subset of specs, kept as raw numbers (not the formatted display strings in
+// `specs`) so range filters (min/max) work. Only defined for categories with a
+// clear, commonly-compared numeric spec — the rest still get search + sort.
+
+export interface FilterField {
+  key: string;
+  label: string;
+  unit?: string;
+}
+
+export const FILTER_SCHEMA: Partial<Record<DatasetSlug, FilterField[]>> = {
+  cpu: [
+    { key: 'cores', label: 'Cores' },
+    { key: 'tdp', label: 'TDP', unit: 'W' },
+  ],
+  'video-card': [
+    { key: 'vram', label: 'VRAM', unit: 'GB' },
+    { key: 'length', label: 'Length', unit: 'mm' },
+  ],
+  motherboard: [
+    { key: 'max_memory', label: 'Max RAM', unit: 'GB' },
+  ],
+  memory: [
+    { key: 'capacity', label: 'Kit Capacity', unit: 'GB' },
+    { key: 'speed', label: 'Speed', unit: 'MT/s' },
+  ],
+  'internal-hard-drive': [
+    { key: 'capacity', label: 'Capacity', unit: 'GB' },
+  ],
+  'power-supply': [
+    { key: 'wattage', label: 'Wattage', unit: 'W' },
+  ],
+  case: [
+    { key: 'volume', label: 'Volume', unit: 'L' },
+  ],
+  monitor: [
+    { key: 'screen_size', label: 'Screen Size', unit: '"' },
+    { key: 'refresh_rate', label: 'Refresh Rate', unit: 'Hz' },
+  ],
+  'cpu-cooler': [
+    { key: 'radiator_size', label: 'Radiator', unit: 'mm' },
+  ],
+};
+
+function extractFilters(raw: Record<string, unknown>, slug: DatasetSlug): Record<string, number> {
+  const f: Record<string, number> = {};
+
+  if (slug === 'cpu') {
+    if (typeof raw.core_count === 'number') f.cores = raw.core_count;
+    if (typeof raw.tdp === 'number') f.tdp = raw.tdp;
+
+  } else if (slug === 'video-card') {
+    if (typeof raw.memory === 'number') f.vram = raw.memory;
+    if (typeof raw.length === 'number') f.length = raw.length;
+
+  } else if (slug === 'motherboard') {
+    if (typeof raw.max_memory === 'number') f.max_memory = raw.max_memory;
+
+  } else if (slug === 'memory') {
+    const mods = raw.modules as [number, number] | null;
+    if (Array.isArray(mods)) f.capacity = mods[0] * mods[1];
+    const speed = raw.speed as [number, number] | null;
+    if (Array.isArray(speed)) f.speed = speed[1];
+
+  } else if (slug === 'internal-hard-drive') {
+    if (typeof raw.capacity === 'number') f.capacity = raw.capacity;
+
+  } else if (slug === 'power-supply') {
+    if (typeof raw.wattage === 'number') f.wattage = raw.wattage;
+
+  } else if (slug === 'case') {
+    if (typeof raw.external_volume === 'number') f.volume = raw.external_volume;
+
+  } else if (slug === 'monitor') {
+    if (typeof raw.screen_size === 'number') f.screen_size = raw.screen_size;
+    if (typeof raw.refresh_rate === 'number') f.refresh_rate = raw.refresh_rate;
+
+  } else if (slug === 'cpu-cooler') {
+    if (typeof raw.size === 'number') f.radiator_size = raw.size;
+  }
+
+  return f;
+}
+
+export interface FilterRange { min?: number; max?: number }
+export type FilterValues = Record<string, FilterRange>;
+
+function matchesFilters(item: DatasetComponent, filters: FilterValues): boolean {
+  for (const [key, range] of Object.entries(filters)) {
+    const v = item.filters[key];
+    if (v === undefined) return false;
+    if (range.min != null && v < range.min) return false;
+    if (range.max != null && v > range.max) return false;
+  }
+  return true;
 }
 
 // ── Spec formatters ─────────────────────────────────────────────────────────
@@ -236,54 +335,84 @@ export async function fetchDataset(slug: DatasetSlug): Promise<DatasetComponent[
       price: typeof r.price === 'number' && r.price > 0 ? r.price : null,
       slug,
       specs: buildSpecs(r, slug),
+      filters: extractFilters(r, slug),
     }));
 
   _cache.set(slug, { data, fetchedAt: Date.now() });
   return data;
 }
 
+export interface FilterFieldWithBounds extends FilterField { min: number; max: number }
+
+export async function getFilterSchema(slug: DatasetSlug): Promise<FilterFieldWithBounds[]> {
+  const fields = FILTER_SCHEMA[slug];
+  if (!fields) return [];
+  const all = await fetchDataset(slug);
+  return fields.flatMap((f) => {
+    const values = all.map((item) => item.filters[f.key]).filter((v): v is number => v !== undefined);
+    if (values.length === 0) return [];
+    return [{ ...f, min: Math.floor(Math.min(...values)), max: Math.ceil(Math.max(...values)) }];
+  });
+}
+
 // ── Search ──────────────────────────────────────────────────────────────────
+
+export interface DatasetQueryOptions {
+  pricedOnly?: boolean;
+  filters?: FilterValues;
+  offset?: number;
+  limit?: number;
+  sortKey?: string;  // 'price' or a filters key (e.g. 'vram'); default 'price'
+  sortDir?: 'asc' | 'desc';
+}
+
+function sortComponents(items: DatasetComponent[], sortKey = 'price', sortDir: 'asc' | 'desc' = 'asc'): DatasetComponent[] {
+  const dir = sortDir === 'desc' ? -1 : 1;
+  return [...items].sort((a, b) => {
+    const av = sortKey === 'price' ? a.price : a.filters[sortKey];
+    const bv = sortKey === 'price' ? b.price : b.filters[sortKey];
+    if (av == null && bv == null) return a.name.localeCompare(b.name);
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return (av - bv) * dir;
+  });
+}
 
 export async function searchDataset(
   query: string,
   slug: DatasetSlug,
-  pricedOnly = false,
-  limit = 25,
-): Promise<DatasetComponent[]> {
+  opts: DatasetQueryOptions = {},
+): Promise<{ results: DatasetComponent[]; total: number }> {
+  const { pricedOnly = false, filters = {}, offset = 0, limit = 25, sortKey, sortDir } = opts;
   const all = await fetchDataset(slug);
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
 
   const matches = all.filter((p) => {
     if (pricedOnly && p.price === null) return false;
+    if (!matchesFilters(p, filters)) return false;
     const haystack = [p.name, ...Object.values(p.specs).map(String)].join(' ').toLowerCase();
     return terms.every((t) => haystack.includes(t));
   });
 
-  matches.sort((a, b) => {
-    if (a.price && b.price) return a.price - b.price;
-    if (a.price) return -1;
-    if (b.price) return 1;
-    return a.name.localeCompare(b.name);
-  });
-
-  return matches.slice(0, limit);
+  const sorted = sortComponents(matches, sortKey, sortDir);
+  return { results: sorted.slice(offset, offset + limit), total: matches.length };
 }
 
 export async function browseDataset(
   slug: DatasetSlug,
-  pricedOnly = false,
-  limit = 20,
-): Promise<{ results: DatasetComponent[]; total: number; totalPriced: number }> {
+  opts: DatasetQueryOptions = {},
+): Promise<{ results: DatasetComponent[]; total: number; totalPriced: number; totalMatching: number }> {
+  const { pricedOnly = false, filters = {}, offset = 0, limit = 20, sortKey, sortDir } = opts;
   const all = await fetchDataset(slug);
   const totalPriced = all.filter((p) => p.price !== null).length;
-  const filtered = pricedOnly ? all.filter((p) => p.price !== null) : all;
-  const sorted = [...filtered].sort((a, b) => {
-    if (a.price && b.price) return a.price - b.price;
-    if (a.price) return -1;
-    if (b.price) return 1;
-    return a.name.localeCompare(b.name);
-  });
-  return { results: sorted.slice(0, limit), total: all.length, totalPriced };
+  const matching = all.filter((p) => (!pricedOnly || p.price !== null) && matchesFilters(p, filters));
+  const sorted = sortComponents(matching, sortKey, sortDir);
+  return {
+    results: sorted.slice(offset, offset + limit),
+    total: all.length,
+    totalPriced,
+    totalMatching: matching.length,
+  };
 }
 
 export function formatDatasetComponent(c: DatasetComponent, idx?: number): string {

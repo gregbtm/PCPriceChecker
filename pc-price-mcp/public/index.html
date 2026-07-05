@@ -12,8 +12,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PC Price">
-  <script type="module" crossorigin src="/assets/index-Z_BH1eUI.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CSFpdDp6.css">
+  <script type="module" crossorigin src="/assets/index-BOvYcof1.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DLzHdKVA.css">
 </head>
 <body class="h-[100dvh] overflow-hidden" x-data="app">
 
@@ -1200,78 +1200,7 @@
 
     <!-- ══ PARTS DB TAB ══════════════════════════════════════════════════════ -->
     <div x-show="activeTab === 'parts'" class="p-6 space-y-5">
-      <div class="bg-base-200 rounded-xl border border-base-300 p-5">
-        <h2 class="font-semibold text-base-content mb-4">Parts Database <span class="text-base-content/50 font-normal text-sm">— 66,000+ components · full specs · USD reference prices</span></h2>
-
-        <div class="flex flex-wrap gap-3 mb-4">
-          <div>
-            <label class="text-xs text-base-content/60 block mb-1">Category</label>
-            <select x-model="partsCategory"
-                    class="select select-bordered">
-              <template x-for="slug in partsAllSlugs" :key="slug">
-                <option :value="slug" x-text="slug.replace(/-/g,' ')"></option>
-              </template>
-            </select>
-          </div>
-          <div>
-            <label class="text-xs text-base-content/60 block mb-1">Search (optional)</label>
-            <input x-model="partsQuery" @keydown.enter="loadPartsDb()" type="text"
-                   placeholder="e.g. RTX 4070, 32GB DDR5…"
-                   class="input input-bordered w-64">
-          </div>
-          <div class="flex items-end gap-2">
-            <label class="flex items-center gap-1.5 text-sm text-base-content/70 cursor-pointer mb-2">
-              <input type="checkbox" x-model="partsPricedOnly" class="checkbox checkbox-sm">
-              Priced only
-            </label>
-            <button @click="loadPartsDb()" :disabled="partsLoading"
-                    class="btn btn-primary mb-0.5">
-              <span x-text="partsLoading ? 'Loading…' : 'Browse'"></span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <template x-if="partsResults && partsResults.length > 0">
-        <div class="bg-base-200 rounded-xl border border-base-300">
-          <div class="px-4 py-3 border-b border-base-300 flex items-center justify-between">
-            <span class="text-sm text-base-content" x-text="partsResults.length + ' results for ' + (partsQuery || partsCategory)"></span>
-            <span class="text-xs text-base-content/50">USD reference prices · from docyx/pc-part-dataset</span>
-          </div>
-          <div class="overflow-x-auto">
-            <table class="table table-sm table-zebra w-full">
- <thead>
-                <tr class="text-left text-xs text-base-content/50 uppercase border-b border-base-300">
- <th class="">Name</th>
- <th class="">Brand</th>
- <th class="">Price (USD ref.)</th>
- <th class="">Key Specs</th>
- <th class=""></th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-base-300/50">
-                <template x-for="(p, pi) in partsResults" :key="pi">
-                  <tr class="hover:bg-base-300/30 transition-colors">
- <td class="font-medium text-base-content text-sm" x-text="p.name"></td>
- <td class="text-base-content/60 text-xs" x-text="p.brand ?? '—'"></td>
- <td class="">
-                      <span x-show="p.price != null" class="text-warning font-semibold text-sm" x-text="'$' + (p.price ?? 0).toFixed(0)"></span>
-                      <span x-show="p.price == null" class="text-base-content/40 text-xs">N/A</span>
-                    </td>
- <td class="text-base-content/60 text-xs max-w-xs truncate" x-text="p.specs_summary ?? ''"></td>
- <td class="">
-                      <button @click="prefillAdd(p.name, '')"
-                              class="btn btn-ghost btn-xs">
-                        + Track
-                      </button>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </template>
+      <div id="parts-react-root"></div>
     </div>
 
     <!-- ══ PRE-BUILT PCS TAB ═══════════════════════════════════════════════ -->
