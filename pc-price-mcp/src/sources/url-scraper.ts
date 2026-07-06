@@ -9,7 +9,7 @@
  *   5c. Byparr (Cloudflare Turnstile / managed-challenge bypass — optional, requires running server)
  *   6. AI extraction — Claude (ANTHROPIC_API_KEY) then OpenAI (OPENAI_API_KEY) as fallback
  */
-import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js';
+import { getBrowser, randomUA, newPageWithProxy, getNextProxy } from './playwright-scraper.js';
 import { scrapeWithCamofox } from './camofox-client.js';
 import { renderWithByparr } from './byparr-client.js';
 import { openaiExtractPrice, openaiHealSelectors } from './openai-client.js';
@@ -148,14 +148,6 @@ function tryDom(html: string): Partial<ScrapedProduct> | null {
 }
 
 // ── Step 5: Playwright (with UA + proxy rotation) ─────────────────────────
-
-function getNextProxy(): string | undefined {
-  const raw = db.getConfig('scrape_proxies');
-  if (!raw) return undefined;
-  const proxies = raw.split(',').map(p => p.trim()).filter(Boolean);
-  if (!proxies.length) return undefined;
-  return proxies[Math.floor(Math.random() * proxies.length)];
-}
 
 async function tryPlaywright(url: string): Promise<Partial<ScrapedProduct> | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

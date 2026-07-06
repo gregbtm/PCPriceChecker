@@ -1,4 +1,14 @@
 import type { PriceSnapshot } from '../db.js';
+import * as db from '../db.js';
+
+/** Pick a random proxy from the comma-separated `scrape_proxies` config, if any are set. */
+export function getNextProxy(): string | undefined {
+  const raw = db.getConfig('scrape_proxies');
+  if (!raw) return undefined;
+  const proxies = raw.split(',').map(p => p.trim()).filter(Boolean);
+  if (!proxies.length) return undefined;
+  return proxies[Math.floor(Math.random() * proxies.length)];
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyBrowser = any;
@@ -264,10 +274,10 @@ export async function newPageWithProxy(proxy?: string): Promise<AnyPage | null> 
  * parsing (uk-retailers.ts's per-retailer extractors) and just need a page
  * that plain fetch() can't get past a JS challenge for.
  */
-export async function renderPageHtml(url: string): Promise<string | null> {
+export async function renderPageHtml(url: string, proxy: string | undefined = getNextProxy()): Promise<string | null> {
   const browser = await getBrowser();
   if (!browser) return null;
-  const page: AnyPage = await _newStealthPage(browser).catch(() => null);
+  const page: AnyPage = await _newStealthPage(browser, { proxy }).catch(() => null);
   if (!page) return null;
   try {
     await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico}', (r: AnyPage) => r.abort());

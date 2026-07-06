@@ -159,6 +159,7 @@ function app() {
     notifGotifyUrl: '',
     notifGotifyToken: '',
     notifAppriseUrl: '',
+    notifGenericWebhook: '',
 
     // Setup wizard
     wizardStep: 0,
@@ -206,6 +207,7 @@ function app() {
         pushover: !!(this.notifPushoverToken && this.notifPushoverUser),
         gotify:   !!(this.notifGotifyUrl && this.notifGotifyToken),
         apprise:  !!this.notifAppriseUrl,
+        webhook:  !!this.notifGenericWebhook,
       };
     },
 
@@ -281,6 +283,7 @@ function app() {
       this.notifGotifyUrl   = cfg.gotify_server_url ?? '';
       this.notifGotifyToken = cfg.gotify_app_token  ?? '';
       this.notifAppriseUrl  = cfg.apprise_url        ?? '';
+      this.notifGenericWebhook = cfg.generic_webhook_url ?? '';
       // API keys
       this.apiKeyPricesApi  = cfg.prices_api_key       ?? '';
       this.apiKeyEbayId     = cfg.ebay_client_id        ?? '';
@@ -618,7 +621,8 @@ function app() {
       if (d.pushover !== undefined) parts.push('Pushover ' + (d.pushover ? '✅' : '❌'));
       if (d.gotify   !== undefined) parts.push('Gotify '   + (d.gotify   ? '✅' : '❌'));
       if (d.apprise  !== undefined) parts.push('Apprise '  + (d.apprise  ? '✅' : '❌'));
-      const ok = d.discord || d.slack || d.telegram || d.email || d.ntfy || d.pushover || d.gotify || d.apprise;
+      if (d.webhook  !== undefined) parts.push('Webhook '  + (d.webhook  ? '✅' : '❌'));
+      const ok = d.discord || d.slack || d.telegram || d.email || d.ntfy || d.pushover || d.gotify || d.apprise || d.webhook;
       this.showToast(parts.join(' · ') || 'No notifications configured', ok ? 'success' : 'error');
     },
     // ── Pre-built PCs ───────────────────────────────────────────────────────

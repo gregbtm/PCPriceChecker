@@ -78,6 +78,7 @@ export default function SettingsTab() {
   const [notifGotifyUrl, setNotifGotifyUrl] = useState('')
   const [notifGotifyToken, setNotifGotifyToken] = useState('')
   const [notifAppriseUrl, setNotifAppriseUrl] = useState('')
+  const [notifGenericWebhook, setNotifGenericWebhook] = useState('')
   const [notifDropPct, setNotifDropPct] = useState('5')
 
   // API keys
@@ -102,6 +103,7 @@ export default function SettingsTab() {
   // Scraper
   const [scraperCamofoxUrl, setScraperCamofoxUrl] = useState('')
   const [scraperByparrUrl, setScraperByparrUrl] = useState('')
+  const [scraperChangeDetectionUrl, setScraperChangeDetectionUrl] = useState('')
   const [scraperProxies, setScraperProxies] = useState('')
 
   // VAT
@@ -132,6 +134,7 @@ export default function SettingsTab() {
     pushover: !!(notifPushoverToken && notifPushoverUser),
     gotify:   !!(notifGotifyUrl && notifGotifyToken),
     apprise:  !!notifAppriseUrl,
+    webhook:  !!notifGenericWebhook,
   }
 
   const loadConfig = useCallback(async () => {
@@ -156,6 +159,7 @@ export default function SettingsTab() {
     setNotifGotifyUrl(cfg.gotify_server_url ?? '')
     setNotifGotifyToken(cfg.gotify_app_token ?? '')
     setNotifAppriseUrl(cfg.apprise_url ?? '')
+    setNotifGenericWebhook(cfg.generic_webhook_url ?? '')
     setApiKeyPricesApi(cfg.prices_api_key ?? '')
     setApiKeyEbayId(cfg.ebay_client_id ?? '')
     setApiKeyEbaySec(cfg.ebay_client_secret ?? '')
@@ -187,6 +191,7 @@ export default function SettingsTab() {
     })
     setScraperCamofoxUrl(cfg.camofox_url ?? '')
     setScraperByparrUrl(cfg.byparr_url ?? '')
+    setScraperChangeDetectionUrl(cfg.changedetection_url ?? '')
     setScraperProxies(cfg.scrape_proxies ?? '')
   }, [])
 
@@ -247,6 +252,7 @@ export default function SettingsTab() {
       { key: 'gotify_server_url',   value: notifGotifyUrl },
       { key: 'gotify_app_token',    value: notifGotifyToken },
       { key: 'apprise_url',         value: notifAppriseUrl },
+      { key: 'generic_webhook_url', value: notifGenericWebhook },
     ])
     showToast('✅ Notification settings saved')
   }
@@ -263,7 +269,8 @@ export default function SettingsTab() {
     if (d.pushover !== undefined) parts.push('Pushover ' + (d.pushover ? '✅' : '❌'))
     if (d.gotify   !== undefined) parts.push('Gotify '   + (d.gotify   ? '✅' : '❌'))
     if (d.apprise  !== undefined) parts.push('Apprise '  + (d.apprise  ? '✅' : '❌'))
-    const ok = d.discord || d.slack || d.telegram || d.email || d.ntfy || d.pushover || d.gotify || d.apprise
+    if (d.webhook  !== undefined) parts.push('Webhook '  + (d.webhook  ? '✅' : '❌'))
+    const ok = d.discord || d.slack || d.telegram || d.email || d.ntfy || d.pushover || d.gotify || d.apprise || d.webhook
     showToast(parts.join(' · ') || 'No notifications configured', ok ? 'success' : 'error')
   }
 
@@ -291,9 +298,10 @@ export default function SettingsTab() {
 
   async function saveScraperSettings() {
     await saveConfigFields([
-      { key: 'camofox_url',    value: scraperCamofoxUrl },
-      { key: 'byparr_url',     value: scraperByparrUrl },
-      { key: 'scrape_proxies', value: scraperProxies },
+      { key: 'camofox_url',         value: scraperCamofoxUrl },
+      { key: 'byparr_url',          value: scraperByparrUrl },
+      { key: 'changedetection_url', value: scraperChangeDetectionUrl },
+      { key: 'scrape_proxies',      value: scraperProxies },
     ])
     showToast('✅ Scraper settings saved')
   }
@@ -384,6 +392,7 @@ export default function SettingsTab() {
     ['Pushover', configStatus.pushover],
     ['Gotify',   configStatus.gotify],
     ['Apprise',  configStatus.apprise],
+    ['Webhook',  configStatus.webhook],
   ]
 
   return (
@@ -542,6 +551,15 @@ export default function SettingsTab() {
           </div>
         </div>
 
+        <div className="border-t border-base-300 pt-3">
+          <p className="text-xs text-base-content/60 font-medium mb-2">Generic Webhook — for n8n, Zapier, Make, Home Assistant, or your own script</p>
+          <div>
+            <label className="text-xs text-base-content/60 block mb-1">Webhook URL</label>
+            <input value={notifGenericWebhook} onChange={e => setNotifGenericWebhook(e.target.value)} type="url" placeholder="https://your-automation-tool/webhook/..." className="w-full input input-bordered" />
+            <p className="text-xs text-base-content/40 mt-1">Posts the raw notification as JSON — no Discord/Slack-specific formatting — so anything that can receive a webhook can act on it.</p>
+          </div>
+        </div>
+
         <div>
           <label className="text-xs text-base-content/60 block mb-1">Minimum drop % to notify</label>
           <input value={notifDropPct} onChange={e => setNotifDropPct(e.target.value)} type="number" min="0" max="100" className="w-28 input input-bordered" />
@@ -681,6 +699,20 @@ export default function SettingsTab() {
           <input value={scraperByparrUrl} onChange={e => setScraperByparrUrl(e.target.value)} type="url" placeholder="http://localhost:8191" className="w-full input input-bordered mono" />
           <p className="text-xs text-base-content/40 mt-1.5">
             Docker: <code className="text-base-content/60 bg-base-300/50 px-1.5 py-0.5 rounded">docker run -p 8191:8191 ghcr.io/thephaseless/byparr</code>. Only used when the stealth browser tier above also fails.
+          </p>
+        </div>
+        <div>
+          <label className="text-xs text-base-content/60 font-medium block mb-1">
+            ChangeDetection.io URL <span className="text-base-content/40 font-normal">(selector helper, not a scraping backend — point-and-click CSS selector picker for stubborn pages)</span>
+          </label>
+          <div className="flex gap-2">
+            <input value={scraperChangeDetectionUrl} onChange={e => setScraperChangeDetectionUrl(e.target.value)} type="url" placeholder="http://localhost:5000" className="w-full input input-bordered mono" />
+            {scraperChangeDetectionUrl && (
+              <a href={scraperChangeDetectionUrl} target="_blank" rel="noopener noreferrer" className="btn btn-outline whitespace-nowrap">Open →</a>
+            )}
+          </div>
+          <p className="text-xs text-base-content/40 mt-1.5">
+            Docker: <code className="text-base-content/60 bg-base-300/50 px-1.5 py-0.5 rounded">docker run -p 5000:5000 ghcr.io/dgtlmoon/changedetection.io</code>. Point it at a product page, use its Visual Selector to find the price element, then save that CSS selector as a scrape rule via <code className="text-base-content/60 bg-base-300/50 px-1.5 py-0.5 rounded">POST /api/scrape-rules</code> (see DOCS.md §9).
           </p>
         </div>
         <div>

@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PC Price">
-  <script type="module" crossorigin src="/assets/index--89pSFZ8.js"></script>
+  <script type="module" crossorigin src="/assets/index-BL6cFe4k.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-BJBZpWCI.css">
 </head>
 <body class="h-[100dvh] overflow-hidden" x-data="app">
@@ -480,7 +480,7 @@
                 <span class="text-lg">🛡️</span>
                 <div>
                   <p class="font-medium text-base-content">Scrape rules</p>
-                  <p class="text-xs text-base-content/60">If URL-based tracking fails for a specific retailer, add a CSS selector rule here. Set <code class="mono bg-base-100 px-1 rounded">price_selector</code> to the element containing the price text. Use browser DevTools (F12 → Inspector) to find the right selector.</p>
+                  <p class="text-xs text-base-content/60">If URL-based tracking fails for a specific retailer, add a CSS selector rule via <code class="mono bg-base-100 px-1 rounded">POST /api/scrape-rules</code>. Set <code class="mono bg-base-100 px-1 rounded">price_selector</code> to the element containing the price text. Use browser DevTools (F12 → Inspector) to find the right selector — or set a <strong>ChangeDetection.io</strong> URL in Settings → Scraper for a point-and-click Visual Selector instead.</p>
                 </div>
               </div>
               <div class="flex gap-3 bg-base-300 rounded-xl p-3">
@@ -2930,6 +2930,27 @@
                      @blur="wizardSaveField('apprise_url', notifAppriseUrl)"
                      placeholder="http://your-apprise:8000/notify/KEY" class="input input-bordered w-full pr-8" />
               <span x-show="wizardSaved['apprise_url']" class="absolute right-2 top-1/2 -translate-y-1/2 text-success text-xs">✓</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="collapse collapse-arrow border border-base-300 rounded-xl bg-base-200">
+          <input type="checkbox" />
+          <div class="collapse-title flex items-center gap-3 min-h-0 py-3 px-4">
+            <span class="text-xl">🪝</span>
+            <div class="flex-1 min-w-0"><span class="font-medium text-sm">Generic Webhook</span><span class="text-xs text-base-content/50 ml-2">n8n, Zapier, Make, Home Assistant, your own script</span></div>
+            <span :class="configStatus.webhook ? 'badge-success' : 'badge-ghost'" class="badge badge-soft badge-xs mr-5" x-text="configStatus.webhook ? '✓ Connected' : 'Not set'"></span>
+          </div>
+          <div class="collapse-content pb-4 space-y-3">
+            <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
+              <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
+              <span>Posts the raw notification as JSON — no Discord/Slack-specific formatting — so any automation tool that can receive a webhook can act on price drops, alerts, and restocks.</span>
+            </div>
+            <div class="relative">
+              <input type="url" x-model="notifGenericWebhook"
+                     @blur="wizardSaveField('generic_webhook_url', notifGenericWebhook)"
+                     placeholder="https://your-automation-tool/webhook/..." class="input input-bordered w-full pr-8" />
+              <span x-show="wizardSaved['generic_webhook_url']" class="absolute right-2 top-1/2 -translate-y-1/2 text-success text-xs">✓</span>
             </div>
           </div>
         </div>

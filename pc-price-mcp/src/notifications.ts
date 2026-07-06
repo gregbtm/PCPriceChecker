@@ -274,9 +274,27 @@ export async function sendApprise(appriseUrl: string, payload: NotificationPaylo
   } catch { return false; }
 }
 
+// ── Generic webhook ──────────────────────────────────────────────────────────
+// Automation-tool-agnostic: a raw JSON POST of the notification payload,
+// unlike Discord/Slack/etc. which reshape it into their own message format.
+// Point this at an n8n/Zapier/Make webhook trigger, Home Assistant, or
+// anything else that can receive a POST.
+
+export async function sendGenericWebhook(webhookUrl: string, payload: NotificationPayload): Promise<boolean> {
+  try {
+    const res = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, timestamp: new Date().toISOString() }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 // ── notifyAll ───────────────────────────────────────────────────────────────
 
-export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean; telegram: boolean; email: boolean; ntfy: boolean; pushover: boolean; gotify: boolean; apprise: boolean }> {
+export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean; telegram: boolean; email: boolean; ntfy: boolean; pushover: boolean; gotify: boolean; apprise: boolean; webhook: boolean }> {
   const discordUrl    = db.getConfig('discord_webhook_url');
   const slackUrl      = db.getConfig('slack_webhook_url');
   const tgToken       = db.getConfig('telegram_bot_token');
@@ -290,8 +308,9 @@ export async function notifyAll(payload: NotificationPayload): Promise<{ discord
   const gotifyUrl     = db.getConfig('gotify_server_url');
   const gotifyToken   = db.getConfig('gotify_app_token');
   const appriseUrl    = db.getConfig('apprise_url');
+  const genericUrl    = db.getConfig('generic_webhook_url');
 
-  const [discord, slack, telegram, email, ntfy, pushover, gotify, apprise] = await Promise.all([
+  const [discord, slack, telegram, email, ntfy, pushover, gotify, apprise, webhook] = await Promise.all([
     discordUrl                      ? sendDiscord(discordUrl, payload)                          : Promise.resolve(false),
     slackUrl                        ? sendSlack(slackUrl, payload)                              : Promise.resolve(false),
     tgToken && tgChatId             ? sendTelegram(tgToken, tgChatId, payload)                 : Promise.resolve(false),
@@ -300,7 +319,8 @@ export async function notifyAll(payload: NotificationPayload): Promise<{ discord
     pushToken && pushUser           ? sendPushover(pushToken, pushUser, payload)               : Promise.resolve(false),
     gotifyUrl && gotifyToken        ? sendGotify(gotifyUrl, gotifyToken, payload)              : Promise.resolve(false),
     appriseUrl                      ? sendApprise(appriseUrl, payload)                         : Promise.resolve(false),
+    genericUrl                      ? sendGenericWebhook(genericUrl, payload)                  : Promise.resolve(false),
   ]);
 
-  return { discord, slack, telegram, email, ntfy, pushover, gotify, apprise };
+  return { discord, slack, telegram, email, ntfy, pushover, gotify, apprise, webhook };
 }

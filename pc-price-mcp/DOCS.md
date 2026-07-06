@@ -147,6 +147,7 @@ They are synced to `process.env` at server startup and on every update.
 | `camofox_url` | Camoufox CDP/WebSocket endpoint — self-hosted anti-detect Firefox (priority 2 scraping backend) |
 | `novada_browser_ws` | Novada Browser API WebSocket endpoint (CDP) — cloud anti-detect (priority 1 scraping backend) |
 | `novada_api_key` | Novada API key |
+| `byparr_url` | Byparr / FlareSolverr-compatible server URL — Cloudflare Turnstile / managed-challenge solver, last-resort scraping backend |
 | `gotify_server_url` | Self-hosted Gotify push server URL |
 | `gotify_app_token` | Gotify application token |
 | `apprise_url` | Apprise notification URL (supports 50+ services) |
@@ -165,6 +166,8 @@ They are synced to `process.env` at server startup and on every update.
 | `ntfy_server` | ntfy server (default: `https://ntfy.sh`) |
 | `pushover_app_token` | Pushover application token |
 | `pushover_user_key` | Pushover user/group key |
+| `generic_webhook_url` | Raw JSON POST of the notification payload — no platform-specific formatting, for n8n/Zapier/Make/Home Assistant/scripts |
+| `changedetection_url` | ChangeDetection.io instance URL — selector-picking helper only, not a scraping backend; just powers a Settings shortcut link |
 
 > **Security note:** The export backup endpoint (`GET /api/export/backup`) deliberately excludes any config keys matching `%_key%`, `%_token%`, `%_secret%`, or `%_password%` patterns to prevent credentials leaking into backup files.
 
@@ -756,6 +759,15 @@ No API key needed for the public ntfy.sh server (rate-limited to 250 messages/da
 
 Self-hosted options. Set `gotify_server_url` + `gotify_app_token`, or `apprise_url` (supports 50+ providers via the Apprise URL scheme).
 
+### Generic Webhook
+
+For anything not covered above — n8n, Zapier, Make, Home Assistant, a script of your own. Set `generic_webhook_url` and every notification (`price_alert`, `price_drop`, `restock`, `test`, `saved_search`) is POSTed there as raw JSON, unlike the Discord/Slack senders which reshape the payload into those platforms' own message formats:
+
+```json
+{ "type": "price_drop", "componentName": "RTX 4070 SUPER", "price": 579.99, "currency": "GBP",
+  "retailer": "Ebuyer", "dropAmount": 20.00, "dropPercent": 3.3, "url": "https://...", "timestamp": "2026-07-06T18:02:00Z" }
+```
+
 ---
 
 ## 8. Scheduler & Auto-Refresh
@@ -902,6 +914,27 @@ Set `byparr_url` to the server's address (e.g. `http://localhost:8191`, or `http
 
 Byparr only runs when the browser tiers above return nothing — it's slower (a full challenge solve takes several seconds) and only worth the wait for sites that specifically fail with a Cloudflare Turnstile or "managed challenge" page rather than a plain 403.
 
+### ChangeDetection.io (selector helper — not a scraping backend)
+
+[ChangeDetection.io](https://github.com/dgtlmoon/changedetection.io) is a general-purpose page-monitoring tool with a point-and-click **Visual Selector** — a much faster way to find a product page's price element than opening DevTools and reading the markup by hand.
+
+This app doesn't call its API or route any scraping through it — that would mean two systems independently deciding when a price last changed (this app's own scheduler, and ChangeDetection.io's). It's wired in purely as a helper tool:
+
+```bash
+docker run -d --name changedetection -p 5000:5000 --restart unless-stopped ghcr.io/dgtlmoon/changedetection.io
+```
+
+1. Set `changedetection_url` in Settings → Scraper (e.g. `http://<nas-ip>:5000`) — this only adds an "Open →" shortcut, nothing else reads it.
+2. Open it, add the stubborn product page as a watch, and use its Visual Selector to click directly on the price.
+3. Copy the CSS selector it finds and save it as a scrape rule for that domain:
+
+```bash
+POST /api/scrape-rules
+{ "domain": "example.co.uk", "price_selector": ".the-selector-it-found" }
+```
+
+That rule then feeds into this app's own extraction chain (§9) the normal way — Byparr and Camoufox are backends `scrapeProductUrl()` calls automatically; ChangeDetection.io is a tool you use once, by hand, to figure out what to tell that chain.
+
 **Running everything on one NAS**, a minimal `docker-compose.yml` alongside the app itself:
 
 ```yaml
@@ -914,9 +947,13 @@ services:
     image: ghcr.io/thephaseless/byparr
     ports: ["8191:8191"]
     restart: unless-stopped
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io
+    ports: ["5000:5000"]
+    restart: unless-stopped
 ```
 
-Then set `camofox_url=http://camoufox:9377` and `byparr_url=http://byparr:8191` (or the NAS's LAN IP if the app runs outside this compose network) in Settings → Scraper.
+Then set `camofox_url=http://camoufox:9377`, `byparr_url=http://byparr:8191`, and `changedetection_url=http://changedetection:5000` (or the NAS's LAN IP if the app runs outside this compose network) in Settings → Scraper.
 
 ---
 
