@@ -1,4 +1,5 @@
 import { fmtDate, fmtPrice, CURRENCY_SYMS } from './lib/format.js';
+import { retailerList } from './lib/retailers.js';
 
 const CHART_TICK_COLOR = '#a6adbb';
 const CHART_GRID_COLOR = 'rgba(166,173,187,0.12)';
@@ -14,19 +15,6 @@ async function loadChart() {
   }
   return ChartCtor;
 }
-
-const RETAILER_LABELS = {
-  currys: 'Currys', argos: 'Argos', johnlewis: 'John Lewis',
-  scan: 'Scan', overclockers: 'Overclockers', ebuyer: 'Ebuyer', ccl: 'CCL',
-  box: 'Box', novatech: 'Novatech', aria: 'Aria PC', awdit: 'AWD-IT',
-  corsair: 'Corsair UK', nzxt: 'NZXT UK', coolermaster: 'Cooler Master UK',
-  lianli: 'Lian Li', fractal: 'Fractal Design', thermaltake: 'Thermaltake UK',
-  ao: 'AO.com', very: 'Very', chillblast: 'Chillblast', dell: 'Dell UK',
-  hp: 'HP UK', amazon: 'Amazon', pallicomp: 'Pallicomp', costco: 'Costco UK',
-  cyberpower: 'CyberPower PC', pcspecialist: 'PC Specialist', lenovo: 'Lenovo UK',
-  bedrock: 'Bedrock Computers',
-};
-const retailerList = (ids) => ids.map(id => ({ id, label: RETAILER_LABELS[id] }));
 
 function app() {
   return {
@@ -89,19 +77,6 @@ function app() {
     valueResult: null,
     valueLoading: false,
 
-    // Search
-    searchQuery: '',
-    lastSearchQuery: '',
-    searchSource: 'retailers',
-    selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'currys', 'argos', 'johnlewis'],
-    allRetailers: retailerList([
-      'currys', 'argos', 'johnlewis', 'scan', 'overclockers', 'ebuyer', 'ccl',
-      'box', 'novatech', 'aria', 'awdit', 'corsair', 'nzxt', 'coolermaster',
-      'lianli', 'fractal', 'thermaltake',
-    ]),
-    searchResults: null,
-    searchLoading: false,
-
     // Modals
     showAddComponent: false,
     addForm: { name: '', search_query: '', category: 'other', alert_price: '' },
@@ -116,9 +91,6 @@ function app() {
     historyStats: null,
     historyDays: 30,
     historyChart: null,
-
-    // Search extras
-    cexInStockOnly: false,
 
     // Settings
     notifDiscord: '',
@@ -216,10 +188,6 @@ function app() {
     prebuiltHistoryDays: 30,
     prebuiltHistoryChart: null,
 
-    // PCPartPicker search
-    pcppCategory: 'gpu',
-    pcppCategories: ['gpu', 'cpu', 'ram', 'motherboard', 'storage', 'psu', 'case', 'cooling', 'monitor'],
-
     // UI state
     refreshingAll: false,
     toast: null,
@@ -257,6 +225,14 @@ function app() {
     async init() {
       clearInterval(this._schedulerTimer);
       this.selectedPrebuiltRetailers = this.allPrebuiltRetailers.map(r => r.id);
+      // Registered before the awaited loaders below (and thus before main.js's
+      // synchronous mountReactTab calls ever run) so a React tab dispatching
+      // pc:* immediately on mount can never race Alpine's own init.
+      window.addEventListener('pc:vat-changed', e => { this.vatMode = e.detail; });
+      window.addEventListener('pc:components-changed', () => Promise.all([this.loadComponents(), this.loadTags()]));
+      window.addEventListener('pc:config-changed', e => { if (e.detail?.source !== 'alpine') this.loadConfig(); });
+      window.addEventListener('pc:track-request', e => this.prefillAdd(e.detail.name));
+      window.addEventListener('pc:search-request', () => { this.activeTab = 'search'; });
       // allSettled, not all: with the SW-driven offline shell, some of these
       // fetches are expected to fail (no cached API data by design) and
       // shouldn't reject the whole batch or surface as unhandled rejections.
@@ -273,11 +249,6 @@ function app() {
         this.loadNeedsAttention(),
       ]);
       this._schedulerTimer = setInterval(() => this.loadSchedulerStatus(), 30_000);
-      window.addEventListener('pc:vat-changed', e => { this.vatMode = e.detail; });
-      window.addEventListener('pc:components-changed', () => Promise.all([this.loadComponents(), this.loadTags()]));
-      window.addEventListener('pc:config-changed', e => { if (e.detail?.source !== 'alpine') this.loadConfig(); });
-      window.addEventListener('pc:track-request', e => this.prefillAdd(e.detail.name));
-      window.addEventListener('pc:search-request', e => this.quickSearchFromAdvisor(e.detail.query));
     },
 
     // ── Data loaders ───────────────────────────────────────────────────────
@@ -453,14 +424,6 @@ function app() {
     fmtPrice(amount, currency = 'GBP') {
       return fmtPrice(amount, currency, this.vatMode);
     },
-    bestOfferPrice(offers) {
-      const prices = offers.filter(o => o.inStock && o.price > 0).map(o => o.price);
-      return prices.length > 0 ? prices.reduce((a, v) => v < a ? v : a, Infinity) : null;
-    },
-    isBestOffer(offer, offers) {
-      const best = this.bestOfferPrice(offers);
-      return best !== null && offer.inStock && offer.price === best;
-    },
     fmtPriceRaw(amount, currency = 'GBP') {
       if (amount == null) return '—';
       return (CURRENCY_SYMS[currency] ?? (currency + ' ')) + Number(amount).toFixed(2);
@@ -618,39 +581,6 @@ function app() {
     closeHistory() {
       this.showHistoryModal = false;
       if (this.historyChart) { this.historyChart.destroy(); this.historyChart = null; }
-    },
-
-    // ── Search ─────────────────────────────────────────────────────────────
-    async doSearch() {
-      if (!this.searchQuery || this.searchLoading) return;
-      this.searchLoading = true;
-      this.searchResults = null;
-      this.lastSearchQuery = this.searchQuery;
-      try {
-        if (this.searchSource === 'retailers') {
-          const p = new URLSearchParams({ q: this.searchQuery, retailers: this.selectedRetailers.join(',') });
-          const r = await fetch(`/api/search/retailers?${p}`);
-          this.searchResults = await r.json();
-        } else if (this.searchSource === 'cex') {
-          const p = new URLSearchParams({ q: this.searchQuery, limit: '25' });
-          if (this.cexInStockOnly) p.set('in_stock', '1');
-          const r = await fetch(`/api/cex/search?${p}`);
-          this.searchResults = await r.json();
-        } else if (this.searchSource === 'pcpartpicker') {
-          const p = new URLSearchParams({ category: this.pcppCategory, limit: '30' });
-          if (this.searchQuery) p.set('q', this.searchQuery);
-          const r = await fetch(`/api/pcpartpicker/search?${p}`);
-          this.searchResults = await r.json();
-        } else {
-          const p = new URLSearchParams({ q: this.searchQuery, country: 'gb' });
-          const r = await fetch(`/api/search/api?${p}`);
-          this.searchResults = await r.json();
-        }
-      } catch (e) {
-        this.showToast('❌ Search failed: ' + e.message, 'error');
-      } finally {
-        this.searchLoading = false;
-      }
     },
 
     // ── Settings ───────────────────────────────────────────────────────────
@@ -901,11 +831,11 @@ function app() {
         }
       } catch (e) { this.showToast('❌ Network error', 'error'); }
     },
+    // Search is now a React tab (SearchTab.jsx) — switching to it and
+    // running the query both happen off this one event, same bridge
+    // PartsTab's "UK price" button uses.
     quickSearchFromAdvisor(query) {
-      this.searchQuery = query;
-      this.searchSource = 'retailers';
-      this.activeTab = 'search';
-      this.$nextTick(() => this.doSearch());
+      window.dispatchEvent(new CustomEvent('pc:search-request', { detail: { query } }));
     },
 
   };

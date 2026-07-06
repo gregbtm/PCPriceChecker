@@ -382,9 +382,10 @@ export async function searchDataset(
   query: string,
   slug: DatasetSlug,
   opts: DatasetQueryOptions = {},
-): Promise<{ results: DatasetComponent[]; total: number }> {
+): Promise<{ results: DatasetComponent[]; total: number; totalPriced: number; totalMatching: number }> {
   const { pricedOnly = false, filters = {}, offset = 0, limit = 25, sortKey, sortDir } = opts;
   const all = await fetchDataset(slug);
+  const totalPriced = all.filter((p) => p.price !== null).length;
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
 
   const matches = all.filter((p) => {
@@ -395,7 +396,12 @@ export async function searchDataset(
   });
 
   const sorted = sortComponents(matches, sortKey, sortDir);
-  return { results: sorted.slice(offset, offset + limit), total: matches.length };
+  return {
+    results: sorted.slice(offset, offset + limit),
+    total: all.length,
+    totalPriced,
+    totalMatching: matches.length,
+  };
 }
 
 export async function browseDataset(

@@ -35,6 +35,10 @@ import { budgetBuilder, buildVsBuy, upgradeAdvisor, type UseCase } from './servi
 import { checkCompatibility } from './services/compatibility.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
 import { getDealScoresForAll } from './services/deal-scorer.js';
+import {
+  clusterOffers, normalizeRetailerResults, normalizePricesApiProducts, normalizeCexProducts, normalizePcppProducts,
+  type UnifiedOffer, type SearchSourceId,
+} from './services/search-merge.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -217,6 +221,40 @@ export function startWebServer(port: number): void {
     const country = (req.query.country as string) ?? 'gb';
     const result = await searchWithRetry(query, country, 5, 10);
     res.json(result);
+  }));
+
+  // Fans out to all four sources at once and merges the results — see
+  // src/services/search-merge.ts for the listing-dedup / product-clustering
+  // logic. Each source is independent: one being down or unconfigured (e.g.
+  // no PRICES_API_KEY) never blocks the others, it just shows up in perSource.
+  app.get('/api/search/unified', h(async (req, res) => {
+    const query = req.query.q as string;
+    if (!query) { res.status(400).json({ error: 'q is required' }); return; }
+    const rawRetailers = req.query.retailers as string;
+    const retailers = rawRetailers ? rawRetailers.split(',') : [...ALL_RETAILER_IDS];
+    const country = (req.query.country as string) ?? 'gb';
+    const pcppCategory = (req.query.pcpp_category as string) ?? 'video-card';
+    const cexInStockOnly = req.query.cex_in_stock === 'true';
+    const scrapedAt = new Date().toISOString();
+
+    const sourceIds: SearchSourceId[] = ['retailers', 'pricesapi', 'cex', 'pcpartpicker'];
+    const settled = await Promise.allSettled([
+      searchAllUkRetailers(query, retailers as Parameters<typeof searchAllUkRetailers>[1])
+        .then(r => normalizeRetailerResults(r, scrapedAt)),
+      searchWithRetry(query, country, 5, 10).then(r => normalizePricesApiProducts(r.products, scrapedAt)),
+      searchCex(query, cexInStockOnly, 25).then(r => normalizeCexProducts(r.products, scrapedAt)),
+      searchPcPartPicker(pcppCategory, query, 20).then(r => normalizePcppProducts(r, scrapedAt)),
+    ]);
+
+    const perSource = settled.map((result, i) => ({
+      source: sourceIds[i],
+      ok: result.status === 'fulfilled',
+      count: result.status === 'fulfilled' ? result.value.length : 0,
+      error: result.status === 'rejected' ? ((result.reason as Error)?.message ?? String(result.reason)) : undefined,
+    }));
+    const allOffers: UnifiedOffer[] = settled.flatMap(result => (result.status === 'fulfilled' ? result.value : []));
+    const clusters = clusterOffers(allOffers);
+    res.json({ query, clusters, perSource });
   }));
 
   // ── Builds ───────────────────────────────────────────────────────────────

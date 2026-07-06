@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { post } from '../lib/api.js'
 import { useToast, Toast } from '../lib/useToast.jsx'
 import {
@@ -128,8 +128,11 @@ export default function PartsTab() {
     return p
   }
 
+  const loadGenRef = useRef(0)
+
   useEffect(() => {
     let cancelled = false
+    loadGenRef.current += 1
     setLoading(true)
     const endpoint = debouncedQuery.trim() ? '/api/dataset/search' : '/api/dataset/browse'
     fetch(`${endpoint}?${buildParams(0)}`)
@@ -149,10 +152,12 @@ export default function PartsTab() {
 
   async function loadMore() {
     setLoadingMore(true)
+    const gen = loadGenRef.current
     try {
       const endpoint = debouncedQuery.trim() ? '/api/dataset/search' : '/api/dataset/browse'
       const r = await fetch(`${endpoint}?${buildParams(results.length)}`)
       const d = await r.json()
+      if (gen !== loadGenRef.current) return
       setResults(prev => [...prev, ...(d.results ?? [])])
     } catch {
       showToast('❌ Failed to load more', 'error')
@@ -211,6 +216,7 @@ export default function PartsTab() {
           name: addToBuildPart.name, search_query: addToBuildPart.name, category: compCategory, fetch_now: false,
         }).then(r => r.json())
         componentId = created.id
+        window.dispatchEvent(new CustomEvent('pc:components-changed'))
       }
       await post(`/api/builds/${addToBuildId}/items`, { component_id: componentId, quantity: 1 })
       showToast(`✅ Added to build`)
