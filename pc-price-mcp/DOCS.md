@@ -313,7 +313,8 @@ All endpoints return JSON. Errors return `{ "error": "message" }` with an approp
 | GET | `/api/cex/search` | CeX (used/refurb) — `?q=query&in_stock=&limit=` |
 | GET | `/api/pcpartpicker/search` | PCPartPicker UK live scrape — `?category=gpu&q=query&limit=` |
 | GET | `/api/awin/search` | AWIN affiliate feed — `?q=query&max=` |
-| GET | `/api/search/unified` | **All five sources fanned out and merged in one call** — `?q=query&retailers=...&pcpp_category=&cex_in_stock=` |
+| GET | `/api/apify/google-shopping` | Google Shopping via Apify cloud actor — `?q=query&country=GB&max=` (requires `apify_api_token`) |
+| GET | `/api/search/unified` | **All six sources fanned out and merged in one call** — `?q=query&retailers=...&pcpp_category=&cex_in_stock=` |
 
 `/api/search/unified` is what the Search tab actually calls. It normalizes every source into one offer shape, then clusters them — see `src/services/search-merge.ts` for the listing-dedup (exact URL / same retailer+price) and product-clustering (EAN match / fuzzy name+price) passes. Response shape:
 
@@ -322,7 +323,7 @@ All endpoints return JSON. Errors return `{ "error": "message" }` with an approp
   "perSource": [{ "source": "retailers", "ok": true, "count": 3 }, ...] }
 ```
 
-`confidence` is `"ean"` (barcode-matched, deterministic), `"fuzzy"` (name+price similarity, shown to the user as "possibly the same item"), or `"single"` (no match). The four non-unified endpoints above still work standalone and are what `/api/search/unified` calls internally in parallel.
+`confidence` is `"ean"` (barcode-matched, deterministic), `"fuzzy"` (name+price similarity, shown to the user as "possibly the same item"), or `"single"` (no match). The five non-unified endpoints above still work standalone and are what `/api/search/unified` calls internally in parallel. Google Shopping runs as an Apify cloud actor with real cold-start latency — the unified endpoint bounds its wait to ~30s rather than the route's own 180s default, so it may come back empty on a slow run without blocking the other five sources.
 
 ---
 
@@ -355,6 +356,7 @@ All endpoints return JSON. Errors return `{ "error": "message" }` with an approp
 | GET | `/api/config` | Get all config key-value pairs |
 | POST | `/api/config` | Set/update config keys: `{ key: value, ... }` |
 | DELETE | `/api/config/:key` | Delete a config key |
+| GET | `/api/version` | App version (read from `package.json` at startup) — `{ version: "1.0.0" }`, shown at the bottom of the sidebar |
 
 ---
 
@@ -405,7 +407,7 @@ All endpoints return JSON. Errors return `{ "error": "message" }` with an approp
 
 ### Keepa (Amazon Price History)
 
-Requires `keepa_api_key` in config.
+Requires `keepa_api_key` in config. **Not free** — Keepa's browser extension is free but its API is a paid product, starting at €19/month for a rate-limited 1 token/minute plan; dedicated plans run into the hundreds of euros. Only worth it if Amazon price history specifically matters to you.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -425,11 +427,11 @@ Requires `awin_publisher_id` and `awin_api_key` in config. AWIN's product catalo
 | GET | `/api/awin/merchants` | List merchants that have approved this publisher account |
 | GET | `/api/awin/feed` | Browse product feed — `?merchant_id=&page=1` |
 
-AWIN is also wired into `GET /api/search/unified` (§ Search, above) as a fifth source. Its feed carries three fields none of the other four sources provide, all consumed for real:
+AWIN is also wired into `GET /api/search/unified` (§ Search, above), one of six sources merged there. Its feed carries fields most of the others don't, all consumed for real:
 
-- **`ean`** (barcode) — the strongest possible product-matching signal. Two offers sharing an EAN are merged into one product cluster regardless of price gap or how differently their names read, since a barcode match is a deterministic identity rather than a guess.
-- **`imageUrl`** — shown as a thumbnail on the product and the individual offer, the first product photos to appear anywhere in Search.
-- **`rrp`** — when the retailer's own price undercuts it, renders as a "N% off RRP" badge, a deal signal none of the other sources can supply.
+- **`ean`** (barcode) — the strongest possible product-matching signal, and unique to AWIN among all six sources. Two offers sharing an EAN are merged into one product cluster regardless of price gap or how differently their names read, since a barcode match is a deterministic identity rather than a guess.
+- **`imageUrl`** — shown as a thumbnail on the product and the individual offer. Google Shopping (via Apify) also supplies this field; the other four sources don't.
+- **`rrp`** — when the retailer's own price undercuts it, renders as a "N% off RRP" badge, a deal signal unique to AWIN among all six sources.
 
 ---
 

@@ -29,8 +29,9 @@ import type { SearchProduct } from '../sources/pricesapi.js';
 import type { CexProduct } from '../sources/cex.js';
 import type { PcppProduct } from '../sources/pcpartpicker-live.js';
 import type { AwinProduct } from '../sources/awin.js';
+import type { ApifyGoogleShoppingOffer } from '../sources/apify.js';
 
-export type SearchSourceId = 'retailers' | 'pricesapi' | 'cex' | 'pcpartpicker' | 'awin';
+export type SearchSourceId = 'retailers' | 'pricesapi' | 'cex' | 'pcpartpicker' | 'awin' | 'googleshopping';
 
 export const SOURCE_LABELS: Record<SearchSourceId, string> = {
   retailers: 'Retailer scrape',
@@ -38,6 +39,7 @@ export const SOURCE_LABELS: Record<SearchSourceId, string> = {
   cex: 'CeX',
   pcpartpicker: 'PCPartPicker UK',
   awin: 'AWIN',
+  googleshopping: 'Google Shopping',
 };
 
 export interface UnifiedOffer {
@@ -175,6 +177,26 @@ export function normalizeAwinProducts(products: AwinProduct[], scrapedAt: string
     ean: p.ean,
     imageUrl: p.imageUrl,
     rrp: p.rrp ?? undefined,
+  }));
+}
+
+export function normalizeGoogleShoppingOffers(offers: ApifyGoogleShoppingOffer[], scrapedAt: string): UnifiedOffer[] {
+  return offers.map((o, i) => ({
+    offerId: `googleshopping:${o.merchant}:${o.url || o.productName}:${i}`,
+    source: 'googleshopping',
+    sourceLabel: SOURCE_LABELS.googleshopping,
+    retailer: o.merchant,
+    name: o.productName,
+    price: o.price,
+    currency: o.currency,
+    // The actor never supplies availability data, so this can't claim to know
+    // the item is in stock — defaulting true let a possibly-dead listing win
+    // bestPrice/the "Best" badge ahead of a genuinely available offer.
+    inStock: false,
+    url: o.url || null,
+    condition: o.condition ?? undefined,
+    scrapedAt,
+    imageUrl: o.imageUrl ?? undefined,
   }));
 }
 

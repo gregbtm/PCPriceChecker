@@ -11,6 +11,7 @@ const SOURCE_BADGE = {
   cex: 'badge-warning',
   pcpartpicker: 'badge-secondary',
   awin: 'badge-accent',
+  googleshopping: 'badge-primary',
 }
 
 function ConfidenceNote({ confidence, offerCount }) {
@@ -157,7 +158,7 @@ export default function SearchTab() {
         {loading && (
           <div className="text-center py-6">
             <div className="text-4xl mb-3">⏳</div>
-            <p className="text-base-content/60 text-sm">Querying all four sources in parallel — PricesAPI and PCPartPicker can take up to a minute on a cold search…</p>
+            <p className="text-base-content/60 text-sm">Querying all sources in parallel — PricesAPI and PCPartPicker can take up to a minute on a cold search, Google Shopping (if configured) up to 30 seconds…</p>
           </div>
         )}
       </div>

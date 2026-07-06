@@ -6,6 +6,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
 import { searchAllUkRetailers, ALL_RETAILER_IDS } from './sources/uk-retailers.js';
@@ -37,13 +38,14 @@ import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } fr
 import { getDealScoresForAll } from './services/deal-scorer.js';
 import {
   clusterOffers, normalizeRetailerResults, normalizePricesApiProducts, normalizeCexProducts, normalizePcppProducts,
-  normalizeAwinProducts,
+  normalizeAwinProducts, normalizeGoogleShoppingOffers,
   type UnifiedOffer, type SearchSourceId,
 } from './services/search-merge.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PUBLIC_DIR = join(__dirname, '..', 'public');
+const APP_VERSION: string = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8')).version ?? '0.0.0';
 
 // Wrap async route handlers — Express 5 propagates thrown errors automatically,
 // but this keeps the pattern explicit and compatible with Express 4 too.
@@ -101,6 +103,10 @@ export function startWebServer(port: number): void {
 
   // Seed process.env from any API keys previously saved in the DB.
   syncEnvFromDb();
+
+  app.get('/api/version', h(async (_req, res) => {
+    res.json({ version: APP_VERSION });
+  }));
 
   // ── Components ───────────────────────────────────────────────────────────
 
@@ -225,7 +231,23 @@ export function startWebServer(port: number): void {
     res.json(result);
   }));
 
-  // Fans out to all four sources at once and merges the results — see
+  // Google Shopping runs as an Apify cloud actor — real cold-start latency,
+  // and apifyScrapeGoogleShopping's own default budget (180s) would hold the
+  // whole unified search open that long. Bounded here to a budget that fits
+  // an interactive search: if the actor hasn't finished by then, this source
+  // just comes back empty for this query rather than blocking everything else.
+  // runApifyActor's poll loop checks its deadline before each 4s sleep, so
+  // the actual wait can run ~4s past this number — keep UI copy ("up to 30
+  // seconds") looser than this constant rather than promising it exactly.
+  const GOOGLE_SHOPPING_TIMEOUT_SECS = 20;
+
+  async function fetchGoogleShoppingOffers(query: string, country: string, scrapedAt: string): Promise<UnifiedOffer[]> {
+    if (!isApifyConfigured()) throw new Error('APIFY_API_TOKEN not configured — add it in Settings → API Keys');
+    const offers = await apifyScrapeGoogleShopping(query, country.toUpperCase(), 20, GOOGLE_SHOPPING_TIMEOUT_SECS);
+    return normalizeGoogleShoppingOffers(offers, scrapedAt);
+  }
+
+  // Fans out to all six sources at once and merges the results — see
   // src/services/search-merge.ts for the listing-dedup / product-clustering
   // logic. Each source is independent: one being down or unconfigured (e.g.
   // no PRICES_API_KEY) never blocks the others, it just shows up in perSource.
@@ -239,7 +261,7 @@ export function startWebServer(port: number): void {
     const cexInStockOnly = req.query.cex_in_stock === 'true';
     const scrapedAt = new Date().toISOString();
 
-    const sourceIds: SearchSourceId[] = ['retailers', 'pricesapi', 'cex', 'pcpartpicker', 'awin'];
+    const sourceIds: SearchSourceId[] = ['retailers', 'pricesapi', 'cex', 'pcpartpicker', 'awin', 'googleshopping'];
     const settled = await Promise.allSettled([
       searchAllUkRetailers(query, retailers as Parameters<typeof searchAllUkRetailers>[1])
         .then(r => normalizeRetailerResults(r, scrapedAt)),
@@ -250,6 +272,7 @@ export function startWebServer(port: number): void {
         if (r.error) throw new Error(r.error);
         return normalizeAwinProducts(r.products, scrapedAt);
       }),
+      fetchGoogleShoppingOffers(query, country, scrapedAt),
     ]);
 
     const perSource = settled.map((result, i) => ({

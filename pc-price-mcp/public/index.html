@@ -12,8 +12,8 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="PC Price">
-  <script type="module" crossorigin src="/assets/index-WnT9265r.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-VDi0PVqS.css">
+  <script type="module" crossorigin src="/assets/index-CyNVztO-.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-Cds6zws0.css">
 </head>
 <body class="h-[100dvh] overflow-hidden" x-data="app">
 
@@ -280,7 +280,7 @@
                 <span class="text-lg">📈</span>
                 <div>
                   <p class="font-medium text-base-content">Amazon price history (Keepa)</p>
-                  <p class="text-xs text-base-content/60">Requires a Keepa API key. Shows all-time low/high and 30/90-day Amazon UK averages — essential for spotting whether a "sale" is genuine.</p>
+                  <p class="text-xs text-base-content/60">Requires a paid Keepa API key (from €19/month — the free browser extension doesn't cover API access). Shows all-time low/high and 30/90-day Amazon UK averages — essential for spotting whether a "sale" is genuine, but optional if that cost isn't worth it to you.</p>
                 </div>
               </div>
             </div>
@@ -1971,6 +1971,9 @@
           <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-question-mark-circle"/></svg>
           <span class="text-xs">Help &amp; Tips</span>
         </button>
+        <template x-if="versionInfo?.version">
+          <div class="text-[10px] text-base-content/30 text-center mt-2 font-mono">v<span x-text="versionInfo.version"></span></div>
+        </template>
       </div>
 
     </aside>
@@ -2505,11 +2508,11 @@
         <fieldset class="fieldset border border-base-300 rounded-xl p-4 space-y-3">
           <legend class="fieldset-legend flex items-center gap-2 px-1">
             <span>📊</span><span class="font-semibold text-sm">Keepa</span>
-            <span class="badge badge-soft badge-ghost badge-xs">Optional · ~€17/mo</span>
+            <span class="badge badge-soft badge-ghost badge-xs">Optional · from €19/mo</span>
           </legend>
           <div role="alert" class="alert alert-info alert-soft py-2 px-3 text-xs">
             <svg class="h-4 w-4 shrink-0"><use href="#hi-information-circle"/></svg>
-            <span>Amazon UK price history charts, deal detection, and ASIN lookups. Subscribe, then copy your API key. <a href="https://keepa.com/#!api" target="_blank" class="link link-hover font-semibold">keepa.com/api →</a></span>
+            <span>Amazon UK price history charts, deal detection, and ASIN lookups. The browser extension is free, but the API isn't — plans start at €19/month for a slow 1 token/minute. Skip this unless Amazon price history specifically matters to you. <a href="https://keepa.com/#!api" target="_blank" class="link link-hover font-semibold">keepa.com/api →</a></span>
           </div>
           <div class="relative">
             <input :type="showSecrets.keepa ? 'text' : 'password'" x-model="apiKeyKeepa"

@@ -74,6 +74,10 @@ export async function runApifyActor(
       return { runId, datasetId: '', status: state as 'FAILED' | 'ABORTED' };
     }
   }
+  // Timed out waiting locally — the run keeps executing on Apify's side and
+  // consuming account concurrency/cost unless explicitly stopped. Fire-and-
+  // forget so a slow abort call doesn't add to the caller's own timeout.
+  apifyFetch(`/actor-runs/${runId}/abort`, { method: 'POST' }).catch(() => {});
   return { runId, datasetId: '', status: 'RUNNING' };
 }
 
@@ -189,6 +193,7 @@ export async function apifyScrapeGoogleShopping(
   query: string,
   countryCode = 'GB',
   maxResults = 40,
+  timeoutSecs = 180,
 ): Promise<ApifyGoogleShoppingOffer[]> {
   const token = getToken();
   if (!token) return [];
@@ -201,7 +206,7 @@ export async function apifyScrapeGoogleShopping(
       maxPagesPerQuery: Math.ceil(maxResults / 20),
       languageCode: 'en',
     },
-    180,
+    timeoutSecs,
   );
   if (!result || result.status !== 'SUCCEEDED' || !result.datasetId) return [];
 
@@ -229,7 +234,9 @@ export async function apifyScrapeGoogleShopping(
         price,
         currency:    String(row.currency ?? 'GBP'),
         url:         String(row.link ?? row.url ?? row.productLink ?? ''),
-        condition:   String(row.condition ?? row.itemCondition ?? 'New'),
+        // Preserve unknown as null rather than assuming 'New' — a used/
+        // refurbished listing with no condition field shouldn't be relabelled.
+        condition:   (row.condition ?? row.itemCondition) != null ? String(row.condition ?? row.itemCondition) : null,
         rating:      row.rating != null ? Number(row.rating) : null,
         reviewCount: row.reviews != null ? Number(row.reviews) : null,
         imageUrl:    row.thumbnail != null ? String(row.thumbnail) : null,

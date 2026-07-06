@@ -27,6 +27,7 @@ function app() {
     stockChanges: [],
     schedulerStatus: null,
     vatMode: 'inc_vat',
+    versionInfo: null,
 
     // Help modal
     helpOpen: false,
@@ -250,6 +251,7 @@ function app() {
         this.loadSparklines(),
         this.loadTags(),
         this.loadNeedsAttention(),
+        this.loadVersion(),
       ]);
       this._schedulerTimer = setInterval(() => this.loadSchedulerStatus(), 30_000);
     },
@@ -263,6 +265,7 @@ function app() {
     async loadPrebuilts()      { await this.loadFrom('/api/prebuilts',               'prebuilts'); },
     async loadSparklines()     { await this.loadFrom('/api/dashboard/sparklines',    'sparklines', true); },
     async loadTags()           { await this.loadFrom('/api/tags',                    'tags',       true); },
+    async loadVersion()       { await this.loadFrom('/api/version',                   'versionInfo',   true); },
     async loadNeedsAttention() { await this.loadFrom('/api/needs-attention',         'needsAttention', true); },
 
     async loadConfig() {

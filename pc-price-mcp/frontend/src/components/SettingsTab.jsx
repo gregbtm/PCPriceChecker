@@ -620,6 +620,7 @@ export default function SettingsTab() {
         <div>
           <label className="text-xs text-base-content/60 block mb-1">Keepa API Key <span className="text-base-content/40">(keepa.com/api — Amazon price history)</span></label>
           <SecretInput value={apiKeyKeepa} onChange={setApiKeyKeepa} placeholder="keepa_…" secretKey="keepa" showSecrets={showSecrets} setShowSecrets={setShowSecrets} />
+          <p className="text-xs text-base-content/40 mt-1">Not free — Keepa's API starts at €19/month (1 token/minute); the browser extension is free but doesn't cover this. Skip it unless Amazon price history specifically matters to you.</p>
         </div>
 
         <div>
