@@ -37,6 +37,7 @@ import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } fr
 import { getDealScoresForAll } from './services/deal-scorer.js';
 import {
   clusterOffers, normalizeRetailerResults, normalizePricesApiProducts, normalizeCexProducts, normalizePcppProducts,
+  normalizeAwinProducts,
   type UnifiedOffer, type SearchSourceId,
 } from './services/search-merge.js';
 
@@ -238,13 +239,17 @@ export function startWebServer(port: number): void {
     const cexInStockOnly = req.query.cex_in_stock === 'true';
     const scrapedAt = new Date().toISOString();
 
-    const sourceIds: SearchSourceId[] = ['retailers', 'pricesapi', 'cex', 'pcpartpicker'];
+    const sourceIds: SearchSourceId[] = ['retailers', 'pricesapi', 'cex', 'pcpartpicker', 'awin'];
     const settled = await Promise.allSettled([
       searchAllUkRetailers(query, retailers as Parameters<typeof searchAllUkRetailers>[1])
         .then(r => normalizeRetailerResults(r, scrapedAt)),
       searchWithRetry(query, country, 5, 10).then(r => normalizePricesApiProducts(r.products, scrapedAt)),
       searchCex(query, cexInStockOnly, 25).then(r => normalizeCexProducts(r.products, scrapedAt)),
       searchPcPartPicker(pcppCategory, query, 20).then(r => normalizePcppProducts(r, scrapedAt)),
+      awinSearch(query, 20).then(r => {
+        if (r.error) throw new Error(r.error);
+        return normalizeAwinProducts(r.products, scrapedAt);
+      }),
     ]);
 
     const perSource = settled.map((result, i) => ({

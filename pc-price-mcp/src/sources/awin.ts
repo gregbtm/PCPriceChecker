@@ -2,10 +2,14 @@
  * AWIN (Affiliate Window) integration — UK retailer product search.
  * AWIN is the UK's largest affiliate network: Scan, Overclockers, Ebuyer,
  * CCL, Currys, Amazon UK, Novatech and 300+ others publish live product
- * feeds through it.
+ * feeds through it — but each merchant approves publishers individually,
+ * so awinSearch() only ever returns results for programmes this specific
+ * publisher account has been approved for, not the network's full catalogue.
+ * Use awinGetMerchants() to see which ones that actually is.
  *
  * Requires a publisher account: https://www.awin.com/gb/publishers
- * Approval takes ~1 week. Once approved:
+ * Approval takes ~1 week, then per-merchant approval on top of that. Once
+ * the account itself is approved:
  *   AWIN_PUBLISHER_ID = your publisher (affiliate) ID
  *   AWIN_API_KEY      = API key from awin.com/gb/publishers/profile/api-credentials
  *

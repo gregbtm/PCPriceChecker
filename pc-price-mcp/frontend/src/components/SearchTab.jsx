@@ -10,15 +10,31 @@ const SOURCE_BADGE = {
   pricesapi: 'badge-success',
   cex: 'badge-warning',
   pcpartpicker: 'badge-secondary',
+  awin: 'badge-accent',
 }
 
 function ConfidenceNote({ confidence, offerCount }) {
-  if (confidence !== 'fuzzy' || offerCount < 2) return null
-  return (
-    <span className="badge badge-ghost badge-sm" title="Grouped by similar name and price — expand to check if that's right">
-      Possibly the same item
-    </span>
-  )
+  if (offerCount < 2) return null
+  if (confidence === 'ean') {
+    return (
+      <span className="badge badge-success badge-sm" title="Matched by barcode (EAN) — a reliable identity, not a guess">
+        ✓ Same product (barcode match)
+      </span>
+    )
+  }
+  if (confidence === 'fuzzy') {
+    return (
+      <span className="badge badge-ghost badge-sm" title="Grouped by similar name and price — expand to check if that's right">
+        Possibly the same item
+      </span>
+    )
+  }
+  return null
+}
+
+function rrpDiscount(price, rrp) {
+  if (price == null || rrp == null || rrp <= price) return null
+  return Math.round(((rrp - price) / rrp) * 100)
 }
 
 export default function SearchTab() {
@@ -172,12 +188,16 @@ export default function SearchTab() {
               return rows.map((row, ri) => {
                 if (row._solo) {
                   const o = row
+                  const discount = rrpDiscount(o.price, o.rrp)
                   return (
                     <div key={`${c.clusterId}-solo-${ri}`} className="p-4">
                       <div className="flex items-start justify-between gap-3 mb-2">
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium text-base-content truncate">{o.name}</div>
-                          <span className={`badge badge-sm mt-1 ${SOURCE_BADGE[o.source] ?? 'badge-ghost'}`}>{o.sourceLabel}</span>
+                        <div className="flex items-start gap-2 min-w-0">
+                          {o.imageUrl && <img src={o.imageUrl} alt="" className="w-10 h-10 object-contain rounded bg-white flex-shrink-0" />}
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-base-content truncate">{o.name}</div>
+                            <span className={`badge badge-sm mt-1 ${SOURCE_BADGE[o.source] ?? 'badge-ghost'}`}>{o.sourceLabel}</span>
+                          </div>
                         </div>
                         <button onClick={() => track(o.name)} className="btn btn-primary btn-xs flex-shrink-0">+ Track</button>
                       </div>
@@ -185,6 +205,7 @@ export default function SearchTab() {
                         <span className="text-sm text-base-content/70">{o.retailer}</span>
                         <div className="flex items-center gap-3">
                           <span className="text-xs">{o.inStock ? '✅ In stock' : '❌ Out of stock'}</span>
+                          {discount !== null && <span className="badge badge-error badge-sm">{discount}% off RRP</span>}
                           <span className="font-bold text-base-content">{o.price != null ? fmtPrice(o.price, o.currency, vatMode) : 'N/A'}</span>
                           {o.url && <a href={o.url} target="_blank" rel="noopener noreferrer" className="text-xs text-info hover:underline">View →</a>}
                         </div>
@@ -192,24 +213,30 @@ export default function SearchTab() {
                     </div>
                   )
                 }
+                const clusterImage = c.offers.find(o => o.imageUrl)?.imageUrl
                 return (
                   <div key={c.clusterId} className="p-4">
                     <div className="flex items-start justify-between gap-3 mb-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-base-content text-sm leading-snug">{c.displayName}</div>
-                        <div className="flex items-center gap-2 mt-1 flex-wrap">
-                          {c.bestPrice !== null && <span className="text-xs font-semibold text-success">from {fmtPrice(c.bestPrice, c.offers[0]?.currency ?? 'GBP', vatMode)}</span>}
-                          <span className="text-xs text-base-content/50">{c.offers.length} offer{c.offers.length !== 1 ? 's' : ''}</span>
-                          <ConfidenceNote confidence={c.confidence} offerCount={c.offers.length} />
-                          {c.confidence === 'fuzzy' && c.offers.length > 1 && (
-                            <button onClick={() => toggleSplit(c.clusterId)} className="text-xs text-info hover:underline">Split — these aren&apos;t the same</button>
-                          )}
+                      <div className="flex items-start gap-2 min-w-0 flex-1">
+                        {clusterImage && <img src={clusterImage} alt="" className="w-10 h-10 object-contain rounded bg-white flex-shrink-0" />}
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium text-base-content text-sm leading-snug">{c.displayName}</div>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            {c.bestPrice !== null && <span className="text-xs font-semibold text-success">from {fmtPrice(c.bestPrice, c.offers[0]?.currency ?? 'GBP', vatMode)}</span>}
+                            <span className="text-xs text-base-content/50">{c.offers.length} offer{c.offers.length !== 1 ? 's' : ''}</span>
+                            <ConfidenceNote confidence={c.confidence} offerCount={c.offers.length} />
+                            {c.confidence !== 'single' && c.offers.length > 1 && (
+                              <button onClick={() => toggleSplit(c.clusterId)} className="text-xs text-info hover:underline">Split — these aren&apos;t the same</button>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <button onClick={() => track(c.displayName)} className="btn btn-primary btn-xs flex-shrink-0">+ Track</button>
                     </div>
                     <div className="space-y-1.5">
-                      {c.offers.map((o, oi) => (
+                      {c.offers.map((o, oi) => {
+                        const discount = rrpDiscount(o.price, o.rrp)
+                        return (
                         <div key={o.offerId + oi} className={`rounded px-3 py-2 ${o.inStock && o.price === c.bestPrice ? 'bg-success/10 border border-success/30' : 'bg-base-200/60'}`}>
                           <div className="flex items-center justify-between gap-2 flex-wrap">
                             <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -231,11 +258,13 @@ export default function SearchTab() {
                               <span className="text-xs flex-shrink-0">{o.inStock ? '✅' : '❌'}</span>
                             </div>
                             <div className="flex items-center gap-3 flex-shrink-0">
+                              {discount !== null && <span className="badge badge-error badge-sm">{discount}% off RRP</span>}
                               <span className="font-semibold text-base-content text-sm whitespace-nowrap">{o.price != null ? fmtPrice(o.price, o.currency, vatMode) : 'N/A'}</span>
                             </div>
                           </div>
                         </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )

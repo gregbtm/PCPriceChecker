@@ -308,8 +308,21 @@ All endpoints return JSON. Errors return `{ "error": "message" }` with an approp
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/search/retailers` | Search retailers via PricesAPI.io — `?q=RTX+4080&country=gb` |
-| GET | `/api/search/api` | Meta-search across Reddit, YouTube, Bing — `?q=query` |
+| GET | `/api/search/retailers` | Direct-scrape UK retailers in parallel, no key needed — `?q=RTX+4080&retailers=scan,ebuyer,...` |
+| GET | `/api/search/api` | PricesAPI.io search (40+ retailers) — `?q=query&country=gb` |
+| GET | `/api/cex/search` | CeX (used/refurb) — `?q=query&in_stock=&limit=` |
+| GET | `/api/pcpartpicker/search` | PCPartPicker UK live scrape — `?category=gpu&q=query&limit=` |
+| GET | `/api/awin/search` | AWIN affiliate feed — `?q=query&max=` |
+| GET | `/api/search/unified` | **All five sources fanned out and merged in one call** — `?q=query&retailers=...&pcpp_category=&cex_in_stock=` |
+
+`/api/search/unified` is what the Search tab actually calls. It normalizes every source into one offer shape, then clusters them — see `src/services/search-merge.ts` for the listing-dedup (exact URL / same retailer+price) and product-clustering (EAN match / fuzzy name+price) passes. Response shape:
+
+```json
+{ "query": "RTX 4070", "clusters": [{ "clusterId": "...", "displayName": "...", "offers": [...], "bestPrice": 579.99, "confidence": "ean" }],
+  "perSource": [{ "source": "retailers", "ok": true, "count": 3 }, ...] }
+```
+
+`confidence` is `"ean"` (barcode-matched, deterministic), `"fuzzy"` (name+price similarity, shown to the user as "possibly the same item"), or `"single"` (no match). The four non-unified endpoints above still work standalone and are what `/api/search/unified` calls internally in parallel.
 
 ---
 
@@ -404,13 +417,19 @@ Requires `keepa_api_key` in config.
 
 ### AWIN Affiliate
 
-Requires `awin_publisher_id` and `awin_api_key` in config.
+Requires `awin_publisher_id` and `awin_api_key` in config. AWIN's product catalogue is only as wide as the merchants that have approved *your* publisher account — check which ones that is with `GET /api/awin/merchants` (also surfaced as a "Check joined merchants" button in Settings) before assuming a given retailer is covered.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/awin/search` | Search AWIN product catalogue — `?q=query&merchant_id=` |
-| GET | `/api/awin/merchants` | List available AWIN merchants |
+| GET | `/api/awin/merchants` | List merchants that have approved this publisher account |
 | GET | `/api/awin/feed` | Browse product feed — `?merchant_id=&page=1` |
+
+AWIN is also wired into `GET /api/search/unified` (§ Search, above) as a fifth source. Its feed carries three fields none of the other four sources provide, all consumed for real:
+
+- **`ean`** (barcode) — the strongest possible product-matching signal. Two offers sharing an EAN are merged into one product cluster regardless of price gap or how differently their names read, since a barcode match is a deterministic identity rather than a guess.
+- **`imageUrl`** — shown as a thumbnail on the product and the individual offer, the first product photos to appear anywhere in Search.
+- **`rrp`** — when the retailer's own price undercuts it, renders as a "N% off RRP" badge, a deal signal none of the other sources can supply.
 
 ---
 

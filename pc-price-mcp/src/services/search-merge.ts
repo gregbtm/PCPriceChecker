@@ -1,7 +1,8 @@
-// Merges results from the four independent search sources (direct retailer
-// scrapes, PricesAPI, CeX, PCPartPicker UK) into one list, using multiple
-// signals to tell "the same listing" from "the same product at a different
-// retailer" from "actually different products with similar names."
+// Merges results from the five independent search sources (direct retailer
+// scrapes, PricesAPI, CeX, PCPartPicker UK, AWIN affiliate feed) into one
+// list, using multiple signals to tell "the same listing" from "the same
+// product at a different retailer" from "actually different products with
+// similar names."
 //
 // Two stages, because those are two different questions:
 //
@@ -14,23 +15,29 @@
 //
 //  2. Product clustering — group the now-deduped offers that are the same
 //     product at genuinely different retailers, so comparison shopping still
-//     works, using one further signal:
+//     works, using two signals in confidence order:
+//       - ean:   identical EAN/barcode — a deterministic product identity,
+//                so unlike the other signals it isn't gated on price at all
+//                (only AWIN supplies EAN today; forward-compatible if any
+//                other source starts returning one)
 //       - fuzzy: name similarity >= 0.6 AND price within a 15% band
-//     Complete-link again, and gated on both name *and* price so two
+//     Complete-link again, and fuzzy is gated on both name *and* price so two
 //     differently-priced variants (a 4070 vs a 4070 Ti) don't collapse just
 //     because their names are nearly identical.
 import type { RetailerSearchResult } from '../sources/uk-retailers.js';
 import type { SearchProduct } from '../sources/pricesapi.js';
 import type { CexProduct } from '../sources/cex.js';
 import type { PcppProduct } from '../sources/pcpartpicker-live.js';
+import type { AwinProduct } from '../sources/awin.js';
 
-export type SearchSourceId = 'retailers' | 'pricesapi' | 'cex' | 'pcpartpicker';
+export type SearchSourceId = 'retailers' | 'pricesapi' | 'cex' | 'pcpartpicker' | 'awin';
 
 export const SOURCE_LABELS: Record<SearchSourceId, string> = {
   retailers: 'Retailer scrape',
   pricesapi: 'PricesAPI',
   cex: 'CeX',
   pcpartpicker: 'PCPartPicker UK',
+  awin: 'AWIN',
 };
 
 export interface UnifiedOffer {
@@ -47,13 +54,21 @@ export interface UnifiedOffer {
   scrapedAt: string;
   /** Present only when listing dedup collapsed 2+ sources into this one offer. */
   confirmedBySources?: SearchSourceId[];
+  /** EAN/barcode, when the source supplies one (currently AWIN only). */
+  ean?: string;
+  /** Product photo, when the source supplies one (currently AWIN only). */
+  imageUrl?: string;
+  /** Recommended retail price, when the source supplies one (currently AWIN only) — powers a "% off RRP" badge. */
+  rrp?: number;
 }
 
-// 'fuzzy' = grouped with at least one other offer as the same product at a
-// different retailer; 'single' = no match found. Listing-level dedup
-// (exact-url / retailer-price) happens before clustering and never produces
-// its own cluster — it shows up as `UnifiedOffer.confirmedBySources` instead.
-export type ClusterConfidence = 'fuzzy' | 'single';
+// 'ean' = grouped by a matching barcode — a deterministic identity, no
+// "possibly the same" uncertainty. 'fuzzy' = grouped by name+price
+// similarity, genuinely uncertain. 'single' = no match found. Listing-level
+// dedup (exact-url / retailer-price) happens before clustering and never
+// produces its own cluster — it shows up as `UnifiedOffer.confirmedBySources`
+// instead.
+export type ClusterConfidence = 'ean' | 'fuzzy' | 'single';
 
 export interface OfferCluster {
   clusterId: string;
@@ -143,6 +158,24 @@ export function normalizePcppProducts(products: PcppProduct[], scrapedAt: string
     }
   }
   return offers;
+}
+
+export function normalizeAwinProducts(products: AwinProduct[], scrapedAt: string): UnifiedOffer[] {
+  return products.map(p => ({
+    offerId: `awin:${p.merchant}:${p.id || p.url}`,
+    source: 'awin',
+    sourceLabel: SOURCE_LABELS.awin,
+    retailer: p.merchant,
+    name: p.name,
+    price: p.price,
+    currency: p.currency,
+    inStock: p.inStock,
+    url: p.url || null,
+    scrapedAt,
+    ean: p.ean,
+    imageUrl: p.imageUrl,
+    rrp: p.rrp ?? undefined,
+  }));
 }
 
 // ── Matching signals ─────────────────────────────────────────────────────────
@@ -243,6 +276,21 @@ const sameProductFuzzy = (x: UnifiedOffer, y: UnifiedOffer) => (
   tokenSetSimilarity(x.name, y.name) >= 0.6 && priceWithin(x.price, y.price, 0.15)
 );
 
+// EAN equality is a true equivalence relation (transitive), same as URL
+// equality in the listing-dedup stage — safe to merge without a price gate,
+// since a barcode match means "the same product" regardless of price drift
+// between retailers.
+const sameEan = (x: UnifiedOffer, y: UnifiedOffer) => !!x.ean && x.ean === y.ean;
+
+function hasEanPair(offers: UnifiedOffer[]): boolean {
+  for (let i = 0; i < offers.length; i++) {
+    for (let j = i + 1; j < offers.length; j++) {
+      if (sameEan(offers[i], offers[j])) return true;
+    }
+  }
+  return false;
+}
+
 /** Stage 1: collapse offers that are really one physical listing seen by more than one source. */
 function dedupeListings(offers: UnifiedOffer[]): UnifiedOffer[] {
   let groups: Group[] = offers.map((_, i) => ({ members: [i] }));
@@ -265,12 +313,15 @@ export function clusterOffers(rawOffers: UnifiedOffer[]): OfferCluster[] {
   const offers = dedupeListings(rawOffers);
 
   // Stage 2: group the now-deduped offers into products across retailers.
+  // EAN match first — it's a deterministic identity, not gated on price —
+  // then fuzzy name+price for offers that didn't share a barcode.
   let groups: Group[] = offers.map((_, i) => ({ members: [i] }));
+  groups = mergeGroups(groups, offers, sameEan);
   groups = mergeGroups(groups, offers, sameProductFuzzy);
 
   const result: OfferCluster[] = groups.map((g, idx) => {
     const clusterOffersList = g.members.map(i => offers[i]).sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
-    const confidence: ClusterConfidence = clusterOffersList.length === 1 ? 'single' : 'fuzzy';
+    const confidence: ClusterConfidence = clusterOffersList.length === 1 ? 'single' : (hasEanPair(clusterOffersList) ? 'ean' : 'fuzzy');
     const priced = clusterOffersList.filter(o => o.inStock && o.price != null).map(o => o.price as number);
     const bestPrice = priced.length > 0 ? Math.min(...priced) : null;
     const displayName = clusterOffersList.reduce((longest, o) => (o.name.length > longest.length ? o.name : longest), clusterOffersList[0].name);

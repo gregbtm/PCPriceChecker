@@ -91,6 +91,8 @@ export default function SettingsTab() {
   const [apiKeyAmzTag, setApiKeyAmzTag] = useState('')
   const [apiKeyAwinId, setApiKeyAwinId] = useState('')
   const [apiKeyAwinKey, setApiKeyAwinKey] = useState('')
+  const [awinMerchants, setAwinMerchants] = useState(null)
+  const [awinMerchantsLoading, setAwinMerchantsLoading] = useState(false)
   const [apiKeyRedditId, setApiKeyRedditId] = useState('')
   const [apiKeyRedditSec, setApiKeyRedditSec] = useState('')
   const [apiKeyYoutube, setApiKeyYoutube] = useState('')
@@ -272,6 +274,20 @@ export default function SettingsTab() {
     if (d.webhook  !== undefined) parts.push('Webhook '  + (d.webhook  ? '✅' : '❌'))
     const ok = d.discord || d.slack || d.telegram || d.email || d.ntfy || d.pushover || d.gotify || d.apprise || d.webhook
     showToast(parts.join(' · ') || 'No notifications configured', ok ? 'success' : 'error')
+  }
+
+  async function checkAwinMerchants() {
+    setAwinMerchantsLoading(true)
+    setAwinMerchants(null)
+    try {
+      const r = await fetch('/api/awin/merchants')
+      if (!r.ok) throw new Error(await r.text())
+      setAwinMerchants(await r.json())
+    } catch {
+      showToast('❌ Could not reach AWIN — check your Publisher ID and API key are saved first', 'error')
+    } finally {
+      setAwinMerchantsLoading(false)
+    }
   }
 
   async function saveApiKeys() {
@@ -625,7 +641,7 @@ export default function SettingsTab() {
         </div>
 
         <div>
-          <label className="text-xs text-base-content/60 block mb-1">AWIN Affiliate <span className="text-base-content/40">(awin.com — Scan, Overclockers, Currys, 300+ UK shops)</span></label>
+          <label className="text-xs text-base-content/60 block mb-1">AWIN Affiliate <span className="text-base-content/40">(awin.com — UK's largest affiliate network; only merchants that have individually approved your publisher account are searchable)</span></label>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs text-base-content/40 block mb-1">Publisher ID</label>
@@ -636,6 +652,20 @@ export default function SettingsTab() {
               <SecretInput value={apiKeyAwinKey} onChange={setApiKeyAwinKey} placeholder="…" secretKey="awinKey" showSecrets={showSecrets} setShowSecrets={setShowSecrets} />
             </div>
           </div>
+          {apiKeyStatus.awin && (
+            <div className="mt-2">
+              <button onClick={checkAwinMerchants} disabled={awinMerchantsLoading} className="btn btn-outline btn-xs">
+                {awinMerchantsLoading ? 'Checking…' : 'Check joined merchants'}
+              </button>
+              {awinMerchants !== null && (
+                <p className="text-xs text-base-content/50 mt-1.5">
+                  {awinMerchants.length === 0
+                    ? 'No approved merchants yet — apply to individual retailer programmes at awin.com/gb/publishers, approval can take a few days per merchant.'
+                    : `Approved for ${awinMerchants.length} merchant${awinMerchants.length !== 1 ? 's' : ''}: ${awinMerchants.slice(0, 8).map(m => m.name).join(', ')}${awinMerchants.length > 8 ? `, +${awinMerchants.length - 8} more` : ''}.`}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <div>
