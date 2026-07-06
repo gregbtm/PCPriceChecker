@@ -74,6 +74,7 @@ const DB_KEY_TO_ENV: Record<string, string> = {
   bing_api_key:         'BING_API_KEY',
   anthropic_api_key:    'ANTHROPIC_API_KEY',
   camofox_url:          'CAMOFOX_URL',
+  byparr_url:           'BYPARR_URL',
   novada_browser_ws:    'NOVADA_BROWSER_WS',
   novada_api_key:       'NOVADA_API_KEY',
   gotify_server_url:    'GOTIFY_SERVER_URL',

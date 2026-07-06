@@ -101,6 +101,7 @@ export default function SettingsTab() {
 
   // Scraper
   const [scraperCamofoxUrl, setScraperCamofoxUrl] = useState('')
+  const [scraperByparrUrl, setScraperByparrUrl] = useState('')
   const [scraperProxies, setScraperProxies] = useState('')
 
   // VAT
@@ -185,6 +186,7 @@ export default function SettingsTab() {
       apify:     !!cfg.apify_api_token,
     })
     setScraperCamofoxUrl(cfg.camofox_url ?? '')
+    setScraperByparrUrl(cfg.byparr_url ?? '')
     setScraperProxies(cfg.scrape_proxies ?? '')
   }, [])
 
@@ -290,6 +292,7 @@ export default function SettingsTab() {
   async function saveScraperSettings() {
     await saveConfigFields([
       { key: 'camofox_url',    value: scraperCamofoxUrl },
+      { key: 'byparr_url',     value: scraperByparrUrl },
       { key: 'scrape_proxies', value: scraperProxies },
     ])
     showToast('✅ Scraper settings saved')
@@ -669,6 +672,15 @@ export default function SettingsTab() {
           <input value={scraperCamofoxUrl} onChange={e => setScraperCamofoxUrl(e.target.value)} type="url" placeholder="http://localhost:9377" className="w-full input input-bordered mono" />
           <p className="text-xs text-base-content/40 mt-1.5">
             Start server: <code className="text-base-content/60 bg-base-300/50 px-1.5 py-0.5 rounded">npx @askjo/camofox-browser</code> or Docker on port 9377.
+          </p>
+        </div>
+        <div>
+          <label className="text-xs text-base-content/60 font-medium block mb-1">
+            Byparr Server URL <span className="text-base-content/40 font-normal">(FlareSolverr-compatible — last-resort fallback for Cloudflare Turnstile / managed challenges)</span>
+          </label>
+          <input value={scraperByparrUrl} onChange={e => setScraperByparrUrl(e.target.value)} type="url" placeholder="http://localhost:8191" className="w-full input input-bordered mono" />
+          <p className="text-xs text-base-content/40 mt-1.5">
+            Docker: <code className="text-base-content/60 bg-base-300/50 px-1.5 py-0.5 rounded">docker run -p 8191:8191 ghcr.io/thephaseless/byparr</code>. Only used when the stealth browser tier above also fails.
           </p>
         </div>
         <div>

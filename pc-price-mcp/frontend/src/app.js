@@ -132,6 +132,7 @@ function app() {
 
     // Scraper settings
     scraperCamofoxUrl: '',
+    scraperByparrUrl: '',
     scraperProxies: '',
 
     // Tags
@@ -312,6 +313,7 @@ function app() {
       };
       // Scraper settings
       this.scraperCamofoxUrl = cfg.camofox_url     ?? '';
+      this.scraperByparrUrl  = cfg.byparr_url      ?? '';
       this.scraperProxies    = cfg.scrape_proxies  ?? '';
     },
 

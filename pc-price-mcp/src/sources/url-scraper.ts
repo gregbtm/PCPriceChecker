@@ -6,10 +6,12 @@
  *   4. Generic DOM price heuristics
  *   5. Playwright headless browser (JS-rendered pages)
  *   5b. Camofox stealth browser (Cloudflare bypass — optional, requires running server)
+ *   5c. Byparr (Cloudflare Turnstile / managed-challenge bypass — optional, requires running server)
  *   6. AI extraction — Claude (ANTHROPIC_API_KEY) then OpenAI (OPENAI_API_KEY) as fallback
  */
 import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js';
 import { scrapeWithCamofox } from './camofox-client.js';
+import { renderWithByparr } from './byparr-client.js';
 import { openaiExtractPrice, openaiHealSelectors } from './openai-client.js';
 import * as db from '../db.js';
 
@@ -205,6 +207,21 @@ async function tryCamofox(url: string): Promise<Partial<ScrapedProduct> | null> 
   return { name: result.name, price: result.price, currency: result.currency, inStock: result.inStock, method: 'playwright' };
 }
 
+// ── Step 5c: Byparr (Cloudflare Turnstile / managed-challenge bypass) ─────
+
+async function tryByparr(url: string): Promise<Partial<ScrapedProduct> | null> {
+  const byparrUrl = db.getConfig('byparr_url') ?? process.env.BYPARR_URL;
+  if (!byparrUrl) return null;
+  const html = await renderWithByparr(url, byparrUrl);
+  if (!html) return null;
+  // Byparr hands back full rendered HTML, so the same structured extractors
+  // used on the plain-fetch pass apply here too — richer than a regex scrape.
+  const jld = tryJsonLd(html); if (jld?.price) return { ...jld, method: 'playwright' };
+  const meta = tryMeta(html); if (meta?.price) return { ...meta, method: 'playwright' };
+  const dom = tryDom(html); if (dom?.price) return { ...dom, method: 'playwright' };
+  return null;
+}
+
 // ── AI self-healing: propose new selectors when rules fail ────────────────
 
 async function healSelectors(domain: string, html: string): Promise<void> {
@@ -336,6 +353,9 @@ export async function scrapeProductUrl(url: string): Promise<ScrapedProduct> {
 
   const cfx = await tryCamofox(url);
   if (cfx?.price) return { ...fallback, ...cfx, url } as ScrapedProduct;
+
+  const byp = await tryByparr(url);
+  if (byp?.price) return { ...fallback, ...byp, url } as ScrapedProduct;
 
   if (html) {
     const ai = await tryAi(html);

@@ -5,8 +5,13 @@
  *
  * All scrapers are best-effort. These sites render heavily with JS so
  * structured data (JSON-LD, __NEXT_DATA__) is extracted where available,
- * with HTML pattern fallbacks.
+ * with HTML pattern fallbacks. A plain-fetch miss escalates to a stealth
+ * browser render (local Chromium / Camoufox / Novada, whichever is
+ * configured) and finally to Byparr, before giving up.
  */
+import * as db from '../db.js';
+import { renderPageHtml } from './playwright-scraper.js';
+import { renderWithByparr } from './byparr-client.js';
 
 export interface RetailerResult {
   retailer: string;
@@ -138,23 +143,16 @@ async function fetchPage(url: string): Promise<{ html: string; ok: boolean; stat
   }
 }
 
-// ── Generic scraper factory ───────────────────────────────────────────────
-
-async function scrapeRetailer(
-  retailer: string,
-  searchUrl: string,
-  domain: string,
+/**
+ * Structured-only extraction — JSON-LD / Next.js data / a retailer's own
+ * extractor / generic HTML product blocks. Deliberately excludes the crude
+ * "grab the lowest £ price on the page" fallback, so callers can tell a real
+ * parse from a guess and decide whether to escalate to a rendered page.
+ */
+function extractStructuredResults(
+  html: string, retailer: string, domain: string, searchUrl: string,
   extraExtract?: (html: string, url: string) => RetailerResult[],
-): Promise<RetailerSearchResult> {
-  const t0 = Date.now();
-  const { html, ok, status } = await fetchPage(searchUrl);
-
-  if (!ok) {
-    return { retailer, results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0,
-      error: status === 0 ? 'Fetch failed (timeout or network error)' : `HTTP ${status}` };
-  }
-
-  // Priority: JSON-LD → Next.js data → custom extractor → HTML blocks → price fallback
+): RetailerResult[] {
   let results = extractJsonLdProducts(html, retailer, searchUrl);
 
   if (results.length === 0) {
@@ -180,19 +178,65 @@ async function scrapeRetailer(
     results = parseProductBlocks(html, retailer, domain, searchUrl);
   }
 
+  return results;
+}
+
+function crudePriceFallback(html: string, retailer: string, searchUrl: string): RetailerResult[] {
+  const prices = [...html.matchAll(/£\s*([\d,]+(?:\.\d{2})?)/g)]
+    .map(m => parseFloat(m[1].replace(/,/g, ''))).filter(p => p > 10 && p < 50_000);
+  if (prices.length === 0) return [];
+  return [{ retailer, name: 'Search results', price: Math.min(...prices), currency: 'GBP',
+    inStock: true, url: searchUrl, scraperNote: 'Only lowest price extracted — page requires JS rendering' }];
+}
+
+// ── Generic scraper factory ───────────────────────────────────────────────
+
+async function scrapeRetailer(
+  retailer: string,
+  searchUrl: string,
+  domain: string,
+  extraExtract?: (html: string, url: string) => RetailerResult[],
+): Promise<RetailerSearchResult> {
+  const t0 = Date.now();
+  const { html, ok, status } = await fetchPage(searchUrl);
+
+  let results: RetailerResult[] = ok ? extractStructuredResults(html, retailer, domain, searchUrl, extraExtract) : [];
+
+  // Plain fetch got blocked or came back with nothing structured — the exact
+  // gap a stealth browser render (and, failing that, Byparr) exists to close.
   if (results.length === 0) {
-    const prices = [...html.matchAll(/£\s*([\d,]+(?:\.\d{2})?)/g)]
-      .map(m => parseFloat(m[1].replace(/,/g, ''))).filter(p => p > 10 && p < 50_000);
-    if (prices.length > 0) {
-      results = [{ retailer, name: 'Search results', price: Math.min(...prices), currency: 'GBP',
-        inStock: true, url: searchUrl, scraperNote: 'Only lowest price extracted — page requires JS rendering' }];
+    const rendered = await renderPageHtml(searchUrl);
+    if (rendered) {
+      const escalatedResults = extractStructuredResults(rendered, retailer, domain, searchUrl, extraExtract);
+      if (escalatedResults.length > 0) {
+        results = escalatedResults.map(r => ({ ...r, scraperNote: 'via stealth browser' }));
+      }
     }
+  }
+
+  if (results.length === 0) {
+    const byparrUrl = db.getConfig('byparr_url') ?? process.env.BYPARR_URL;
+    if (byparrUrl) {
+      const rendered = await renderWithByparr(searchUrl, byparrUrl);
+      if (rendered) {
+        const escalatedResults = extractStructuredResults(rendered, retailer, domain, searchUrl, extraExtract);
+        if (escalatedResults.length > 0) {
+          results = escalatedResults.map(r => ({ ...r, scraperNote: 'via Byparr' }));
+        }
+      }
+    }
+  }
+
+  if (results.length === 0 && html) {
+    results = crudePriceFallback(html, retailer, searchUrl);
   }
 
   return {
     retailer, results: results.slice(0, 8), scrapedAt: new Date().toISOString(),
     durationMs: Date.now() - t0,
-    error: results.length === 0 ? `No products parsed — ${retailer} may require JS rendering` : undefined,
+    error: results.length === 0
+      ? (ok ? `No products parsed — ${retailer} may require JS rendering` : (status === 0 ? 'Fetch failed (timeout or network error)' : `HTTP ${status}`))
+      : undefined,
   };
 }
 

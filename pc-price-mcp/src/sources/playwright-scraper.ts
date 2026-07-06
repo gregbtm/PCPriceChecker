@@ -257,6 +257,32 @@ export async function newPageWithProxy(proxy?: string): Promise<AnyPage | null> 
   } catch { return null; }
 }
 
+/**
+ * Render a URL through the stealth browser chain (local Chromium / Camoufox /
+ * Novada, whichever getBrowser() resolves to) and return the rendered HTML.
+ * Generic escalation step for callers that already have their own HTML
+ * parsing (uk-retailers.ts's per-retailer extractors) and just need a page
+ * that plain fetch() can't get past a JS challenge for.
+ */
+export async function renderPageHtml(url: string): Promise<string | null> {
+  const browser = await getBrowser();
+  if (!browser) return null;
+  const page: AnyPage = await _newStealthPage(browser).catch(() => null);
+  if (!page) return null;
+  try {
+    await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico}', (r: AnyPage) => r.abort());
+    await page.waitForTimeout(50 + Math.floor(Math.random() * 250));
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20_000 });
+    await page.waitForTimeout(800);
+    return await page.content();
+  } catch {
+    return null;
+  } finally {
+    const ctx = (page as any).__ctx;
+    await ctx?.close().catch(() => {});
+  }
+}
+
 async function _newStealthPage(browser: AnyBrowser, opts: ContextOpts = {}): Promise<AnyPage> {
   const ua = opts.ua ?? randomUA();
   const vp = randomViewport();

@@ -11,7 +11,7 @@
 7. [Notification Channels](#7-notification-channels)
 8. [Scheduler & Auto-Refresh](#8-scheduler--auto-refresh)
 9. [URL-Based Scraping](#9-url-based-scraping)
-10. [Browser Integration (Playwright / Novada)](#10-browser-integration-playwright--novada)
+10. [Browser Integration (Playwright / Novada / Camoufox / Byparr)](#10-browser-integration-playwright--novada--camoufox--byparr)
 11. [Export & Import](#11-export--import)
 12. [Advisor Engine](#12-advisor-engine)
 13. [Deployment](#13-deployment)
@@ -791,7 +791,8 @@ On each scheduler tick:
 3. **Saved scrape rule** — your per-domain CSS selectors (`/api/scrape-rules`)
 4. **Generic CSS heuristics** — common price class patterns across known UK retailers
 5. **Playwright** — full headless browser render with stealth patches (see §10); handles JS-rendered prices and cookie walls
-6. **AI extraction** — sends page HTML to Anthropic/OpenAI with a structured extraction prompt (requires `anthropic_api_key` or `openai_api_key`)
+6. **Byparr** — Cloudflare Turnstile / managed-challenge solver, only tried if Playwright's render also failed (see §10)
+7. **AI extraction** — sends page HTML to Anthropic/OpenAI with a structured extraction prompt (requires `anthropic_api_key` or `openai_api_key`)
 
 Each stage is only attempted if the previous returned no result. The Playwright stage uses whichever backend is configured in priority order (Novada → Camoufox → local Chromium).
 
@@ -813,7 +814,7 @@ If a URL scrape fails, `last_scrape_failed` is set to 1 and the component shows 
 
 ---
 
-## 10. Browser Integration (Playwright / Novada / Camoufox)
+## 10. Browser Integration (Playwright / Novada / Camoufox / Byparr)
 
 The scraper picks its browser backend using a priority chain evaluated at startup:
 
@@ -822,8 +823,11 @@ The scraper picks its browser backend using a priority chain evaluated at startu
 | 1 | **Novada** (cloud) | `novada_browser_ws` | Hardest sites — Overclockers, Scan, Ebuyer; includes IP rotation + CAPTCHA solving |
 | 2 | **Camoufox** (self-hosted) | `camofox_url` | Strong fingerprinting resistance without a cloud subscription |
 | 3 | **Local Chromium** | *(none)* | General scraping with stealth patches applied |
+| 4 | **Byparr** (self-hosted) | `byparr_url` | Last resort — Cloudflare Turnstile / managed challenges that stop all three browser tiers above |
 
-Each backend uses the same stealth context layer described below.
+Each of the first three uses the same stealth context layer described below. Byparr is a distinct HTTP challenge-solving service, not a browser Playwright connects to — see its own section below.
+
+Both retailer search (`uk-retailers.ts`) and single-URL tracking (`url-scraper.ts`) escalate through this same chain: a plain `fetch()` is tried first since it's fast and works for a good share of sites, then the browser tiers, then Byparr, before giving up.
 
 ### Stealth hardening (applied to all backends)
 
@@ -885,6 +889,34 @@ camoufox server --port 9377
 Set `camofox_url` to the WebSocket URL (e.g. `ws://localhost:9377`). Playwright will attempt `chromium.connectOverCDP` first, then fall back to `firefox.connect` for non-CDP modes.
 
 Docker alternative: `docker run -p 9377:9377 ghcr.io/daijro/camoufox:latest`
+
+### Byparr (self-hosted Cloudflare Turnstile / managed-challenge solver)
+
+Byparr is a Camoufox-backed, drop-in-compatible replacement for FlareSolverr's challenge-solving API — it navigates a real browser through a Cloudflare challenge and hands back the solved page's HTML and cookies.
+
+```bash
+docker run -d --name byparr -p 8191:8191 --restart unless-stopped ghcr.io/thephaseless/byparr
+```
+
+Set `byparr_url` to the server's address (e.g. `http://localhost:8191`, or `http://<nas-ip>:8191` if the app and Byparr run in separate containers). Any FlareSolverr-compatible server works at this config key — Byparr is the recommended one since it shares Camoufox's fingerprint resistance.
+
+Byparr only runs when the browser tiers above return nothing — it's slower (a full challenge solve takes several seconds) and only worth the wait for sites that specifically fail with a Cloudflare Turnstile or "managed challenge" page rather than a plain 403.
+
+**Running everything on one NAS**, a minimal `docker-compose.yml` alongside the app itself:
+
+```yaml
+services:
+  camoufox:
+    image: ghcr.io/daijro/camoufox:latest
+    ports: ["9377:9377"]
+    restart: unless-stopped
+  byparr:
+    image: ghcr.io/thephaseless/byparr
+    ports: ["8191:8191"]
+    restart: unless-stopped
+```
+
+Then set `camofox_url=http://camoufox:9377` and `byparr_url=http://byparr:8191` (or the NAS's LAN IP if the app runs outside this compose network) in Settings → Scraper.
 
 ---
 
