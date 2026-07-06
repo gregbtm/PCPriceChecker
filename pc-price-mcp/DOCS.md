@@ -314,7 +314,7 @@ All endpoints return JSON. Errors return `{ "error": "message" }` with an approp
 | GET | `/api/pcpartpicker/search` | PCPartPicker UK live scrape — `?category=gpu&q=query&limit=` |
 | GET | `/api/awin/search` | AWIN affiliate feed — `?q=query&max=` |
 | GET | `/api/apify/google-shopping` | Google Shopping via Apify cloud actor — `?q=query&country=GB&max=` (requires `apify_api_token`) |
-| GET | `/api/search/unified` | **All six sources fanned out and merged in one call** — `?q=query&retailers=...&pcpp_category=&cex_in_stock=` |
+| GET | `/api/search/unified` | **Five sources fanned out and merged in one call, six if `include_google_shopping=true`** — `?q=query&retailers=...&pcpp_category=&cex_in_stock=&include_google_shopping=` |
 
 `/api/search/unified` is what the Search tab actually calls. It normalizes every source into one offer shape, then clusters them — see `src/services/search-merge.ts` for the listing-dedup (exact URL / same retailer+price) and product-clustering (EAN match / fuzzy name+price) passes. Response shape:
 
@@ -323,7 +323,9 @@ All endpoints return JSON. Errors return `{ "error": "message" }` with an approp
   "perSource": [{ "source": "retailers", "ok": true, "count": 3 }, ...] }
 ```
 
-`confidence` is `"ean"` (barcode-matched, deterministic), `"fuzzy"` (name+price similarity, shown to the user as "possibly the same item"), or `"single"` (no match). The five non-unified endpoints above still work standalone and are what `/api/search/unified` calls internally in parallel. Google Shopping runs as an Apify cloud actor with real cold-start latency — the unified endpoint bounds its wait to ~30s rather than the route's own 180s default, so it may come back empty on a slow run without blocking the other five sources.
+`confidence` is `"ean"` (barcode-matched, deterministic), `"fuzzy"` (name+price similarity, shown to the user as "possibly the same item"), or `"single"` (no match). The five non-unified endpoints above still work standalone and are what `/api/search/unified` calls internally in parallel.
+
+Google Shopping is opt-in (`include_google_shopping=true`), off by default, and left out of `perSource` entirely when not requested — it's the one source slow enough to notice (a real Apify cloud-actor run), and every search paying its up-to-~30s cost just to fan out five sources that normally settle in a couple of seconds was worse than making it a deliberate choice. When requested, the unified endpoint bounds its wait to ~30s rather than the route's own 180s default, so it may come back empty on a slow run without blocking the other five sources.
 
 ---
 

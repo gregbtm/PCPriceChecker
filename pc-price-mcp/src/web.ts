@@ -247,10 +247,11 @@ export function startWebServer(port: number): void {
     return normalizeGoogleShoppingOffers(offers, scrapedAt);
   }
 
-  // Fans out to all six sources at once and merges the results — see
-  // src/services/search-merge.ts for the listing-dedup / product-clustering
-  // logic. Each source is independent: one being down or unconfigured (e.g.
-  // no PRICES_API_KEY) never blocks the others, it just shows up in perSource.
+  // Fans out to five sources at once (six if include_google_shopping=true)
+  // and merges the results — see src/services/search-merge.ts for the
+  // listing-dedup / product-clustering logic. Each source is independent:
+  // one being down or unconfigured (e.g. no PRICES_API_KEY) never blocks the
+  // others, it just shows up in perSource.
   app.get('/api/search/unified', h(async (req, res) => {
     const query = req.query.q as string;
     if (!query) { res.status(400).json({ error: 'q is required' }); return; }
@@ -259,21 +260,43 @@ export function startWebServer(port: number): void {
     const country = (req.query.country as string) ?? 'gb';
     const pcppCategory = (req.query.pcpp_category as string) ?? 'video-card';
     const cexInStockOnly = req.query.cex_in_stock === 'true';
+    const includeGoogleShopping = req.query.include_google_shopping === 'true';
     const scrapedAt = new Date().toISOString();
 
-    const sourceIds: SearchSourceId[] = ['retailers', 'pricesapi', 'cex', 'pcpartpicker', 'awin', 'googleshopping'];
-    const settled = await Promise.allSettled([
-      searchAllUkRetailers(query, retailers as Parameters<typeof searchAllUkRetailers>[1])
-        .then(r => normalizeRetailerResults(r, scrapedAt)),
-      searchWithRetry(query, country, 5, 10).then(r => normalizePricesApiProducts(r.products, scrapedAt)),
-      searchCex(query, cexInStockOnly, 25).then(r => normalizeCexProducts(r.products, scrapedAt)),
-      searchPcPartPicker(pcppCategory, query, 20).then(r => normalizePcppProducts(r, scrapedAt)),
-      awinSearch(query, 20).then(r => {
-        if (r.error) throw new Error(r.error);
-        return normalizeAwinProducts(r.products, scrapedAt);
-      }),
-      fetchGoogleShoppingOffers(query, country, scrapedAt),
-    ]);
+    // sourceIds and the promises below are built in lockstep (push in the
+    // same order) rather than as two separately-maintained literals, so they
+    // can't drift out of index alignment — perSource depends on it.
+    const sourceIds: SearchSourceId[] = [];
+    const promises: Promise<UnifiedOffer[]>[] = [];
+
+    sourceIds.push('retailers');
+    promises.push(searchAllUkRetailers(query, retailers as Parameters<typeof searchAllUkRetailers>[1])
+      .then(r => normalizeRetailerResults(r, scrapedAt)));
+
+    sourceIds.push('pricesapi');
+    promises.push(searchWithRetry(query, country, 5, 10).then(r => normalizePricesApiProducts(r.products, scrapedAt)));
+
+    sourceIds.push('cex');
+    promises.push(searchCex(query, cexInStockOnly, 25).then(r => normalizeCexProducts(r.products, scrapedAt)));
+
+    sourceIds.push('pcpartpicker');
+    promises.push(searchPcPartPicker(pcppCategory, query, 20).then(r => normalizePcppProducts(r, scrapedAt)));
+
+    sourceIds.push('awin');
+    promises.push(awinSearch(query, 20).then(r => {
+      if (r.error) throw new Error(r.error);
+      return normalizeAwinProducts(r.products, scrapedAt);
+    }));
+
+    // Off by default (see SearchTab.jsx) — the one source slow enough to
+    // otherwise hold the whole response open for up to ~30s via a cloud
+    // actor. Only fanned out when the user explicitly asks for it.
+    if (includeGoogleShopping) {
+      sourceIds.push('googleshopping');
+      promises.push(fetchGoogleShoppingOffers(query, country, scrapedAt));
+    }
+
+    const settled = await Promise.allSettled(promises);
 
     const perSource = settled.map((result, i) => ({
       source: sourceIds[i],

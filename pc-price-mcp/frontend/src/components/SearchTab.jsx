@@ -44,6 +44,7 @@ export default function SearchTab() {
   const [retailers, setRetailers] = useState(DEFAULT_SEARCH_RETAILER_IDS)
   const [pcppCategory, setPcppCategory] = useState('gpu')
   const [cexInStockOnly, setCexInStockOnly] = useState(false)
+  const [includeGoogleShopping, setIncludeGoogleShopping] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [clusters, setClusters] = useState(null)
@@ -71,6 +72,7 @@ export default function SearchTab() {
     try {
       const p = new URLSearchParams({ q: searchQuery, retailers: retailers.join(','), pcpp_category: pcppCategory })
       if (cexInStockOnly) p.set('cex_in_stock', 'true')
+      if (includeGoogleShopping) p.set('include_google_shopping', 'true')
       const r = await fetch(`/api/search/unified?${p}`)
       const d = await r.json()
       if (gen !== searchGenRef.current) return
@@ -91,7 +93,7 @@ export default function SearchTab() {
     window.addEventListener('pc:search-request', onSearchRequest)
     return () => window.removeEventListener('pc:search-request', onSearchRequest)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [retailers, pcppCategory, cexInStockOnly])
+  }, [retailers, pcppCategory, cexInStockOnly, includeGoogleShopping])
 
   function toggleRetailer(id) {
     setRetailers(prev => prev.includes(id) ? prev.filter(r => r !== id) : [...prev, id])
@@ -153,12 +155,16 @@ export default function SearchTab() {
               {PCPP_CATEGORIES.map(c => <option key={c} value={c}>{c.toUpperCase()}</option>)}
             </select>
           </label>
+          <label className="flex items-center gap-2 text-sm text-base-content/70 cursor-pointer" title="Off by default — it's the one source slow enough to notice (up to 30s via a cloud actor). Only queried when checked.">
+            <input type="checkbox" checked={includeGoogleShopping} onChange={e => setIncludeGoogleShopping(e.target.checked)} className="checkbox checkbox-sm" />
+            Include Google Shopping (slower, cloud-based)
+          </label>
         </div>
 
         {loading && (
           <div className="text-center py-6">
             <div className="text-4xl mb-3">⏳</div>
-            <p className="text-base-content/60 text-sm">Querying all sources in parallel — PricesAPI and PCPartPicker can take up to a minute on a cold search, Google Shopping (if configured) up to 30 seconds…</p>
+            <p className="text-base-content/60 text-sm">Querying all sources in parallel — PricesAPI and PCPartPicker can take up to a minute on a cold search{includeGoogleShopping ? ', Google Shopping up to 30 seconds' : ''}…</p>
           </div>
         )}
       </div>
