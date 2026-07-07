@@ -289,20 +289,24 @@ const sameNormalizedUrl = (x: UnifiedOffer, y: UnifiedOffer) => {
   return ux !== null && ux === normalizeUrl(y.url);
 };
 
+const sameCurrency = (x: UnifiedOffer, y: UnifiedOffer) => x.currency === y.currency;
+
 const sameRetailerClosePrice = (x: UnifiedOffer, y: UnifiedOffer) => {
   const rx = normalizeRetailerName(x.retailer);
-  return rx !== '' && rx === normalizeRetailerName(y.retailer) && priceWithin(x.price, y.price, 0.01);
+  return rx !== '' && rx === normalizeRetailerName(y.retailer) && sameCurrency(x, y) && priceWithin(x.price, y.price, 0.01);
 };
 
 const sameProductFuzzy = (x: UnifiedOffer, y: UnifiedOffer) => (
-  tokenSetSimilarity(x.name, y.name) >= 0.6 && priceWithin(x.price, y.price, 0.15)
+  tokenSetSimilarity(x.name, y.name) >= 0.6 && sameCurrency(x, y) && priceWithin(x.price, y.price, 0.15)
 );
 
-// EAN equality is a true equivalence relation (transitive), same as URL
-// equality in the listing-dedup stage — safe to merge without a price gate,
-// since a barcode match means "the same product" regardless of price drift
-// between retailers.
-const sameEan = (x: UnifiedOffer, y: UnifiedOffer) => !!x.ean && x.ean === y.ean;
+// EAN equality identifies "the same product," but two listings of the same
+// product priced in different currencies still aren't numerically comparable
+// — merging them would let Math.min() in the bestPrice calc below pick
+// whichever currency happens to have the smaller raw number. Gate on
+// currency too so cross-currency EAN matches stay as separate clusters
+// instead of silently mixing units.
+const sameEan = (x: UnifiedOffer, y: UnifiedOffer) => !!x.ean && x.ean === y.ean && sameCurrency(x, y);
 
 function hasEanPair(offers: UnifiedOffer[]): boolean {
   for (let i = 0; i < offers.length; i++) {
