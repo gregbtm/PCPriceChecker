@@ -57,7 +57,10 @@ await browser.close();
 
 ## Gotchas
 
-- `window.Alpine`, `window.Chart`, `window.app` must all be defined after load (check with `page.evaluate`)
+- `window.Alpine` must be defined after load. `window.app` and `window.Chart` are NOT globals — Chart.js uses selective imports (Phase 1 simplify) and Alpine uses `Alpine.data('app', app)` (no `window.app`).
+- Navigate tabs via `window.Alpine.$data(document.querySelector('[x-data]')).activeTab = 'tab-name'` — clicking sidebar buttons can match hidden help-modal buttons and timeout.
 - `statsCards: 31` from `.grid.grid-cols-2` is expected — other grids exist on the page; use a more specific selector for stat cards specifically
 - Backend needs `data/` directory with SQLite DB; first run creates it automatically
 - Port 3000 must be free before starting backend
+- Settings tab content is rendered by React (Phase 2) inside `#settings-react-root` — Alpine `x-show` controls visibility but React owns the content
+- Scroll works inside `<main class="flex-1 min-h-0 overflow-y-auto">` — the `drawer-content` is pinned to `h-[100dvh]` so `main` is properly constrained

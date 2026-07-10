@@ -211,6 +211,10 @@ export function startWebServer(port: number): void {
   app.get('/api/search/api', h(async (req, res) => {
     const query = req.query.q as string;
     if (!query) { res.status(400).json({ error: 'q is required' }); return; }
+    if (!process.env.PRICES_API_KEY?.trim()) {
+      res.status(503).json({ error: 'PRICES_API_KEY not configured — add it in Settings → API Keys' });
+      return;
+    }
     const country = (req.query.country as string) ?? 'gb';
     const result = await searchWithRetry(query, country, 5, 10);
     res.json(result);
@@ -517,7 +521,12 @@ export function startWebServer(port: number): void {
   app.get('/api/cex/search', h(async (req, res) => {
     const { q, in_stock = 'false', limit = '25' } = req.query as Record<string, string>;
     if (!q) { res.status(400).json({ error: 'q is required' }); return; }
-    res.json(await searchCex(q, in_stock === 'true', Math.min(parseInt(limit) || 25, 50)));
+    try {
+      res.json(await searchCex(q, in_stock === 'true', Math.min(parseInt(limit) || 25, 50)));
+    } catch (err) {
+      console.warn('[cex] search failed:', (err as Error).message);
+      res.json({ products: [], total: 0, query: q, error: (err as Error).message });
+    }
   }));
 
   app.get('/api/cex/product/:boxId', h(async (req, res) => {
