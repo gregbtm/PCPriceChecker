@@ -1,16 +1,17 @@
 # Improvement Plan: Deal-Aware UK RAM and Hardware Tracking (Self-Sufficient)
 
-_Last revised 2026-10-05 (third revision). This plan is written so that another engineer or LLM can pick it up cold._
+_Last revised 2026-10-05 (fourth revision: cross-references to `HANDOFF.md`). This plan is written so that another engineer or LLM can pick it up cold._
 
 ## 0. How to use these documents
 
 | File | Purpose | Read |
 |------|---------|------|
-| `docs/IMPROVEMENT_PLAN.md` (this file) | Goal, principles, target design, task list with IDs, acceptance criteria, hand-off prompt | First |
-| `docs/CODEBASE_AUDIT.md` | What the code does today, with file references and **verified defects** (IDs `A-nn`) | Second |
-| `docs/RESEARCH_AND_VERIFICATION.md` | Hardware spec, UK price snapshot, third-party tools, **verification log** (what was checked, how, what is still unknown) | Third |
+| `docs/HANDOFF.md` | Entry point: copy-paste prompt, situation summary, progress tracker, reference commands, stop-gap steps, decision log, glossary, risks | First |
+| `docs/IMPROVEMENT_PLAN.md` (this file) | Goal, principles, target design, task list with IDs, acceptance criteria | Second |
+| `docs/CODEBASE_AUDIT.md` | What the code does today, with file references and **verified defects** (IDs `A-nn`) | Third |
+| `docs/RESEARCH_AND_VERIFICATION.md` | Hardware spec, UK price snapshot, third-party tools, **verification log** (what was checked, how, what is still unknown) | Fourth |
 
-Every claim is tagged **Verified** (read from code or an official source), **Partly verified**, **Unverified** (needs a hands-on check) or **Corrected** (an earlier statement that turned out wrong). Do not treat Unverified items as facts.
+Every claim is tagged **Verified** (read from code or an official source), **Partly verified**, **Unverified** (needs a hands-on check) or **Corrected** (an earlier statement that turned out wrong). Do not treat Unverified items as facts. Track task status in `HANDOFF.md` section 5.
 
 ## 1. Goal and context
 
@@ -71,7 +72,7 @@ Optional orchestration (n8n) and discovery (SearXNG via Firecrawl search) are ad
 
 ## 5. Work plan
 
-Task IDs are stable references (`P0-1`, `P1-2` ...). `A-nn` refers to `docs/CODEBASE_AUDIT.md`. Suggested PR slicing is in section 6.
+Task IDs are stable references (`P0-1`, `P1-2` ...). `A-nn` refers to `docs/CODEBASE_AUDIT.md`. Suggested PR slicing is in section 6. Status is tracked in `docs/HANDOFF.md` section 5.
 
 ### Phase 0: Correctness fixes (do first)
 
@@ -201,6 +202,6 @@ Use `unit_quantity` / `unit_type` (already in `tracked_components`, `setComponen
 - Prefer small PRs following section 6; run the type-check (`npm run build`) before each.
 - When you verify something, append to the verification log in `docs/RESEARCH_AND_VERIFICATION.md` with date, method and source.
 
-## 10. Copy-paste hand-off prompt for another LLM
+## 10. Hand-off prompt
 
-> You are taking over `gregbtm/PCPriceChecker` (code in `pc-price-mcp/`, TypeScript ES modules, Node 18+, SQLite via better-sqlite3, Express 5, MCP SDK). Read `docs/IMPROVEMENT_PLAN.md`, then `docs/CODEBASE_AUDIT.md`, then `docs/RESEARCH_AND_VERIFICATION.md`. Implement the plan in the PR order in section 6, starting with Phase 0 (P0-1 and P0-2). Constraints: backward compatible (add, do not rename or remove), no secrets in the repo, no new paid dependencies, self-hosted-first. Add a test runner and use the real fixtures listed in the research doc. For every item marked Unverified you touch, verify it and record the result in the verification log. Open one PR per slice with a short description and test evidence. Ask the owner only for the decisions listed in section 7.
+The full copy-paste prompt lives in `docs/HANDOFF.md` section 1 (single source of truth). Short form: take over `gregbtm/PCPriceChecker`, read the four docs in the order listed in section 0, implement the plan in the PR order in section 6 starting with P0-1/P0-2, stay backward compatible, add tests, verify Unverified items and log results, and ask the owner only for the decisions in section 7.
