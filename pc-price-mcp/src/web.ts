@@ -14,7 +14,7 @@ import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js'
 import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
 import { ebayBrowseSearch, ebayBrowseGetItem, type EbayCondition } from './sources/ebay-browse.js';
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
-import { getSchedulerStatus, restartScheduler, stopScheduler } from './scheduler.js';
+import { getSchedulerStatus, restartScheduler, stopScheduler, triggerRefreshNow } from './scheduler.js';
 import { notifyAll } from './notifications.js';
 import { searchCex, getCexProduct } from './sources/cex.js';
 import { searchDataset, browseDataset, DATASET_SLUGS, type DatasetSlug } from './sources/pcpartpicker-dataset.js';
@@ -286,6 +286,12 @@ export function startWebServer(port: number): void {
 
   app.get('/api/scheduler', h(async (_req, res) => {
     res.json(getSchedulerStatus());
+  }));
+
+  /** Run one refresh pass now (all unpaused components). Results appear in /api/scrape-runs. */
+  app.post('/api/scheduler/run', h(async (_req, res) => {
+    const { status } = triggerRefreshNow();
+    res.status(status === 'started' ? 202 : 409).json({ status });
   }));
 
   app.post('/api/scheduler', h(async (req, res) => {
