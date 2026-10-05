@@ -25,6 +25,7 @@ import { ebayBrowseSearch, ebayBrowseGetItem, type EbayCondition } from './sourc
 import { notifyAll, sendDiscord, sendSlack } from './notifications.js';
 import { findBenchmark, findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
 import { checkCompatibility } from './services/compatibility.js';
+import { PROFILES } from './services/memory-classifier.js';
 import { calculateDealScore, getDealScoresForAll } from './services/deal-scorer.js';
 import { buildVsBuy, budgetBuilder, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
 import { findComponentReviews } from './sources/youtube-reviews.js';
@@ -92,6 +93,7 @@ const TrackSchema = z.object({
   notes: z.string().optional(),
   fetch_now: z.boolean().default(true),
   country: z.string().default('gb'),
+  profile_id: z.enum(Object.keys(PROFILES) as [string, ...string[]]).optional(),
 });
 
 const IdSchema = z.object({ id: z.number().int().positive() });
@@ -549,6 +551,10 @@ const TOOLS = [
         notes: { type: 'string' },
         fetch_now: { type: 'boolean', default: true },
         country: { type: 'string', default: 'gb' },
+        profile_id: {
+          type: 'string', enum: Object.keys(PROFILES),
+          description: 'Hardware profile (e.g. n5-air-ram: DDR5 SO-DIMM, non-ECC, 2-module kit, 64GB or 48GB). Listings that do not fit are stored but never alert or count as the best price.',
+        },
       },
       required: ['name', 'search_query'],
     },
@@ -1926,10 +1932,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // ── track_component ──────────────────────────────────────────────────
       case 'track_component': {
-        const { name: displayName, search_query, category, alert_price, notes, fetch_now, country } =
+        const { name: displayName, search_query, category, alert_price, notes, fetch_now, country, profile_id } =
           TrackSchema.parse(args);
 
         const component = db.addTrackedComponent(displayName, category, search_query, alert_price, notes);
+        if (profile_id) { db.setComponentProfile(component.id, profile_id); component.profile_id = profile_id; }
         const lines = [
           `✅ **${displayName}** added to watchlist (ID: **${component.id}**)`,
           `Category: ${category} · Query: "${search_query}"`,

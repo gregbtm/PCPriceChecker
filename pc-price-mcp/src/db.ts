@@ -20,6 +20,8 @@ export interface TrackedComponent {
   last_scrape_failed: number;        // 0 | 1
   unit_quantity: number | null;
   unit_type: string | null;
+  /** Hardware profile id (services/memory-classifier PROFILES); listings that do not fit are excluded from alerts. */
+  profile_id: string | null;
 }
 
 export interface ComponentUrl {
@@ -50,12 +52,26 @@ export interface PriceRecord {
   is_outlier: number;   // 0 | 1
   confidence: number | null;
   z_score: number | null;
+  listing_name: string | null;
+  kit_total_gb: number | null;
+  modules: number | null;
+  price_per_gb: number | null;
+  /** null = not evaluated (no profile), 1 = fits the component's profile, 0 = does not. */
+  profile_match: number | null;
+  profile_flags: string | null;   // comma-separated
 }
 export interface PriceSnapshot {
   source: string; price: number; currency: string;
   retailer: string; url: string | null; inStock: boolean;
   /** Preferred over `inStock` when present; `inStock` alone maps to in_stock / out_of_stock. */
   stockState?: StockState;
+  /** Listing attributes (P1-3); price_per_gb is derived from kitTotalGb. */
+  listingName?: string | null;
+  kitTotalGb?: number | null;
+  modules?: number | null;
+  /** undefined/null = not evaluated; false rows are stored but never alert or count as best price. */
+  profileMatch?: boolean | null;
+  profileFlags?: string[];
   // Optional validation fields — populated when validatePrices() is called before saving
   isOutlier?: boolean;
   confidence?: number;
@@ -296,6 +312,10 @@ function runMigrations(db: Database.Database): void {
   if (!prCols.includes('confidence'))  db.exec('ALTER TABLE price_records ADD COLUMN confidence REAL DEFAULT 1.0');
   if (!prCols.includes('z_score'))     db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
   if (!prCols.includes('stock_state')) db.exec('ALTER TABLE price_records ADD COLUMN stock_state TEXT');
+  for (const [col, ddl] of [['listing_name', 'TEXT'], ['kit_total_gb', 'INTEGER'], ['modules', 'INTEGER'],
+    ['price_per_gb', 'REAL'], ['profile_match', 'INTEGER'], ['profile_flags', 'TEXT']] as const) {
+    if (!prCols.includes(col)) db.exec(`ALTER TABLE price_records ADD COLUMN ${col} ${ddl}`);
+  }
   // Backfill rows written before the tri-state existed from the legacy boolean.
   db.exec(`UPDATE price_records SET stock_state = CASE WHEN in_stock = 1 THEN 'in_stock' ELSE 'out_of_stock' END
            WHERE stock_state IS NULL`);
@@ -308,6 +328,7 @@ function runMigrations(db: Database.Database): void {
   if (!tcCols.includes('last_scrape_failed'))      db.exec('ALTER TABLE tracked_components ADD COLUMN last_scrape_failed INTEGER NOT NULL DEFAULT 0');
   if (!tcCols.includes('unit_quantity'))            db.exec('ALTER TABLE tracked_components ADD COLUMN unit_quantity REAL');
   if (!tcCols.includes('unit_type'))               db.exec('ALTER TABLE tracked_components ADD COLUMN unit_type TEXT');
+  if (!tcCols.includes('profile_id'))              db.exec('ALTER TABLE tracked_components ADD COLUMN profile_id TEXT');
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -591,8 +612,9 @@ export function getBatchSparklines(ids: number[], days = 7): Map<number, Sparkli
 export function savePriceSnapshots(componentId: number, snapshots: PriceSnapshot[]): void {
   const db = getDb();
   const insert = db.prepare(`
-    INSERT INTO price_records (component_id, source, price, currency, retailer, url, in_stock, stock_state, is_outlier, confidence, z_score)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO price_records (component_id, source, price, currency, retailer, url, in_stock, stock_state, is_outlier, confidence, z_score,
+      listing_name, kit_total_gb, modules, price_per_gb, profile_match, profile_flags)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   db.transaction((snaps: PriceSnapshot[]) => {
     for (const s of snaps) {
@@ -602,6 +624,10 @@ export function savePriceSnapshots(componentId: number, snapshots: PriceSnapshot
         s.isOutlier ? 1 : 0,
         s.confidence ?? 1.0,
         s.zScore ?? null,
+        s.listingName ?? null, s.kitTotalGb ?? null, s.modules ?? null,
+        s.kitTotalGb ? Math.round((s.price / s.kitTotalGb) * 100) / 100 : null,
+        s.profileMatch == null ? null : (s.profileMatch ? 1 : 0),
+        s.profileFlags && s.profileFlags.length > 0 ? s.profileFlags.join(',') : null,
       );
     }
   })(snapshots);
@@ -623,9 +649,14 @@ export function getPriceHistory(componentId: number, days = 30): PriceRecord[] {
  * in stock. Default stays false for dashboards/history; anything that alerts or
  * reports a purchasable "best price" must pass true (or use getBestInStockOffer).
  */
+/** SQL for "can be bought and fits the component's profile". `alias` is a table prefix such as "p.". */
+function purchasable(alias = ''): string {
+  return `${alias}stock_state = 'in_stock' AND (${alias}profile_match IS NULL OR ${alias}profile_match = 1)`;
+}
+
 export function getLatestPricePerRetailer(componentId: number, excludeOutliers = true, inStockOnly = false): PriceRecord[] {
   const filter = excludeOutliers ? 'AND is_outlier = 0' : '';
-  const stockFilter = inStockOnly ? `AND p.stock_state = 'in_stock'` : '';
+  const stockFilter = inStockOnly ? `AND ${purchasable('p.')}` : '';
   return getDb().prepare(`
     SELECT p.* FROM price_records p
     INNER JOIN (
@@ -637,6 +668,10 @@ export function getLatestPricePerRetailer(componentId: number, excludeOutliers =
 }
 
 /** Cheapest offer that can actually be bought now (latest observation per retailer is in stock). */
+export function setComponentProfile(componentId: number, profileId: string | null): void {
+  getDb().prepare('UPDATE tracked_components SET profile_id = ? WHERE id = ?').run(profileId, componentId);
+}
+
 export function getBestInStockOffer(componentId: number): PriceRecord | null {
   return getLatestPricePerRetailer(componentId, true, true)[0] ?? null;
 }
@@ -667,7 +702,7 @@ export interface PriceStats {
 
 /** `inStockOnly` (default true) restricts current_best / prev_best_24h to in-stock observations. */
 export function getPriceStats(componentId: number, inStockOnly = true): PriceStats {
-  const stockClause = inStockOnly ? `AND stock_state = 'in_stock'` : '';
+  const stockClause = inStockOnly ? `AND ${purchasable()}` : '';
   const db = getDb();
   const stats = db.prepare(`
     SELECT MIN(price) AS all_time_low, MAX(price) AS all_time_high,
@@ -1069,7 +1104,7 @@ export function getBatchDealRatios(componentIds: number[]): Map<number, DealRati
   const current = db.prepare(`
     SELECT component_id, MIN(price) AS current_best
     FROM price_records
-    WHERE component_id IN (${placeholders}) AND is_outlier = 0 AND stock_state = 'in_stock'
+    WHERE component_id IN (${placeholders}) AND is_outlier = 0 AND ${purchasable()}
       AND recorded_at >= datetime('now', '-48 hours')
     GROUP BY component_id
   `).all(...componentIds) as { component_id: number; current_best: number }[];

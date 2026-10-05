@@ -15,6 +15,7 @@ import type { RetailerId, RetailerSearchResult } from '../sources/uk-retailers.j
 import { evaluateAlerts } from './alerts.js';
 import { alertOnRepeatedFailures } from './scrape-health.js';
 import { matchesQuery } from './query-match.js';
+import { classifyMemory, matchesProfile, PROFILES } from './memory-classifier.js';
 
 export interface RefreshDeps {
   scrapeUrl: (url: string) => Promise<ScrapedProduct>;
@@ -38,14 +39,31 @@ export const DEFAULT_SEARCH_RETAILERS: RetailerId[] = [
 ];
 const RETAILER_GAP_MS = 2_000;
 
+/**
+ * Listing attributes for a component with a hardware profile (P1-3, P1-5). Returns {} when the
+ * component has no (known) profile, in which case callers fall back to the interim query filter.
+ */
+function profileAttrs(component: db.TrackedComponent, name: string | undefined): Partial<db.PriceSnapshot> {
+  const profile = component.profile_id ? PROFILES[component.profile_id] : undefined;
+  if (!profile || !name) return {};
+  const listing = classifyMemory(name);
+  const m = matchesProfile(listing, profile);
+  return {
+    listingName: name, kitTotalGb: listing.totalGb, modules: listing.modules,
+    profileMatch: m.match, profileFlags: m.flags,
+  };
+}
+
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export async function refreshComponent(
   component: db.TrackedComponent, ctx: RefreshContext, deps: RefreshDeps,
 ): Promise<{ snapshots: number }> {
-  const prevLatest = db.getLatestPricePerRetailer(component.id);
+  // Non-matching listings (profile_match 0) must not drive restock/stock-change events.
+  const prevLatest = db.getLatestPricePerRetailer(component.id).filter(r => r.profile_match !== 0);
   const prevBestPrice = db.getBestInStockOffer(component.id)?.price ?? null;
-  const prevStockMap = new Map(prevLatest.map(r => [r.retailer, r.in_stock === 1]));
+  const stockKey = (retailer: string, url: string | null | undefined) => `${retailer}|${url ?? ''}`;
+  const prevStockMap = new Map(prevLatest.map(r => [stockKey(r.retailer, r.url), r.in_stock === 1]));
 
   const snapshots: db.PriceSnapshot[] = [];
   const attempted: string[] = [];
@@ -76,7 +94,8 @@ export async function refreshComponent(
         const scraped = await deps.scrapeUrl(url);
         if (scraped.price == null) return { offers: [], error: 'no price extracted from page' };
         return { offers: [{ source: scraped.method, price: scraped.price, currency: scraped.currency,
-          retailer: domain, url, inStock: scraped.inStock, stockState: scraped.stockState }] };
+          retailer: domain, url, inStock: scraped.inStock, stockState: scraped.stockState,
+          ...profileAttrs(component, scraped.name) }] };
       });
     }
   } else {
@@ -85,10 +104,14 @@ export async function refreshComponent(
         const r = await deps.searchRetailer(id, component.search_query);
         // Nothing parsed = the scraper (or the site) is broken. Parsed but nothing relevant = healthy.
         if (r.results.length === 0) return { offers: [], error: r.error ?? 'no products parsed' };
+        const hasProfile = !!(component.profile_id && PROFILES[component.profile_id]);
+        // With a profile the classifier decides (non-matching rows are stored but never alert);
+        // without one, the interim query-word filter keeps unrelated products out entirely.
         const offers = r.results
-          .filter(x => x.price != null && x.price > 0 && x.currency === 'GBP' && matchesQuery(x.name, component.search_query))
+          .filter(x => x.price != null && x.price > 0 && x.currency === 'GBP' && (hasProfile || matchesQuery(x.name, component.search_query)))
           .map(x => ({ source: `uk-retailer:${id}`, price: x.price as number, currency: x.currency,
-            retailer: r.retailer, url: x.url, inStock: x.inStock, stockState: x.stockState }));
+            retailer: r.retailer, url: x.url, inStock: x.inStock, stockState: x.stockState,
+            ...profileAttrs(component, x.name) }));
         return { offers };
       });
       await deps.sleep(RETAILER_GAP_MS);
@@ -107,7 +130,8 @@ export async function refreshComponent(
   db.clearScrapeFailed(component.id);
 
   for (const snap of snapshots) {
-    const wasInStock = prevStockMap.get(snap.retailer);
+    if (snap.profileMatch === false) continue;
+    const wasInStock = prevStockMap.get(stockKey(snap.retailer, snap.url));
     if (wasInStock === true && !snap.inStock) {
       db.recordStockChange(component.id, snap.retailer, true, false, snap.price);
     } else if (wasInStock === false && snap.inStock) {

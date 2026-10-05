@@ -74,7 +74,7 @@ No pruning or rollup of `price_records`/`stock_history`. At an hourly interval w
 ### A-15 Keepa stock and plan assumptions (Low/Medium, Verified code; plan Unverified)
 `inStock: p.availabilityAmazon === 0` reflects Amazon-as-seller availability only, not marketplace offers (Inferred impact: false "out of stock" for third-party-sold RAM). The file header claims a "Free tier: 100 tokens/minute"; secondary sources indicate Keepa API access is a paid subscription (see research doc). Treat the claim as Unverified. `UK_DOMAIN = '2'` is correct for Amazon.co.uk (Verified in code; matches Keepa's documented domain numbering to the best of current knowledge, not re-checked against Keepa docs this session).
 
-### A-16 Compatibility rules do not model SO-DIMM/ECC/capacity (Medium, Verified)
+### A-16 Compatibility rules do not model SO-DIMM/ECC/capacity (Medium, Verified) — **Partly addressed in PR-E** for memory listings via `services/memory-classifier.ts` and the `n5-air-ram` profile; `compatibility.ts` itself (P1-4, mobile CPUs) is unchanged
 `compatibility.ts` detects DDR generation, speed and capacity numbers from text but has no form-factor (SO-DIMM vs DIMM), ECC, slot-count or total-capacity checks, and its CPU/motherboard socket regexes cover desktop AM4/AM5/LGA1700/LGA1851 only, so Ryzen 7 255 resolves to `unknown`. Fix: P1-4.
 
 ### A-17 Documentation and deployment inconsistencies (Low, Verified)
