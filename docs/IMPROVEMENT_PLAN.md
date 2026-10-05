@@ -1,6 +1,6 @@
 # Improvement Plan: Deal-Aware UK RAM & NAS Hardware Tracking (Self-Sufficient)
 
-_Drafted 2026-10-05, revised same day. Based on a research session; the codebase `src/` was **not** audited line by line, so items marked "verify" need a quick check against the code first._
+_Drafted 2026-10-05, revised twice the same day. The second revision adds a verification pass (section 9) against official docs, PyPI and GitHub. Neither the Firecrawl stack nor the MCP servers were actually run during research, and `src/` of this repo was **not** audited line by line, so items marked "verify" still need a hands-on check._
 
 ## 1. Why this plan exists
 
@@ -15,16 +15,18 @@ Everything needed for tracking should be able to run on the home NAS with no pai
 - **Core:** this repo (SQLite, REST API, MCP server, dashboard).
 - **Scraping:** self-hosted **Firecrawl** (see 5.2) and the existing Playwright/Camoufox scraper.
 - **Change and restock watching:** self-hosted **changedetection.io** (see 5.1).
-- **Search/discovery:** self-hosted **SearXNG** (Firecrawl can use it via `SEARXNG_ENDPOINT`).
+- **Search/discovery:** Firecrawl's search route and/or a self-hosted **SearXNG** (verify wiring, see 9.4).
 - **Alerts:** self-hosted **ntfy**.
 - **Orchestration (optional):** self-hosted **n8n**.
 - **Paid/hosted APIs (PricesAPI.io, Keepa, Apify, Novada):** demoted to **optional fallbacks**, never required for the core flow.
 
-Honest trade-offs to accept:
-- Self-hosted Firecrawl has **no built-in anti-bot layer**, so heavily protected retailers may still need the existing Camoufox/stealth Playwright path.
-- Self-hosted Firecrawl is a multi-container stack (API, Playwright, Redis, RabbitMQ, Postgres); its reference compose is sized for about 8GB RAM and 4 vCPU, so limits must be reduced to fit the NAS.
-- Firecrawl is **AGPL-3.0** (fine for personal self-hosting; revisit before any public/commercial service).
-- Self-hosted retailer scraping is more fragile than a paid price API; layout changes will break selectors, so health checks and alerts on scraper failure are required (Phase 5).
+Trade-offs to accept (confirmed against official docs, see section 9):
+- Self-hosted Firecrawl includes **no advanced anti-bot layer** (Fire-engine is a separate service, not included). Heavily protected retailers may still need the existing Camoufox/stealth Playwright path.
+- Self-hosted Firecrawl has **no screenshots or page actions** in the default stack.
+- The stack is multi-service (API and workers, Playwright, Redis, RabbitMQ, PostgreSQL, plus FoundationDB services for an optional queue backend). Firecrawl publishes **no verified minimum host size**, so NAS capacity must be tested, not assumed.
+- The stock Compose file is **unauthenticated** and defines **no persistent volumes** for PostgreSQL, Redis or RabbitMQ. It is a trusted-LAN starting point only. Price history lives in this repo's SQLite database, so losing Firecrawl's internal state is acceptable, but add volumes anyway to avoid re-queueing.
+- Firecrawl is **AGPL-3.0**. Fine for private self-hosting; revisit before any public or commercial service.
+- Self-hosted retailer scraping is more fragile than a paid price API; layout changes break selectors, so health checks and failure alerts are required (Phase 5).
 
 ## 3. Target hardware profile (sourced from vendor listings and reviews)
 
@@ -48,9 +50,9 @@ No official qualified-memory list was found; mainstream brands (Crucial, Kingsto
 | PricesAPI.io (existing) | Yes | No (hosted API) | Keep as optional fallback |
 | Keepa (existing) | Yes for Amazon UK | No (paid) | Verify the code requests the **amazon.co.uk** domain |
 | uk.camelcamelcamel.com | Yes | No (free hosted) | Free Amazon UK history and email alerts; Amazon only |
-| **Firecrawl (self-hosted)** | Yes (scrapes any URL) | **Yes** (Docker Compose, AGPL-3.0) | MCP server supports a custom `FIRECRAWL_API_URL` |
-| **changedetection.io** | Yes (any page) | **Yes** (Docker, Apache-2.0) | Price and restock detection; REST API |
-| **rusty4444/changedetection-mcp** | n/a | **Yes** (pip, MIT) | Third-party MCP for changedetection.io; vet before use |
+| **Firecrawl (self-hosted)** | Yes (scrapes any URL) | **Yes** (Docker Compose, AGPL-3.0) | Verified: MCP supports `FIRECRAWL_API_URL`; API key optional when auth is off |
+| **changedetection.io** | Yes (any page) | **Yes** (Docker) | Price/restock features claimed by the project; not tested here |
+| **rusty4444/changedetection-mcp** | n/a | **Yes** (PyPI 0.1.0, MIT) | Verified to exist; very young, single maintainer, no price-specific tools |
 | PriceBuddy | Yes | **Yes** | Any store via CSS selector, regex or JSONPath; availability and back-in-stock alerts; CLI exposes an MCP |
 | Apify actors (existing) | Verify | No | Confirm Amazon/Currys/Argos actors target UK domains |
 | ShopSavvy API | Unconfirmed | No (paid) | UK API coverage not confirmed |
@@ -61,20 +63,27 @@ No official qualified-memory list was found; mainstream brands (Crucial, Kingsto
 ## 5. Self-hosted components to add
 
 ### 5.1 changedetection.io and its MCP
-- Run `dgtlmoon/changedetection.io` as a container on the NAS (data volume mounted, bound to the LAN).
+- Run `dgtlmoon/changedetection.io` as a container on the NAS (data volume mounted, bound to the LAN, API key from Settings → API).
 - Use it for: per-product-page **price watches**, **restock detection**, and "page changed" alerts on retailer listings and category pages.
-- Connect an MCP: **`rusty4444/changedetection-mcp`** (MIT, `pip install changedetection-mcp`). It needs the changedetection.io base URL (e.g. `http://localhost:5000`) and its API key. The upstream project has an open feature request for an official MCP, so this is a community project: review the code and pin a version before relying on it.
+- MCP: **`changedetection-mcp` 0.1.0** (PyPI, MIT, Python 3.11+). Config via `CHANGEDETECTION_BASE_URL` and `CHANGEDETECTION_API_KEY`.
+  - Tools: `list_watches`, `get_watch`, `create_watch`, `update_watch`, `delete_watch`, `recheck_watch`, `get_watch_history`, `get_snapshot_diff`, `search_watches`, `list_tags`, `create_tag`, `get_system_info`.
+  - Safety: `get_snapshot_diff` arms a per-watch limit on follow-up mutating actions (default 3; `CHANGEDETECTION_MCP_ACTION_LIMIT_PER_WATCH`). Keep it enabled.
+  - Limitations: it manages **watches and diffs only**; it has **no price-series or price-extraction tool**. PCPriceChecker should therefore read price data from the changedetection.io **REST API** (verify the endpoint and field that exposes the extracted price) and use the MCP for management and ad-hoc questions.
+  - Risk controls: pin the exact version and the published SHA-256 hashes (`pip install --require-hashes`), run it in an isolated venv or container, review the source (it is about 11 kB), and treat it as an unaudited community project (1 star, 9 commits, no GitHub releases, not published via Trusted Publishing).
 - Integration options (decide after a spike): (a) PCPriceChecker polls the changedetection.io REST API and stores results in SQLite; (b) changedetection.io webhooks into PCPriceChecker; (c) both tools notify via ntfy independently.
 
 ### 5.2 Self-hosted Firecrawl and its MCP
-- Run the Firecrawl stack from `ghcr.io/firecrawl/firecrawl` with its Playwright service, Redis, RabbitMQ and Postgres via Docker Compose; reduce CPU and memory limits for the NAS.
-- Keep `USE_DB_AUTHENTICATION=false` for a private LAN-only instance; do not expose it publicly. Optionally set `SEARXNG_ENDPOINT` to a local SearXNG and `OLLAMA_BASE_URL` for local LLM extraction.
-- Point the **Firecrawl MCP server** (e.g. the `mcp/firecrawl` Docker image or the npm package) at the local instance with `FIRECRAWL_API_URL=http://<nas>:3002`. Verify whether an API key is still required when auth is disabled.
-- Use it for: scraping retailer product pages to markdown/JSON, structured price extraction, and discovery crawls.
-- Note: the cloud Firecrawl service offers extras (managed anti-bot, extra data providers) that the self-hosted build does not; confirm which endpoints and formats work locally before depending on them.
+- Run the official stack from a **pinned release tag** (docs verified against `v2.11.162`; re-check the target release's `docker-compose.yaml` before upgrading, as the Compose contract changes between releases).
+- Minimal evaluation `.env`: `USE_DB_AUTHENTICATION=false`, a strong `POSTGRES_PASSWORD` (32+ random characters), `POSTGRES_USER=postgres`, `POSTGRES_DB=postgres` (keep `postgres` for this release because the bundled `pg_cron` targets it). Leave `NUQ_BACKEND` and `BULL_AUTH_KEY` unset. Do not commit `.env`.
+- Start with `docker compose up --build -d`, then run the documented smoke test: `POST http://localhost:3002/v2/scrape` with `{"url":"https://example.com","formats":["markdown"],"timeout":60000}`. The `/v0/health/readiness` endpoint is only a heartbeat and does not prove scraping works.
+- Keep the API on a trusted LAN only. If it must be reachable from elsewhere, add real authentication, TLS and network policy first.
+- Add durable volumes for PostgreSQL, Redis and RabbitMQ; reduce resource limits to what the NAS can spare and test.
+- LLM-backed extraction is **off** until an OpenAI-compatible provider or Ollama is configured; test that path separately.
+- **Firecrawl MCP** (`firecrawl-mcp`, docs pin `3.23.7`, requires Node.js 22+): set `FIRECRAWL_API_URL` to the local API. `FIRECRAWL_API_KEY` is **optional only when the self-hosted API does not require authentication**. For clients such as n8n, run it with `HTTP_STREAMABLE_SERVER=true`; the endpoint is `http://localhost:3000/mcp` and `http://localhost:3000/health` returns `ok`. Tool availability depends on the services enabled in the deployment, so list the tools after connecting rather than assuming parity with the cloud.
+- Self-hosted capability limits (from official docs): core **scrape, crawl, map and search** routes work; **screenshots and page actions** need Fire-engine; Agent, Browser, interact and specialised formats are cloud features.
 
 ### 5.3 Supporting services
-- **SearXNG** for self-hosted web search/discovery.
+- **SearXNG** for self-hosted web search/discovery (verify how self-hosted Firecrawl search is wired to it).
 - **ntfy** self-hosted for push alerts.
 - **n8n** (optional) to orchestrate scheduling and routing.
 - **PriceBuddy** (optional) if its selector-rule model proves easier than raw scraping.
@@ -95,10 +104,12 @@ No official qualified-memory list was found; mainstream brands (Crucial, Kingsto
 - [ ] Store ASIN list per profile.
 
 ### Phase 3: Self-hosted scraping and watching stack
-- [ ] Add `docker-compose` services for **changedetection.io** and **Firecrawl** (resource-limited for the NAS) alongside PCPriceChecker.
-- [ ] Define a **scraper provider interface** in the code so sources are pluggable: PricesAPI (optional), Firecrawl (self-hosted), changedetection.io, Playwright/Camoufox, Apify (optional).
+- [ ] Add `docker-compose` services for **changedetection.io** and **Firecrawl** (pinned versions, resource-limited, persistent volumes, LAN-only) alongside PCPriceChecker.
+- [ ] Run the **Firecrawl smoke test** and a **changedetection.io price-watch test** on one real UK retailer page; record results in `DEPLOYMENT.md`.
+- [ ] Define a **scraper provider interface** so sources are pluggable: Firecrawl (self-hosted), changedetection.io, Playwright/Camoufox, PricesAPI (optional), Apify (optional).
 - [ ] Add per-store **selector rules** (CSS / JSONPath) for Scan, Overclockers, CCL, Ebuyer, Novatech and eBay UK.
-- [ ] Wire both MCP servers (Firecrawl MCP, changedetection MCP) into the documented Claude/MCP client config.
+- [ ] Wire both MCP servers into the documented MCP client config with pinned versions and hashes (Firecrawl MCP needs Node 22+; changedetection-mcp needs Python 3.11+).
+- [ ] Confirm the changedetection.io REST API exposes the extracted price; if not, extract via Firecrawl or selector rules instead.
 - [ ] Provider fallback order: self-hosted first, then optional paid APIs only if configured.
 - [ ] Spike: compare PriceBuddy vs native selector rules; pick one.
 - [ ] Optional: LLM-assisted selector repair when a store layout changes (local Ollama).
@@ -115,7 +126,7 @@ No official qualified-memory list was found; mainstream brands (Crucial, Kingsto
 - [ ] **Scraper health:** "needs attention" list and an alert when a source fails repeatedly or returns no price.
 - [ ] Add tests for the classifier, price normalisation and provider fallback.
 - [ ] Synology/NAS deployment notes in `DEPLOYMENT.md`, including resource limits and persistent volumes for the new services.
-- [ ] Backup plan for SQLite and changedetection.io datastores.
+- [ ] Backup plan for SQLite and changedetection.io datastores; upgrade and rollback notes for pinned Firecrawl releases.
 
 ### Phase 6: MCP and tooling hygiene
 - [ ] Keep this repo's MCP as the main entry point; add the Firecrawl and changedetection.io MCPs as supporting tools, not replacements.
@@ -127,14 +138,42 @@ No official qualified-memory list was found; mainstream brands (Crucial, Kingsto
 1. Maximum price for 64GB, and the baseline price at the recent low (check price history first).
 2. Preferred alert channel (self-hosted ntfy, email, other).
 3. Retailer shortlist and whether eBay/used listings are acceptable for RAM.
-4. NAS headroom for the Firecrawl stack (RAM/CPU) and whether to run it on the NAS or another host.
+4. NAS headroom for the Firecrawl stack (RAM/CPU), or run it on another host.
 5. Sidecar (PriceBuddy / changedetection.io) vs native selector rules as the primary watcher.
+6. Does the changedetection.io REST API expose the extracted price field? (Decides how Phase 3 integrates.)
 
 ## 8. Acceptance criteria
 - Searching for the N5 Air profile returns only DDR5 SO-DIMM non-ECC kits.
 - 2x32GB, 2x16GB and single-stick options are comparable on price per GB.
 - With **no paid API keys configured**, the stack still tracks at least three UK retailers and fires alerts.
-- Self-hosted Firecrawl and changedetection.io are reachable through their MCP servers from the MCP client.
+- Self-hosted Firecrawl passes its smoke test and is reachable through its MCP server from the MCP client.
+- changedetection.io is reachable through its MCP server and at least one price watch records history.
 - An alert fires on a configured target price, % drop, or back-in-stock event, once, with a link.
 - Amazon UK prices are confirmed as GBP from the UK marketplace.
 - A failing scraper raises a visible alert rather than silently stale data.
+
+## 9. Verification log (2026-10-05)
+
+Method: read official documentation and package pages. No containers or MCP servers were run. "Verified" means confirmed from the cited source, not tested hands-on.
+
+### 9.1 Firecrawl MCP with a self-hosted instance
+- **Verified:** `FIRECRAWL_API_URL` points the MCP at a self-hosted API. `FIRECRAWL_API_KEY` is optional only when that API does not require authentication. Requires Node.js 22+. Docs pin `firecrawl-mcp@3.23.7`. Local HTTP transport via `HTTP_STREAMABLE_SERVER=true` serves `/mcp` and `/health` on port 3000. _Source: docs.firecrawl.dev/mcp-server/local_
+- **Verified:** tool availability depends on the services enabled in the deployment. _Same source._
+
+### 9.2 Self-hosted Firecrawl capabilities
+- **Verified:** default stack = API, bundled Playwright with basic fetch fallback, Redis, RabbitMQ, PostgreSQL queue (plus FoundationDB services for an optional backend). Only the API is published, on port 3002. Authentication is off in the quickstart; no persistent volumes for PostgreSQL, Redis, RabbitMQ. _Sources: docs.firecrawl.dev/contributing/self-host; github.com/firecrawl/firecrawl SELF_HOST.md_
+- **Verified:** core scrape, crawl, map and search routes work. Screenshots and page actions are not available without Fire-engine. Fire-engine and advanced anti-bot behaviour are not included. Agent, Browser, interact and specialised formats are cloud features. AI-backed features need a provider (OpenAI-compatible or Ollama). _Same sources._
+- **Verified:** Firecrawl states it does **not** publish a verified minimum host size. **Correction:** an earlier draft of this plan quoted "about 8GB RAM and 4 vCPU"; that figure came from a third-party blog's Compose file, not official guidance, and has been removed.
+- **Correction:** the same third-party Compose used `POSTGRES_DB=firecrawl`; official guidance for the verified release says to keep `POSTGRES_DB=postgres`.
+
+### 9.3 changedetection-mcp
+- **Verified:** published on PyPI as `changedetection-mcp` 0.1.0 (released 2026-05-17), MIT, Python 3.11+, one maintainer, not uploaded via Trusted Publishing; SHA-256 hashes are published for the sdist and wheel. GitHub: 9 commits, no tags/releases, last commit 2026-05-31, 1 star. _Sources: pypi.org/project/changedetection-mcp; github.com/rusty4444/changedetection-mcp_
+- **Verified:** tool list and environment variables as in 5.1. No price-specific tool exists.
+- **Not verified:** that it works end-to-end against a live instance, and its behaviour on the latest changedetection.io release.
+
+### 9.4 Still unverified (do these during Phase 3)
+- changedetection.io price and restock detection behaviour on UK retailer pages, and whether the REST API returns the extracted price.
+- How self-hosted Firecrawl search is configured to use SearXNG.
+- NAS resource headroom for the Firecrawl stack.
+- Whether Keepa and Apify calls in this repo hit the UK marketplace.
+- Actual success rate of self-hosted scraping against each target UK retailer.
