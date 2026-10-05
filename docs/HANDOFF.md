@@ -59,16 +59,16 @@ Status words used everywhere: **Verified**, **Partly verified**, **Unverified**,
 Phase 0 correctness
 - [x] P0-1 Stock-aware best price (PR-A)
 - [x] P0-2 Stock tri-state and migration (PR-A)
-- [ ] P0-3 John Lewis price fix
-- [ ] P0-4 Remove "Search results" fallback
-- [ ] P0-5 Shared JSON-LD module
+- [x] P0-3 John Lewis price fix (PR-B)
+- [x] P0-4 Remove "Search results" fallback (PR-B)
+- [x] P0-5 Shared JSON-LD module (PR-B, `sources/structured-data.ts`)
 - [ ] P0-6 Real HTML parser for rules
 - [ ] P0-7 Safe selector self-healing
 - [ ] P0-8 Scheduler failure visibility (`scrape_runs`)
 - [ ] P0-9 No-paid-key scheduler path
 - [ ] P0-10 Outlier policy
 - [ ] P0-11 Apify abort and logging
-- [ ] P0-12 Currency handling
+- [x] P0-12 Currency handling (PR-B; JSON-LD, meta, rules, DOM and Playwright reject non-GBP. Camofox and AI paths still report whatever they return, see audit A-19)
 
 Phase 1 profile and classifier
 - [ ] P1-1 Memory classifier

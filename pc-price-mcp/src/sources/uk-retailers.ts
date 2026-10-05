@@ -1,3 +1,5 @@
+import { extractStructuredProducts, bestOffer } from './structured-data.js';
+import { parsePriceText } from '../services/price-text.js';
 import { parseStockText, stockStateFromAvailability, stockStateFromBoolean, type StockState } from '../services/stock-state.js';
 
 /** Both stock fields from one state so they cannot disagree (inStock is true only for in_stock). */
@@ -69,24 +71,16 @@ function stripHtml(html: string): string {
 
 function extractJsonLdProducts(html: string, retailer: string, baseUrl: string): RetailerResult[] {
   const results: RetailerResult[] = [];
-  for (const [, raw] of html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)) {
-    try {
-      const ld = JSON.parse(raw);
-      const items: any[] = Array.isArray(ld) ? ld : [ld];
-      for (const item of items) {
-        if (item['@type'] !== 'Product') continue;
-        const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
-        const price = offer?.price != null ? Number(offer.price) : null;
-        if (!price || price <= 0) continue;
-        results.push({
-          retailer, name: item.name ?? 'Unknown', price,
-          currency: offer?.priceCurrency ?? 'GBP',
-          ...stk(stockStateFromAvailability(offer?.availability)),
-          url: item.url ?? offer?.url ?? baseUrl,
-          sku: item.sku ?? item.mpn,
-        });
-      }
-    } catch { /* continue */ }
+  for (const product of extractStructuredProducts(html)) {
+    const offer = bestOffer(product);   // GBP only (A-19); cheapest in-stock offer preferred
+    if (!offer) continue;
+    results.push({
+      retailer, name: product.name ?? 'Unknown', price: offer.price,
+      currency: 'GBP',
+      ...stk(offer.stockState),
+      url: product.url ?? offer.url ?? baseUrl,
+      sku: product.sku,
+    });
   }
   return results;
 }
@@ -192,14 +186,8 @@ async function scrapeRetailer(
     results = parseProductBlocks(html, retailer, domain, searchUrl);
   }
 
-  if (results.length === 0) {
-    const prices = [...html.matchAll(/£\s*([\d,]+(?:\.\d{2})?)/g)]
-      .map(m => parseFloat(m[1].replace(/,/g, ''))).filter(p => p > 10 && p < 50_000);
-    if (prices.length > 0) {
-      results = [{ retailer, name: 'Search results', price: Math.min(...prices), currency: 'GBP',
-        ...stk('unknown'), url: searchUrl, scraperNote: 'Only lowest price extracted — page requires JS rendering' }];
-    }
-  }
+  // No "lowest price on the page" fallback (A-04): a number found outside a product block can be an
+  // accessory, delivery threshold or banner, and must never reach price history or alerts.
 
   return {
     retailer, results: results.slice(0, 8), scrapedAt: new Date().toISOString(),
@@ -504,6 +492,16 @@ export async function argosSearch(query: string): Promise<RetailerSearchResult> 
     error: 'No products parsed — Argos requires JS rendering' };
 }
 
+/** Current selling price. `was` is the pre-discount price and must never be used (A-03). */
+export function johnLewisPrice(p: any): number | null {
+  for (const v of [p?.price?.now, p?.priceLabel, typeof p?.price === 'object' ? null : p?.price]) {
+    if (v == null) continue;
+    const parsed = parsePriceText(String(v));
+    if (parsed && (parsed.currency == null || parsed.currency === 'GBP')) return parsed.price;
+  }
+  return null;
+}
+
 export async function johnLewisSearch(query: string): Promise<RetailerSearchResult> {
   const t0 = Date.now();
   const url = `https://www.johnlewis.com/search?search-term=${encodeURIComponent(query)}`;
@@ -520,11 +518,10 @@ export async function johnLewisSearch(query: string): Promise<RetailerSearchResu
       const products: any[] = pp?.searchResults?.products ?? pp?.products ?? findProductArray(pp) ?? [];
       if (products.length > 0) {
         const results: RetailerResult[] = products.slice(0, 8).map((p: any) => {
-          const rawPrice = p.price?.was ?? p.price?.now ?? p.priceLabel?.replace(/[^0-9.]/g, '');
           return {
             retailer: 'John Lewis',
             name: p.title ?? p.name ?? 'Unknown',
-            price: rawPrice != null ? parseFloat(String(rawPrice)) : null,
+            price: johnLewisPrice(p),
             currency: 'GBP',
             ...stk(p.stockStatus === 'OUTOFSTOCK' || p.availableInStock === false ? 'out_of_stock' : (p.availableInStock === true ? 'in_stock' : parseStockText(String(p.stockStatus ?? '')))),
             url: p.seoURL ? `https://www.johnlewis.com${p.seoURL}` : (p.url ?? url),

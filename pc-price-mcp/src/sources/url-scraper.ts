@@ -12,6 +12,8 @@ import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js'
 import { scrapeWithCamofox } from './camofox-client.js';
 import { openaiExtractPrice, openaiHealSelectors } from './openai-client.js';
 import * as db from '../db.js';
+import { extractStructuredProducts, bestOffer } from './structured-data.js';
+import { parsePriceText, isAcceptableCurrency } from '../services/price-text.js';
 import { parseStockText, stockStateFromAvailability, stockStateFromBoolean, type StockState } from '../services/stock-state.js';
 
 export interface ScrapedProduct {
@@ -42,37 +44,22 @@ function extractDomain(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 }
 
+/** Price from text; null for non-GBP text (P0-12) so it is never stored as GBP. */
 function parsePrice(text: string, regex?: string | null): number | null {
-  if (regex) {
-    try { const m = text.match(new RegExp(regex)); if (m?.[1]) return parseFloat(m[1].replace(/,/g, '')); } catch { /* bad regex */ }
-  }
-  const m = text.replace(/,/g, '').match(/£?\s*([\d]+(?:\.\d{1,2})?)/);
-  const p = m ? parseFloat(m[1]) : NaN;
-  return p > 0 && p < 50_000 ? p : null;
+  const parsed = parsePriceText(text, regex);
+  return parsed && isAcceptableCurrency(parsed.currency) ? parsed.price : null;
 }
 
 // ── Step 1: JSON-LD ────────────────────────────────────────────────────────
 
 function tryJsonLd(html: string): Partial<ScrapedProduct> | null {
-  for (const [, raw] of html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)) {
-    try {
-      const data = JSON.parse(raw);
-      const items: Record<string, unknown>[] = Array.isArray(data) ? data : [data];
-      for (const item of items) {
-        if (item['@type'] !== 'Product') continue;
-        const offer = (Array.isArray(item.offers) ? (item.offers as Record<string, unknown>[])[0] : item.offers) as Record<string, unknown> | undefined;
-        if (!offer) continue;
-        const price = offer.price != null ? Number(offer.price) : null;
-        if (!price || isNaN(price) || price <= 0) continue;
-        const img = Array.isArray(item.image) ? String(item.image[0]) : (item.image ? String(item.image) : undefined);
-        return {
-          name: item.name != null ? String(item.name) : undefined,
-          price, currency: offer.priceCurrency != null ? String(offer.priceCurrency) : 'GBP',
-          ...stock(stockStateFromAvailability(offer.availability)),
-          image: img, method: 'json-ld',
-        };
-      }
-    } catch { /* skip */ }
+  for (const product of extractStructuredProducts(html)) {
+    const offer = bestOffer(product);   // non-GBP offers are skipped (P0-12)
+    if (!offer) continue;
+    return {
+      name: product.name, price: offer.price, currency: 'GBP',
+      ...stock(offer.stockState), image: product.image, method: 'json-ld',
+    };
   }
   return null;
 }
@@ -91,7 +78,8 @@ function tryMeta(html: string): Partial<ScrapedProduct> | null {
   const price = parsePrice(priceStr);
   if (!price) return null;
   const name = get('property', 'og:title') ?? get('name', 'twitter:title');
-  const currency = get('property', 'product:price:currency') ?? get('property', 'og:price:currency') ?? 'GBP';
+  const currency = (get('property', 'product:price:currency') ?? get('property', 'og:price:currency') ?? 'GBP').toUpperCase();
+  if (!isAcceptableCurrency(currency)) return null;   // P0-12
   const avail = get('property', 'product:availability') ?? get('property', 'og:availability');
   const image = get('property', 'og:image') ?? get('name', 'twitter:image');
   return { name, price, currency, ...stock(stockStateFromAvailability(avail)), image, method: 'meta' };
@@ -193,6 +181,7 @@ async function tryPlaywright(url: string): Promise<Partial<ScrapedProduct> | nul
         const el = document.querySelector(sel);
         if (!el) continue;
         const txt = el.getAttribute('content') ?? el.getAttribute('data-price') ?? el.textContent ?? '';
+        if (/[$€]/.test(txt) && !/£/.test(txt)) continue;   // non-GBP price (P0-12)
         const m = txt.replace(/,/g, '').match(/£?\s*([\d]+(?:\.\d{1,2})?)/);
         if (m) { const p = parseFloat(m[1]); if (p > 0 && p < 50000) { price = p; break; } }
       }
