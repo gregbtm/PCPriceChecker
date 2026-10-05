@@ -1,179 +1,206 @@
-# Improvement Plan: Deal-Aware UK RAM & NAS Hardware Tracking (Self-Sufficient)
+# Improvement Plan: Deal-Aware UK RAM and Hardware Tracking (Self-Sufficient)
 
-_Drafted 2026-10-05, revised twice the same day. The second revision adds a verification pass (section 9) against official docs, PyPI and GitHub. Neither the Firecrawl stack nor the MCP servers were actually run during research, and `src/` of this repo was **not** audited line by line, so items marked "verify" still need a hands-on check._
+_Last revised 2026-10-05 (third revision). This plan is written so that another engineer or LLM can pick it up cold._
 
-## 1. Why this plan exists
+## 0. How to use these documents
 
-Driver: buying **64GB (2x32GB) DDR5 SO-DIMM** for a **Minisforum N5 Air AI NAS** during a period of very high RAM prices. The goal is to buy at a genuinely good price, not just the current lowest listing.
+| File | Purpose | Read |
+|------|---------|------|
+| `docs/IMPROVEMENT_PLAN.md` (this file) | Goal, principles, target design, task list with IDs, acceptance criteria, hand-off prompt | First |
+| `docs/CODEBASE_AUDIT.md` | What the code does today, with file references and **verified defects** (IDs `A-nn`) | Second |
+| `docs/RESEARCH_AND_VERIFICATION.md` | Hardware spec, UK price snapshot, third-party tools, **verification log** (what was checked, how, what is still unknown) | Third |
 
-The project already covers much of this (PricesAPI.io, Keepa, Apify, eBay, ntfy and other alerts, SQLite history, MCP tools). This plan focuses on the gaps: compatibility-aware matching, UK Amazon coverage, a generic scraper fallback, better alerting, and **removing dependence on paid third-party services**.
+Every claim is tagged **Verified** (read from code or an official source), **Partly verified**, **Unverified** (needs a hands-on check) or **Corrected** (an earlier statement that turned out wrong). Do not treat Unverified items as facts.
 
-## 2. Guiding principle: self-sufficiency
+## 1. Goal and context
 
-Everything needed for tracking should be able to run on the home NAS with no paid account:
+The owner is buying **64GB (2x32GB) DDR5 SO-DIMM** for a **Minisforum N5 Air** NAS while UK RAM prices are very high. They want to buy at a genuinely good price: alerts when a *compatible* kit is *actually in stock* at or below a target, with price history for context.
 
-- **Core:** this repo (SQLite, REST API, MCP server, dashboard).
-- **Scraping:** self-hosted **Firecrawl** (see 5.2) and the existing Playwright/Camoufox scraper.
-- **Change and restock watching:** self-hosted **changedetection.io** (see 5.1).
-- **Search/discovery:** Firecrawl's search route and/or a self-hosted **SearXNG** (verify wiring, see 9.4).
-- **Alerts:** self-hosted **ntfy**.
-- **Orchestration (optional):** self-hosted **n8n**.
-- **Paid/hosted APIs (PricesAPI.io, Keepa, Apify, Novada):** demoted to **optional fallbacks**, never required for the core flow.
+The repo (`gregbtm/PCPriceChecker`, code in `pc-price-mcp/`) is already a capable UK PC price tracker (SQLite history, REST API, dashboard, MCP server, 17 direct UK retailer scrapers, a generic URL scraper with a multi-step fallback chain, alerts via ntfy and others). This plan does **not** replace it. It (1) fixes correctness defects that would cause wrong or missed alerts, (2) adds hardware-profile and compatibility-aware matching, (3) makes the whole pipeline runnable with **no paid third-party service**, and (4) adds observability so silent scraper failures cannot go unnoticed.
 
-Trade-offs to accept (confirmed against official docs, see section 9):
-- Self-hosted Firecrawl includes **no advanced anti-bot layer** (Fire-engine is a separate service, not included). Heavily protected retailers may still need the existing Camoufox/stealth Playwright path.
-- Self-hosted Firecrawl has **no screenshots or page actions** in the default stack.
-- The stack is multi-service (API and workers, Playwright, Redis, RabbitMQ, PostgreSQL, plus FoundationDB services for an optional queue backend). Firecrawl publishes **no verified minimum host size**, so NAS capacity must be tested, not assumed.
-- The stock Compose file is **unauthenticated** and defines **no persistent volumes** for PostgreSQL, Redis or RabbitMQ. It is a trusted-LAN starting point only. Price history lives in this repo's SQLite database, so losing Firecrawl's internal state is acceptable, but add volumes anyway to avoid re-queueing.
-- Firecrawl is **AGPL-3.0**. Fine for private self-hosting; revisit before any public or commercial service.
-- Self-hosted retailer scraping is more fragile than a paid price API; layout changes break selectors, so health checks and failure alerts are required (Phase 5).
+## 2. Principles and constraints
 
-## 3. Target hardware profile (sourced from vendor listings and reviews)
+1. **Self-sufficiency.** The core flow must work with no paid API keys and no hosted AI. Paid or hosted sources (PricesAPI.io, Keepa, Apify actors, cloud LLMs) stay available as **optional fallbacks** only.
+2. **Correctness before features.** Phase 0 fixes (stock-aware best price, stock tri-state, wrong-price bugs) come first; they affect every alert.
+3. **Backward compatibility.** Do not rename or remove existing MCP tools, REST endpoints, DB columns or config keys. Add columns/tools; use the existing migration pattern (`runMigrations` in `db.ts`, `PRAGMA table_info` + `ALTER TABLE ... ADD COLUMN`).
+4. **Fail loudly.** A scraper that returns nothing must be visible (health record, dashboard, alert), never silently stale.
+5. **No secrets in the repo.** Keys live in env vars or the SQLite `config` table (the export already strips keys matching `%_key%`, `%_token%`, `%_secret%`, `%_password%`).
+6. **Private network by default.** Self-hosted Firecrawl and changedetection.io are LAN-only; neither ships with real authentication in the documented quickstart.
+7. **Pin versions.** Pin Firecrawl to a release tag and third-party MCP packages to exact versions (and hashes where published).
+8. **Test with real fixtures.** The repo has **no automated tests** today (see audit A-18). Add a test runner and commit HTML/text fixtures from real retailer pages.
 
-| Item | Value |
-|------|-------|
-| Platform | Minisforum N5 Air, AMD Ryzen 7 255, barebones (ships with no RAM) |
-| Memory type | DDR5 **SO-DIMM**, **non-ECC** (ECC is N5 Pro only) |
-| Slots / max | 2 slots, 96GB max |
-| Speed | Up to 5600 MT/s; slower kits (4800/5200) work, faster kits downclock |
-| Wanted | Matched **2x32GB kit** (dual channel) = 64GB |
-| Exclude | DDR4, desktop UDIMM, CAMM2, ECC/registered |
-| Install note | Slots sit under the cooler shroud (3 screws). One owner reported drive bays vanishing after fitting RAM until the backplane connector was reseated. |
-| Fallback option | 2x16GB now, upgrade later if 64GB stays overpriced |
+## 3. Target hardware profile (profile id suggestion: `n5-air-ram`)
 
-No official qualified-memory list was found; mainstream brands (Crucial, Kingston, Samsung, Corsair, Micron) are the sensible choice.
+| Constraint | Value | Status |
+|-----------|-------|--------|
+| Platform | Minisforum N5 Air, AMD Ryzen 7 255, ships barebones (no RAM) | Verified (vendor/review pages) |
+| Memory type | DDR5 **SO-DIMM**, **non-ECC** (ECC is an N5 Pro feature) | Verified |
+| Slots | 2 | Verified |
+| Max total | 96GB | Verified (vendor) |
+| Max speed | 5600 MT/s; slower kits work, faster kits downclock | Verified (vendor) / Partly verified (downclock behaviour is general DDR5 behaviour) |
+| Target | Matched 2x32GB kit = 64GB | Owner requirement |
+| Reject | DDR4, desktop UDIMM, CAMM2, ECC/registered, single sticks when a kit is required | Design decision |
+| Non-binary modules (24GB / 48GB) | Listings exist (24GB SO-DIMMs seen at Scan). **Compatibility with the N5 Air is Unverified.** Treat 2x24GB (48GB) as an *optional, flagged* alternative, not a default match. | Unverified |
+| Install note | Slots sit under the cooler shroud (3 screws). One owner reported drive bays disappearing after fitting RAM until the backplane connector was reseated. | Reported by one user |
 
-## 4. Data source findings (UK suitability and self-hosting)
+## 4. Current vs target architecture
 
-| Source | UK usable? | Self-hostable? | Notes |
-|--------|-----------|----------------|-------|
-| PricesAPI.io (existing) | Yes | No (hosted API) | Keep as optional fallback |
-| Keepa (existing) | Yes for Amazon UK | No (paid) | Verify the code requests the **amazon.co.uk** domain |
-| uk.camelcamelcamel.com | Yes | No (free hosted) | Free Amazon UK history and email alerts; Amazon only |
-| **Firecrawl (self-hosted)** | Yes (scrapes any URL) | **Yes** (Docker Compose, AGPL-3.0) | Verified: MCP supports `FIRECRAWL_API_URL`; API key optional when auth is off |
-| **changedetection.io** | Yes (any page) | **Yes** (Docker) | Price/restock features claimed by the project; not tested here |
-| **rusty4444/changedetection-mcp** | n/a | **Yes** (PyPI 0.1.0, MIT) | Verified to exist; very young, single maintainer, no price-specific tools |
-| PriceBuddy | Yes | **Yes** | Any store via CSS selector, regex or JSONPath; availability and back-in-stock alerts; CLI exposes an MCP |
-| Apify actors (existing) | Verify | No | Confirm Amazon/Currys/Argos actors target UK domains |
-| ShopSavvy API | Unconfirmed | No (paid) | UK API coverage not confirmed |
-| theluckystrike/price-tracker MCP | No | n/a | Repo URL returned 404, npm publish "pending", logs manually supplied prices |
-| aravindtri/amazon-price-tracker-mcp | Unlikely | n/a | Wraps camelcamelcamel.com (US) |
-| BestPrice.gr, Prisjakt, Amazon.com tools | No | n/a | Greece / Sweden / US only |
+Current (Verified by reading code): see `docs/CODEBASE_AUDIT.md` section 2.
 
-## 5. Self-hosted components to add
+Target:
 
-### 5.1 changedetection.io and its MCP
-- Run `dgtlmoon/changedetection.io` as a container on the NAS (data volume mounted, bound to the LAN, API key from Settings → API).
-- Use it for: per-product-page **price watches**, **restock detection**, and "page changed" alerts on retailer listings and category pages.
-- MCP: **`changedetection-mcp` 0.1.0** (PyPI, MIT, Python 3.11+). Config via `CHANGEDETECTION_BASE_URL` and `CHANGEDETECTION_API_KEY`.
-  - Tools: `list_watches`, `get_watch`, `create_watch`, `update_watch`, `delete_watch`, `recheck_watch`, `get_watch_history`, `get_snapshot_diff`, `search_watches`, `list_tags`, `create_tag`, `get_system_info`.
-  - Safety: `get_snapshot_diff` arms a per-watch limit on follow-up mutating actions (default 3; `CHANGEDETECTION_MCP_ACTION_LIMIT_PER_WATCH`). Keep it enabled.
-  - Limitations: it manages **watches and diffs only**; it has **no price-series or price-extraction tool**. PCPriceChecker should therefore read price data from the changedetection.io **REST API** (verify the endpoint and field that exposes the extracted price) and use the MCP for management and ad-hoc questions.
-  - Risk controls: pin the exact version and the published SHA-256 hashes (`pip install --require-hashes`), run it in an isolated venv or container, review the source (it is about 11 kB), and treat it as an unaudited community project (1 star, 9 commits, no GitHub releases, not published via Trusted Publishing).
-- Integration options (decide after a spike): (a) PCPriceChecker polls the changedetection.io REST API and stores results in SQLite; (b) changedetection.io webhooks into PCPriceChecker; (c) both tools notify via ntfy independently.
+```
+               +-------------------------------------------+
+               |  PCPriceChecker (Node/TS, SQLite, REST/MCP) |
+               |  profiles + classifier + alert engine       |
+               +-------+----------------+------------------+
+                       |                |
+         provider chain (per URL/domain; first tier that yields a valid, in-stock-aware price wins)
+   1. direct fetch + JSON-LD/meta/rules (existing, fixed)
+   2. self-hosted Firecrawl  (JS-rendered pages -> html/markdown, local extractors)
+   3. changedetection.io     (restock_diff watches, REST API)
+   4. Playwright / Camoufox  (existing)
+   5. OPTIONAL paid: PricesAPI, Keepa, Apify, cloud LLM
+                       |
+                 SQLite price_records (+ stock_state, kit attrs, scrape_runs)
+                       |
+        alert engine -> self-hosted ntfy (+ other existing channels)
+```
 
-### 5.2 Self-hosted Firecrawl and its MCP
-- Run the official stack from a **pinned release tag** (docs verified against `v2.11.162`; re-check the target release's `docker-compose.yaml` before upgrading, as the Compose contract changes between releases).
-- Minimal evaluation `.env`: `USE_DB_AUTHENTICATION=false`, a strong `POSTGRES_PASSWORD` (32+ random characters), `POSTGRES_USER=postgres`, `POSTGRES_DB=postgres` (keep `postgres` for this release because the bundled `pg_cron` targets it). Leave `NUQ_BACKEND` and `BULL_AUTH_KEY` unset. Do not commit `.env`.
-- Start with `docker compose up --build -d`, then run the documented smoke test: `POST http://localhost:3002/v2/scrape` with `{"url":"https://example.com","formats":["markdown"],"timeout":60000}`. The `/v0/health/readiness` endpoint is only a heartbeat and does not prove scraping works.
-- Keep the API on a trusted LAN only. If it must be reachable from elsewhere, add real authentication, TLS and network policy first.
-- Add durable volumes for PostgreSQL, Redis and RabbitMQ; reduce resource limits to what the NAS can spare and test.
-- LLM-backed extraction is **off** until an OpenAI-compatible provider or Ollama is configured; test that path separately.
-- **Firecrawl MCP** (`firecrawl-mcp`, docs pin `3.23.7`, requires Node.js 22+): set `FIRECRAWL_API_URL` to the local API. `FIRECRAWL_API_KEY` is **optional only when the self-hosted API does not require authentication**. For clients such as n8n, run it with `HTTP_STREAMABLE_SERVER=true`; the endpoint is `http://localhost:3000/mcp` and `http://localhost:3000/health` returns `ok`. Tool availability depends on the services enabled in the deployment, so list the tools after connecting rather than assuming parity with the cloud.
-- Self-hosted capability limits (from official docs): core **scrape, crawl, map and search** routes work; **screenshots and page actions** need Fire-engine; Agent, Browser, interact and specialised formats are cloud features.
+Optional orchestration (n8n) and discovery (SearXNG via Firecrawl search) are additive, not required.
 
-### 5.3 Supporting services
-- **SearXNG** for self-hosted web search/discovery (verify how self-hosted Firecrawl search is wired to it).
-- **ntfy** self-hosted for push alerts.
-- **n8n** (optional) to orchestrate scheduling and routing.
-- **PriceBuddy** (optional) if its selector-rule model proves easier than raw scraping.
+## 5. Work plan
 
-## 6. Work plan
+Task IDs are stable references (`P0-1`, `P1-2` ...). `A-nn` refers to `docs/CODEBASE_AUDIT.md`. Suggested PR slicing is in section 6.
 
-### Phase 1: Compatibility-aware RAM tracking
-- [ ] Add a **hardware profile** concept (e.g. `n5-air-ram`) holding type, form factor, ECC flag, max capacity, slot count, max speed.
-- [ ] Add a **listing classifier** that accepts or rejects results by form factor (SO-DIMM vs DIMM), DDR generation, ECC, capacity and kit configuration (1x64 vs 2x32 vs 4x16), using title parsing.
-- [ ] Normalise **price per GB** and **kit vs single stick** so 2x32GB kits compare fairly with 2x16GB alternatives.
-- [ ] Track **in-stock status** alongside price; surface "cheapest *in stock*".
-- [ ] Add a **compatibility check** result to `check_compatibility` for the N5 Air profile.
+### Phase 0: Correctness fixes (do first)
 
-### Phase 2: Amazon UK coverage
-- [ ] Verify Keepa and Apify Amazon calls target the UK marketplace; fix if not.
-- [ ] Self-sufficient path: scrape UK Amazon product pages through self-hosted Firecrawl / changedetection.io; keep Keepa as optional history.
-- [ ] Document a free fallback: UK CamelCamelCamel alerts for chosen ASINs.
-- [ ] Store ASIN list per profile.
+| ID | Task | Audit | Files |
+|----|------|-------|-------|
+| P0-1 | **Stock-aware best price.** Add an `inStockOnly` option (default **true** for alerting) to `getLatestPricePerRetailer` (or a new `getBestInStockOffer`). Use it in `scheduler.ts` (price alert, drop detection, `prevBestPrice`), `db.getPriceStats().current_best`, `getComponentsBelowAlertPrice`, `getRecentPriceDrops`, `getBatchDealRatios`, `getBuildSummary`. Keep old behaviour available for dashboards via a flag. | A-01 | `db.ts`, `scheduler.ts`, `index.ts`, `web.ts` |
+| P0-2 | **Stock tri-state.** Add `price_records.stock_state` (`in_stock` / `out_of_stock` / `backorder` / `unknown`), keep `in_stock` int for compatibility. Stop defaulting unknown to in-stock. Treat phrases such as "Due 8th Oct", "Pre-order", "Expected", "Back order" as `backorder`. | A-02 | `db.ts`, `sources/url-scraper.ts`, `sources/uk-retailers.ts`, `scheduler.ts`, `notifications.ts` |
+| P0-3 | Fix John Lewis price selection (`was` preferred over `now`). | A-03 | `sources/uk-retailers.ts` |
+| P0-4 | Remove or quarantine the "lowest price on page >= GBP 10" fallback in `scrapeRetailer`; never write it to history or alerts. | A-04 | `sources/uk-retailers.ts` |
+| P0-5 | One shared, tested JSON-LD module handling `@graph`, `@type` arrays, `AggregateOffer.lowPrice`, multiple offers, availability URLs, currency; replace the two duplicated implementations. | A-05 | new `sources/structured-data.ts` |
+| P0-6 | Replace regex pseudo-CSS in `tryRules` with a real HTML parser and real CSS selectors; honour `price_attribute`; add JSONPath if needed. | A-06 | `sources/url-scraper.ts`, `package.json` |
+| P0-7 | Make selector self-healing safe: send structural HTML excerpts (not tag-stripped text), **validate** proposed selectors against the page before saving, throttle per domain. | A-07 | `sources/url-scraper.ts`, `openai-client.ts` |
+| P0-8 | Surface scheduler failures: record every run per source in a new `scrape_runs` table; count thrown errors (e.g. missing API key) as failures; alert after N consecutive failures. | A-10 | `scheduler.ts`, `db.ts`, `notifications.ts` |
+| P0-9 | Scheduler must have a **no-paid-key path** for components without URLs: component URLs, then direct UK retailer search, then optional PricesAPI. | A-11 | `scheduler.ts` |
+| P0-10 | Decide and document outlier policy; do not let `validatePrices` hide a plausible genuine bargain (see A-12). | A-12 | `services/price-validator.ts`, `scheduler.ts` |
+| P0-11 | Apify: abort runs on client timeout; log failures; mark as optional. | A-09 | `sources/apify.ts` |
+| P0-12 | Currency handling: stop hard-coding GBP in rules/DOM/Playwright extractors; reject non-GBP prices unless converted. | A-19 | `sources/url-scraper.ts` |
 
-### Phase 3: Self-hosted scraping and watching stack
-- [ ] Add `docker-compose` services for **changedetection.io** and **Firecrawl** (pinned versions, resource-limited, persistent volumes, LAN-only) alongside PCPriceChecker.
-- [ ] Run the **Firecrawl smoke test** and a **changedetection.io price-watch test** on one real UK retailer page; record results in `DEPLOYMENT.md`.
-- [ ] Define a **scraper provider interface** so sources are pluggable: Firecrawl (self-hosted), changedetection.io, Playwright/Camoufox, PricesAPI (optional), Apify (optional).
-- [ ] Add per-store **selector rules** (CSS / JSONPath) for Scan, Overclockers, CCL, Ebuyer, Novatech and eBay UK.
-- [ ] Wire both MCP servers into the documented MCP client config with pinned versions and hashes (Firecrawl MCP needs Node 22+; changedetection-mcp needs Python 3.11+).
-- [ ] Confirm the changedetection.io REST API exposes the extracted price; if not, extract via Firecrawl or selector rules instead.
-- [ ] Provider fallback order: self-hosted first, then optional paid APIs only if configured.
-- [ ] Spike: compare PriceBuddy vs native selector rules; pick one.
-- [ ] Optional: LLM-assisted selector repair when a store layout changes (local Ollama).
+Acceptance: unit tests for P0-1/2/3/4/5/6 using fixtures (see section 8). A seeded DB test shows an out-of-stock cheaper listing does **not** trigger a price alert.
 
-### Phase 4: Alerting and automation
-- [ ] Support **absolute target price**, **% drop vs last check**, and **new all-time-low (N days)** thresholds per profile.
-- [ ] Add **back-in-stock** alerts, **dedupe** and **quiet hours**.
-- [ ] Document a **self-hosted ntfy** setup on the NAS.
-- [ ] Optional n8n workflow: scheduled run, route alerts to phone/email, log to a task tracker.
+### Phase 1: Hardware profile and listing classifier
 
-### Phase 5: Data quality and ops
-- [ ] Outlier rejection for scraped prices (misparsed currency, bundle prices).
-- [ ] Record **delivered cost** (shipping) and VAT-inclusive pricing consistently.
-- [ ] **Scraper health:** "needs attention" list and an alert when a source fails repeatedly or returns no price.
-- [ ] Add tests for the classifier, price normalisation and provider fallback.
-- [ ] Synology/NAS deployment notes in `DEPLOYMENT.md`, including resource limits and persistent volumes for the new services.
-- [ ] Backup plan for SQLite and changedetection.io datastores; upgrade and rollback notes for pinned Firecrawl releases.
+| ID | Task |
+|----|------|
+| P1-1 | `services/memory-classifier.ts`: parse a product title/spec text into `{ddr: 4|5|null, formFactor: 'SODIMM'|'DIMM'|'CAMM2'|null, ecc: bool|null, modules: n, moduleGb: n, totalGb: n, speedMts: n|null, cl: n|null, voltage: n|null}`. Handle forms such as `64GB (2x32GB)`, `2x32GB`, `1x24GB`, `PC5-44800 (5600)`, `5600MHz`, `SODIMM`/`SO-DIMM`, `Non-ECC Unbuffered`, `CAS 48`, `1.1V`. Real sample titles are in `docs/RESEARCH_AND_VERIFICATION.md` section 2 and must become test fixtures, including negative cases (DDR4 SO-DIMM, desktop DIMM). |
+| P1-2 | Hardware profile model (config or table): constraints from section 3. `matchesProfile(listing, profile)` returns `{match: bool, reasons: string[], flags: string[]}` where flags include `non_binary_unverified`. |
+| P1-3 | Add `kit_total_gb`, `modules`, `price_per_gb` to price records (migration) or a `listing_attributes` table; expose through REST and MCP (new fields only). |
+| P1-4 | Extend `services/compatibility.ts`: add form-factor (SO-DIMM vs DIMM), ECC, slot count, total-capacity cap, and recognise mobile/APU platforms such as Ryzen 7 255 (currently `unknown`). Keep existing desktop rules intact. |
+| P1-5 | Wire the classifier into search results and the scheduler so non-matching listings are excluded from the profile's best price and alerts (but still stored). |
+| P1-6 | Dashboard/MCP: show price per GB and "meets target" per listing. |
 
-### Phase 6: MCP and tooling hygiene
-- [ ] Keep this repo's MCP as the main entry point; add the Firecrawl and changedetection.io MCPs as supporting tools, not replacements.
-- [ ] Review and pin versions of third-party MCPs; avoid unvetted price MCPs.
-- [ ] Keep all MCP and service credentials in environment variables or the SQLite config, never committed.
-- [ ] Confirm the GitHub MCP credentials used for repo automation are valid (a "401 Bad credentials" was seen on one connector during research).
+Use `unit_quantity` / `unit_type` (already in `tracked_components`, `setComponentUnitPricing`) where possible instead of inventing a parallel concept; verify how `index.ts` and `web.ts` currently use them first.
 
-## 7. Open questions
-1. Maximum price for 64GB, and the baseline price at the recent low (check price history first).
-2. Preferred alert channel (self-hosted ntfy, email, other).
-3. Retailer shortlist and whether eBay/used listings are acceptable for RAM.
-4. NAS headroom for the Firecrawl stack (RAM/CPU), or run it on another host.
-5. Sidecar (PriceBuddy / changedetection.io) vs native selector rules as the primary watcher.
-6. Does the changedetection.io REST API expose the extracted price field? (Decides how Phase 3 integrates.)
+### Phase 2: Provider chain and self-hosted tiers
 
-## 8. Acceptance criteria
-- Searching for the N5 Air profile returns only DDR5 SO-DIMM non-ECC kits.
-- 2x32GB, 2x16GB and single-stick options are comparable on price per GB.
-- With **no paid API keys configured**, the stack still tracks at least three UK retailers and fires alerts.
-- Self-hosted Firecrawl passes its smoke test and is reachable through its MCP server from the MCP client.
-- changedetection.io is reachable through its MCP server and at least one price watch records history.
-- An alert fires on a configured target price, % drop, or back-in-stock event, once, with a link.
-- Amazon UK prices are confirmed as GBP from the UK marketplace.
-- A failing scraper raises a visible alert rather than silently stale data.
+| ID | Task |
+|----|------|
+| P2-1 | Define a provider interface: `fetchOffer(target) -> {price, currency, stockState, name, url, method, rawRef?} | failure{reason}`. Existing code paths become providers without behaviour change. |
+| P2-2 | **Firecrawl provider** (self-hosted): `POST {FIRECRAWL_API_URL}/v2/scrape` with `formats: ["rawHtml"]` (or `html`/`markdown`), then run the shared extractors locally. Do **not** depend on Firecrawl's LLM extraction. Config: `firecrawl_url` (default unset = tier disabled), optional API key. Timeout longer than the request `timeout`. |
+| P2-3 | **Per-domain strategy memory**: remember which tier last succeeded for a domain and try it first; demote after repeated failures. |
+| P2-4 | **Local LLM option**: make the OpenAI-compatible base URL and model configurable (`OPENAI_BASE_URL`, `OPENAI_MODEL`), so Ollama (`http://host:11434/v1`) works; keep the Anthropic path optional. Default remains off. |
+| P2-5 | Optional: SearXNG-backed discovery via Firecrawl search (`SEARXNG_ENDPOINT`, `SEARXNG_ENGINES`, `SEARXNG_CATEGORIES` exist in the official compose). |
+| P2-6 | Keep Keepa/PricesAPI/Apify behind `isConfigured()` checks and document them as optional. |
 
-## 9. Verification log (2026-10-05)
+### Phase 3: changedetection.io integration
 
-Method: read official documentation and package pages. No containers or MCP servers were run. "Verified" means confirmed from the cited source, not tested hands-on.
+| ID | Task |
+|----|------|
+| P3-1 | Client for the changedetection.io REST API v1 (header `x-api-key`; endpoints under `/api/v1/`): create watch (`processor: "restock_diff"`, `processor_config_restock_diff`), list/get/recheck, history, snapshot. |
+| P3-2 | **Spike (answers open question Q6):** create one real watch on a UK retailer product page and determine exactly where the extracted price and stock state can be read (watch JSON, snapshot text, or notification webhook). The documented Watch JSON exposes config thresholds and `has_ldjson_price_data`, but **no documented current-price field**. |
+| P3-3 | Choose integration mode from the spike: poll snapshots, receive Apprise/webhook notifications, or both. Store results via the same `savePriceSnapshots` path. |
+| P3-4 | Use `fetch_backend: html_webdriver` only for pages that need JS; note it requires a browser-capable deployment of changedetection.io. |
+| P3-5 | Document the optional community MCP `changedetection-mcp` (see research doc) for ad-hoc management; the repo's own integration must not depend on it. |
 
-### 9.1 Firecrawl MCP with a self-hosted instance
-- **Verified:** `FIRECRAWL_API_URL` points the MCP at a self-hosted API. `FIRECRAWL_API_KEY` is optional only when that API does not require authentication. Requires Node.js 22+. Docs pin `firecrawl-mcp@3.23.7`. Local HTTP transport via `HTTP_STREAMABLE_SERVER=true` serves `/mcp` and `/health` on port 3000. _Source: docs.firecrawl.dev/mcp-server/local_
-- **Verified:** tool availability depends on the services enabled in the deployment. _Same source._
+### Phase 4: Alerting
 
-### 9.2 Self-hosted Firecrawl capabilities
-- **Verified:** default stack = API, bundled Playwright with basic fetch fallback, Redis, RabbitMQ, PostgreSQL queue (plus FoundationDB services for an optional backend). Only the API is published, on port 3002. Authentication is off in the quickstart; no persistent volumes for PostgreSQL, Redis, RabbitMQ. _Sources: docs.firecrawl.dev/contributing/self-host; github.com/firecrawl/firecrawl SELF_HOST.md_
-- **Verified:** core scrape, crawl, map and search routes work. Screenshots and page actions are not available without Fire-engine. Fire-engine and advanced anti-bot behaviour are not included. Agent, Browser, interact and specialised formats are cloud features. AI-backed features need a provider (OpenAI-compatible or Ollama). _Same sources._
-- **Verified:** Firecrawl states it does **not** publish a verified minimum host size. **Correction:** an earlier draft of this plan quoted "about 8GB RAM and 4 vCPU"; that figure came from a third-party blog's Compose file, not official guidance, and has been removed.
-- **Correction:** the same third-party Compose used `POSTGRES_DB=firecrawl`; official guidance for the verified release says to keep `POSTGRES_DB=postgres`.
+| ID | Task |
+|----|------|
+| P4-1 | Alert rules per profile/component: absolute target, percentage drop, new lowest in N days, back-in-stock under max price. All based on **in-stock** offers (P0-1). |
+| P4-2 | Make cooldowns configurable (today hard-coded 1440 min for target alerts and 360 min for drops in `scheduler.ts`); add quiet hours and de-duplication keyed on retailer+price. |
+| P4-3 | Alert text includes retailer, price, price per GB, stock state, delivery estimate if known, link. |
+| P4-4 | Document and test a **self-hosted ntfy** setup; keep other channels. |
+| P4-5 | Optional n8n workflow (poll REST API, route notifications). |
 
-### 9.3 changedetection-mcp
-- **Verified:** published on PyPI as `changedetection-mcp` 0.1.0 (released 2026-05-17), MIT, Python 3.11+, one maintainer, not uploaded via Trusted Publishing; SHA-256 hashes are published for the sdist and wheel. GitHub: 9 commits, no tags/releases, last commit 2026-05-31, 1 star. _Sources: pypi.org/project/changedetection-mcp; github.com/rusty4444/changedetection-mcp_
-- **Verified:** tool list and environment variables as in 5.1. No price-specific tool exists.
-- **Not verified:** that it works end-to-end against a live instance, and its behaviour on the latest changedetection.io release.
+### Phase 5: Observability and data hygiene
 
-### 9.4 Still unverified (do these during Phase 3)
-- changedetection.io price and restock detection behaviour on UK retailer pages, and whether the REST API returns the extracted price.
-- How self-hosted Firecrawl search is configured to use SearXNG.
-- NAS resource headroom for the Firecrawl stack.
-- Whether Keepa and Apify calls in this repo hit the UK marketplace.
-- Actual success rate of self-hosted scraping against each target UK retailer.
+| ID | Task |
+|----|------|
+| P5-1 | `scrape_runs` table (component_id, source/tier, started_at, duration_ms, ok, error, offers_found); `/api/health` includes last-success age per source; dashboard "needs attention" uses it (builds on `getComponentsNeedingAttention`). |
+| P5-2 | Retention/rollup for `price_records` (unbounded today, A-13): keep raw rows N days, then daily min/avg/max; configurable. |
+| P5-3 | Record delivered cost (shipping) and VAT-inclusive flag where a source provides them. |
+| P5-4 | Outlier policy implementation from P0-10. |
+
+### Phase 6: Deployment and operations
+
+| ID | Task |
+|----|------|
+| P6-1 | Add optional compose services/overlays for changedetection.io and Firecrawl with pinned versions, LAN-only ports, resource limits, persistent volumes. |
+| P6-2 | **Host decision (owner):** an existing home NAS (32GB RAM, ~35% CPU load when sampled, runs many other containers) vs the new Minisforum N5 Air (8-core/16-thread Ryzen 7 255). Firecrawl's stock compose caps are API 4 CPU / 8G and Playwright 2 CPU / 4G (caps, not verified minimums) and it also runs Redis, RabbitMQ, PostgreSQL and FoundationDB services. Measure before committing; consider lowering `NUM_WORKERS_PER_QUEUE`, `BROWSER_POOL_SIZE`, `MAX_CONCURRENT_JOBS`. |
+| P6-3 | Firecrawl's stock compose **builds from source** (`build: apps/api`, `apps/playwright-service-ts`, `apps/nuq-postgres`); image names exist as commented lines. Verify that prebuilt images for the pinned tag exist before choosing; otherwise budget build time and memory. |
+| P6-4 | Reconcile docs: root README says image `ghcr.io/gregbtm/pc-price-checker` and port 3000, while `pc-price-mcp/docker-compose.yml` uses `ghcr.io/gregbtm/pc-price-mcp:latest` and default host port 38574 with Watchtower auto-updating `:latest` (A-17). |
+| P6-5 | Backup/restore notes for the SQLite volume and the changedetection.io datastore. |
+
+### Phase 7: Tests, docs, CI
+
+| ID | Task |
+|----|------|
+| P7-1 | Add a test runner (e.g. Vitest) and `npm test`; wire into the existing CI (`.gitlab-ci.yml` and `.github/` both exist; check which is authoritative). |
+| P7-2 | Fixtures: real retailer HTML/text snippets and listing titles (never credentials). Cover classifier, JSON-LD, rules, stock states, John Lewis price, alert logic with a seeded DB. |
+| P7-3 | Update `README.md`, `pc-price-mcp/DOCS.md`, `DEPLOYMENT.md`, `.env.example` for every new setting. |
+
+## 6. Suggested order and PR slicing
+
+1. PR-A: P0-1, P0-2 (+migration, +tests). Highest value.
+2. PR-B: P0-3, P0-4, P0-5, P0-12 (extraction correctness) with fixtures.
+3. PR-C: P0-6, P0-7 (real HTML parser, safe self-healing).
+4. PR-D: P0-8, P0-9, P0-11, P5-1 (visibility and no-key path).
+5. PR-E: P1-1..P1-3, P1-5 (classifier and profile).
+6. PR-F: P2-1..P2-4 (providers, Firecrawl, local LLM option).
+7. PR-G: P3-1..P3-3 (changedetection.io after the spike).
+8. PR-H: P4, P5-2..P5-4, P6, P7-3.
+
+## 7. Decisions needed from the owner
+
+1. Maximum acceptable price for 64GB, and whether 2x24GB (48GB) or 2x16GB are acceptable fallbacks.
+2. Alert channel(s) (self-hosted ntfy recommended) and quiet hours.
+3. Retailer shortlist; whether used/eBay listings are acceptable for RAM.
+4. Where to host Firecrawl and changedetection.io (section P6-2).
+5. Whether to keep Watchtower `:latest` auto-updates.
+6. Whether the repo is public; if so, keep fixtures free of personal data.
+
+## 8. Definition of done
+
+- With **no paid API keys or hosted-LLM keys configured**, tracking at least three UK retailers works end to end and alerts are delivered.
+- A cheaper **out-of-stock or backorder** listing never triggers a price alert (tested).
+- The classifier accepts `64GB (2x32GB) DDR5 SODIMM ... Non-ECC` and rejects DDR4 SO-DIMM and desktop DIMM titles (tested with real titles).
+- A broken scraper produces a visible failure record and a notification within the configured threshold.
+- Self-hosted Firecrawl passes its documented smoke test; the Firecrawl tier recovers at least one JS-rendered page that direct fetch could not.
+- The changedetection.io spike result is documented and, if viable, integrated.
+- `npm test` passes in CI; docs updated.
+
+## 9. Guardrails for the implementer
+
+- Do not commit secrets, API keys, or personal data. Do not expose Firecrawl or changedetection.io beyond the LAN.
+- Do not remove existing tools, endpoints, columns or config keys; add alongside.
+- Do not trust Unverified items in the research doc; verify first and update the doc with the result.
+- Prefer small PRs following section 6; run the type-check (`npm run build`) before each.
+- When you verify something, append to the verification log in `docs/RESEARCH_AND_VERIFICATION.md` with date, method and source.
+
+## 10. Copy-paste hand-off prompt for another LLM
+
+> You are taking over `gregbtm/PCPriceChecker` (code in `pc-price-mcp/`, TypeScript ES modules, Node 18+, SQLite via better-sqlite3, Express 5, MCP SDK). Read `docs/IMPROVEMENT_PLAN.md`, then `docs/CODEBASE_AUDIT.md`, then `docs/RESEARCH_AND_VERIFICATION.md`. Implement the plan in the PR order in section 6, starting with Phase 0 (P0-1 and P0-2). Constraints: backward compatible (add, do not rename or remove), no secrets in the repo, no new paid dependencies, self-hosted-first. Add a test runner and use the real fixtures listed in the research doc. For every item marked Unverified you touch, verify it and record the result in the verification log. Open one PR per slice with a short description and test evidence. Ask the owner only for the decisions listed in section 7.
