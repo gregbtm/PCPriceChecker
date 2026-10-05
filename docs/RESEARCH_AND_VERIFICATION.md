@@ -116,14 +116,15 @@ Sources: github.com/dgtlmoon/changedetection.io (about 34.8k stars; commits on 2
 | 7 | Does the repo's Keepa client target Amazon UK? | **Verified in code** (`domain=2`, `amazon.co.uk` URLs) | `keepa.ts` | Confirm domain numbering against Keepa docs |
 | 8 | Does the repo's Apify Amazon call target the UK? | **Partly verified** (`countryCode: 'GB'`, `.co.uk` fallback URL) | `apify.ts` | Actor behaviour Unverified |
 | 9 | Does PricesAPI path use GB? | **Verified in code** (`country='gb'`) | `pricesapi.ts` | Service behaviour untested |
-| 10 | Is the scheduler key-less for components without URLs? | **Disproved** (PricesAPI only; errors swallowed) | `scheduler.ts` | Fix P0-9 |
-| 11 | Do alerts consider stock? | **Disproved** (no stock filter in best-price queries) | `db.ts`, `scheduler.ts` | Fix P0-1 |
+| 10 | Is the scheduler key-less for components without URLs? | **Disproved** at audit time (PricesAPI only; errors swallowed). **Corrected 2026-10-05: fixed in PR-D**, tested with mocked retailers | `scheduler.ts`, `services/refresh.test.ts` | Live run on the NAS |
+| 11 | Do alerts consider stock? | **Disproved** at audit time. **Corrected 2026-10-05: fixed in PR-A** (failing test first, then fix) | `db.ts`, `services/alerts.test.ts` | - |
 | 12 | Is the generic scraper PriceBuddy-like already? | **Verified** (JSON-LD, meta, rules, DOM, Playwright, Camofox, LLM, self-heal) | `url-scraper.ts` | - |
 | 13 | Do prebuilt Firecrawl images exist for v2.11.162? | **Unverified** | compose comments only | Check GHCR tags |
 | 14 | NAS headroom for Firecrawl | **Partly measured** (existing NAS: 32GB RAM, ~35% CPU load at sampling; free-memory and per-container usage not captured) | read-only hardware report | Measure on chosen host under load |
 | 15 | Real retailer scraping success rate | **Unverified**; one hosted-scraper read of Scan returned usable product text and prices | Scan search page | Run repo extractors and Firecrawl tier against fixtures per retailer |
 | 16 | Keepa free API tier | **Conflicting/Unverified** | code comment vs secondary source | Check Keepa API docs |
-| 17 | Does Scan's markup match `scanSearch` selectors? | **Unverified** | - | Fixture test |
+| 17 | Does Scan's markup match `scanSearch` selectors? | **Unverified**: could not be checked from the sandbox (see row 18) | - | Run from the NAS, capture the HTML as a fixture |
+| 18 | Do the repo's plain-HTTP retailer scrapers get real pages? | **Partly verified, negative, from one vantage point.** 2026-10-05, one `curl` GET per retailer search page for `ddr5 so-dimm 64gb`, browser-like User-Agent and `Accept-Language: en-GB`, from the cloud sandbox (datacenter IP): Scan 403 "Just a moment..." (Cloudflare challenge, 5.7 KB); CCL 403 same; Novatech 403 same; Currys 403 "Attention Required! \| Cloudflare"; Overclockers 403 (9.6 KB, no title); Ebuyer connection failed (curl code 000, no HTTP response). No product data and no JSON-LD in any response. No attempt was made to get past the challenges. | One request per site, no retries | **Unknown whether the NAS's home IP is treated the same.** Run `GET /api/search/retailers?q=ddr5%20so-dimm%2064gb&retailers=scan,ebuyer,ccl` on the NAS and read `/api/scrape-runs`; if blocked there too, plain fetch is not viable for those sites and the Firecrawl/Playwright/Camofox tier (PR-F) or a different source is required |
 
 ## 8. Sources (accessed 2026-10-05 unless noted)
 
