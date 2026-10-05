@@ -13,6 +13,10 @@ const FLAG_TEXT: Record<string, string> = {
   kit_unconfirmed: 'title does not say it is a 2-module kit; check before buying',
   ecc_unstated: 'title does not say Non-ECC; check before buying',
   speed_unstated: 'speed not stated',
+  suspiciously_cheap: 'WARNING: unusually cheap for this capacity; verify the seller and the listing before paying',
+  used_condition: 'used / refurbished / open-box item; check the stated condition',
+  seller_feedback_low: 'seller feedback is below 98%',
+  delivery_excluded: 'price excludes delivery',
 };
 
 /** Human-readable detail for an alert: listing, price per GB and any caveats (P4-3 part). */
