@@ -1,0 +1,66 @@
+{
+  "name": "PCPriceChecker webhook to ntfy (example)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pcpc",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "name": "PCPriceChecker webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "pcpc-example"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "typeValidation": "loose" },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.body.event }}",
+              "rightValue": "price_alert",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Is price alert?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR-NTFY-HOST/YOUR-TOPIC",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Title", "value": "={{ 'In stock under target: ' + $json.body.componentName }}" },
+            { "name": "Click", "value": "={{ $json.body.url }}" },
+            { "name": "Priority", "value": "high" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "text/plain",
+        "body": "={{ '£' + $json.body.price + ' at ' + $json.body.retailer + ' (target £' + $json.body.alertThreshold + ')' }}",
+        "options": {}
+      },
+      "name": "Send to ntfy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, -80]
+    }
+  ],
+  "connections": {
+    "PCPriceChecker webhook": { "main": [[{ "node": "Is price alert?", "type": "main", "index": 0 }]] },
+    "Is price alert?": { "main": [[{ "node": "Send to ntfy", "type": "main", "index": 0 }], []] }
+  },
+  "settings": {}
+}
