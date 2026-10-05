@@ -202,6 +202,20 @@ These are general guidance, not verified in this session unless stated.
 | `getLatestPricePerRetailer` keeps its old default (all stock states); alerting uses new `getBestInStockOffer`; `getPriceStats(id, inStockOnly = true)` changes `current_best`/`prev_best_24h` to in-stock | Additive for dashboards that want history, safe default for anything that reports a purchasable price | PR-A, `db.ts` |
 | Pin Firecrawl to `v2.11.162` initially | The official guide is verified against that tag; the compose contract changes between releases | Research section 4 |
 
+## 9b. Owner decisions (answered 2026-10-05)
+
+These close the questions in `docs/IMPROVEMENT_PLAN.md` section 7. They are the owner's words, not verified facts.
+
+| Question | Answer | Implication |
+|----------|--------|-------------|
+| Maximum price for 64GB | **GBP 350** (alert target for the 2x32GB kit) | Far below the 2026-10-05 Scan prices (GBP 893.99 and 933.49, about GBP 14/GB). Expect no alert until the market falls; price history matters more than alerts for now. GBP 350 is about GBP 5.47/GB. |
+| Fallbacks | **48GB (2x24GB) is acceptable** | Track it as a second component. N5 Air compatibility with 24GB modules is still **Unverified**, so the classifier must keep the `non_binary_unverified` flag. 2x16GB was not mentioned; treat as not approved. |
+| Alert channel | **Self-hosted ntfy** | Default `ALERT_STYLE=ntfy`. Quiet hours not specified: none by default. |
+| Retailers | Scan, Ebuyer, Amazon UK, eBay, Kingston, Currys, "and other similar popular UK sites" | Default shortlist: Scan, Ebuyer, Overclockers, CCL, Box, Novatech, Aria, AWD-IT, Currys, Kingston, plus Amazon UK and eBay. Amazon needs Keepa (paid) or a camelcamelcamel-style free route; eBay needs free eBay developer keys. Neither works key-less, so they are optional until configured. eBay listings are acceptable to the owner; new/used must be recorded per listing. |
+| Hosting for Firecrawl and changedetection.io | **Existing NAS** | Measure before committing (plan P6-2): the NAS already runs many containers. Keep both LAN-only. |
+| Watchtower | **Keep `:latest` auto-update** | The pin-versions principle is waived for the app image only; third-party images stay pinned. Consequence: every merge to `main` is deployed within about 5 minutes, so migrations must stay additive. |
+| Repo public | **Yes** | No personal data, keys, or NAS identifiers in fixtures or docs. |
+
 ## 10. Glossary
 
 - **SO-DIMM:** small-outline memory module used in laptops and mini PCs; not interchangeable with desktop DIMMs.

@@ -177,6 +177,8 @@ Use `unit_quantity` / `unit_type` (already in `tracked_components`, `setComponen
 
 ## 7. Decisions needed from the owner
 
+**Answered 2026-10-05: see `docs/HANDOFF.md` section 9b.** The list below is kept for reference.
+
 1. Maximum acceptable price for 64GB, and whether 2x24GB (48GB) or 2x16GB are acceptable fallbacks.
 2. Alert channel(s) (self-hosted ntfy recommended) and quiet hours.
 3. Retailer shortlist; whether used/eBay listings are acceptable for RAM.
