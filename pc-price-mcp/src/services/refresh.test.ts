@@ -238,3 +238,92 @@ describe('P1-3 / P1-5: hardware profile wiring (n5-air-ram)', () => {
     await expect(refreshComponent(db.getTrackedComponents()[0], ctx(['scan']), deps)).resolves.toBeDefined();
   });
 });
+
+describe('eBay tier (official Browse API; optional)', () => {
+  const L = (over: Partial<import('../sources/ebay-browse.js').EbayListing>): import('../sources/ebay-browse.js').EbayListing => ({
+    itemId: '1', title: SCAN.kit5200InStock, price: 340, currency: 'GBP', condition: 'New', conditionId: '1000',
+    url: 'https://www.ebay.co.uk/itm/1', seller: 'shop', feedbackPct: 99.5, location: 'GB', freeShipping: false, buyItNow: true, ...over,
+  });
+  const ebayResult = (listings: ReturnType<typeof L>[], error?: string) =>
+    ({ query: QUERY, condition: 'any' as const, listings, scrapedAt: '', durationMs: 1, error });
+  function withEbay(listings: ReturnType<typeof L>[], error?: string) {
+    const searchEbay = vi.fn().mockResolvedValue(ebayResult(listings, error));
+    return { searchEbay, ...makeDeps({}, { searchEbay, ebayConfigured: () => true }) };
+  }
+  const profiled = (alertPrice: number | null) => {
+    const c = fresh(alertPrice);
+    db.setComponentProfile(c.id, 'n5-air-ram');
+    return db.getTrackedComponents().find(x => x.id === c.id)!;
+  };
+
+  it('is skipped entirely when eBay is not configured', async () => {
+    const c = profiled(null);
+    const searchEbay = vi.fn();
+    const { deps } = makeDeps({}, { searchEbay, ebayConfigured: () => false });
+    await refreshComponent(c, ctx([]), deps);
+    expect(searchEbay).not.toHaveBeenCalled();
+    expect(db.getRecentScrapeRuns(5).find(r => r.source === 'ebay')).toBeUndefined();
+  });
+
+  it('keeps only purchasable fixed-price UK GBP listings: no auctions, no for-parts, no overseas, no USD', async () => {
+    const c = profiled(null);
+    const { deps } = withEbay([
+      L({ itemId: 'ok', price: 340 }),
+      L({ itemId: 'auction', price: 120, buyItNow: false }),
+      L({ itemId: 'parts', price: 100, conditionId: '7000', condition: 'For parts or not working' }),
+      L({ itemId: 'abroad', price: 200, location: 'CN' }),
+      L({ itemId: 'usd', price: 150, currency: 'USD' }),
+    ]);
+    await refreshComponent(c, ctx([]), deps);
+    const rows = db.getLatestPricePerRetailer(c.id);
+    expect(rows.map(r => r.price)).toEqual([340]);
+    expect(rows[0]).toMatchObject({ source: 'ebay', retailer: 'eBay UK', stock_state: 'in_stock', profile_match: 1 });
+  });
+
+  it('flags used condition, low seller feedback and excluded delivery; alert text says so', async () => {
+    const c = profiled(350);
+    const { deps, notify } = withEbay([L({ price: 300, conditionId: '3000', condition: 'Used', feedbackPct: 91 })]);
+    await refreshComponent(c, ctx([]), deps);
+    const alert = notify.mock.calls.map(x => x[0]).find(p => p.type === 'price_alert');
+    expect(alert).toMatchObject({ price: 300, retailer: 'eBay UK' });
+    expect(alert.message).toContain('used / refurbished');
+    expect(alert.message).toContain('below 98%');
+    expect(alert.message).toContain('excludes delivery');
+  });
+
+  it('a suspiciously cheap 64GB listing is flagged with a warning, not hidden', async () => {
+    const c = profiled(350);
+    const { deps, notify } = withEbay([L({ price: 90 })]);   // GBP 1.41/GB, under the GBP 2/GB floor
+    await refreshComponent(c, ctx([]), deps);
+    expect(db.getLatestPricePerRetailer(c.id)[0].profile_flags).toContain('suspiciously_cheap');
+    const alert = notify.mock.calls.map(x => x[0]).find(p => p.type === 'price_alert');
+    expect(alert.message).toContain('verify the seller');
+  });
+
+  it('wrong products on eBay (DDR4, 24GB single, accessories) are stored but never alert', async () => {
+    const c = profiled(350);
+    const { deps, notify } = withEbay([
+      L({ itemId: 'a', title: SCAN.ddr4Samsung, price: 15 }),
+      L({ itemId: 'b', title: SCAN.single24_5200, price: 140 }),
+    ]);
+    await refreshComponent(c, ctx([]), deps);
+    expect(db.getBestInStockOffer(c.id)).toBeNull();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('an API error is a visible failed run, other tiers still deliver', async () => {
+    const c = profiled(null);
+    const { deps } = makeDeps({ scan: () => page('Scan.co.uk', [res(SCAN.kit5200InStock, 893.99, 'in_stock', 'scan')]) },
+      { searchEbay: vi.fn().mockResolvedValue(ebayResult([], 'eBay OAuth failed HTTP 401')), ebayConfigured: () => true });
+    await refreshComponent(c, ctx(['scan']), deps);
+    expect(db.getRecentScrapeRuns(10).find(r => r.source === 'ebay')).toMatchObject({ ok: 0, error: 'eBay OAuth failed HTTP 401' });
+    expect(db.getBestInStockOffer(c.id)?.price).toBe(893.99);
+  });
+
+  it('an empty result set is healthy (nothing for sale), not a failure', async () => {
+    const c = profiled(null);
+    const { deps } = withEbay([]);
+    await refreshComponent(c, ctx([]), deps);
+    expect(db.getRecentScrapeRuns(5).find(r => r.source === 'ebay')).toMatchObject({ ok: 1, offers_found: 0 });
+  });
+});

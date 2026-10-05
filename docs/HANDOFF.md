@@ -84,7 +84,7 @@ Phase 2 providers
 - [ ] P2-3 Per-domain strategy memory
 - [ ] P2-4 Local LLM (OpenAI-compatible base URL)
 - [ ] P2-5 SearXNG discovery (optional)
-- [ ] P2-6 Paid sources marked optional
+- [~] P2-6 Paid sources marked optional (Apify marked optional in PR-D; PricesAPI already only used when configured)
 
 Phase 3 changedetection.io
 - [ ] P3-1 REST client
@@ -232,6 +232,12 @@ These close the questions in `docs/IMPROVEMENT_PLAN.md` section 7. They are the 
 - Alert text now carries the listing title, GBP per GB and the flag warnings. A 48GB alert says plainly that 24GB modules are not confirmed to work in the N5 Air.
 - The classifier never guesses: a title that does not say DDR4/DDR5 or SO-DIMM/DIMM is rejected with that reason.
 - **Limit:** the MCP `track_component fetch_now` / `refresh_prices` path (index.ts) is separate from the scheduler and does not classify. Only the scheduler path, which is what produces alerts, is profile-aware.
+
+## 9e. eBay tier and the scraping reality (2026-10-05)
+
+- **Owner's NAS result (2026-10-05):** `/api/search/retailers?...&retailers=scan,ebuyer,ccl` returned Scan HTTP 403 (blocked from the home IP too), Ebuyer HTTP 404 and CCL Online HTTP 404. For CCL the code's domain `ccl.co.uk` is a WordPress corporate site whose `/search` is a genuine "Page Not Found" (reproduced from the sandbox); the shop is on `cclonline.com`, which answered the sandbox with a block page. Ebuyer's correct search URL could not be checked (its site refused the sandbox). No scraper URL was changed because the correct ones could not be verified.
+- **Decision:** add the official eBay Browse API tier (`docs/EBAY_SETUP.md`) and keep manual alerts (`docs/MANUAL_ALERTS.md`) as the reliable fallback. Retailer scrapers stay in place; their failures are visible in `/api/scrape-runs`.
+- eBay needs the owner's free developer keys; until they are set the tier is skipped silently (no failure records).
 
 ## 10. Glossary
 

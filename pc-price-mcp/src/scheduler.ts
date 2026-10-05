@@ -6,6 +6,7 @@
  */
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
+import { ebayBrowseSearch, ebayConfigured } from './sources/ebay-browse.js';
 import { searchUkRetailer, ALL_RETAILER_IDS, type RetailerId } from './sources/uk-retailers.js';
 import { scrapeProductUrl } from './sources/url-scraper.js';
 import { notifyAll } from './notifications.js';
@@ -102,6 +103,9 @@ const realDeps: RefreshDeps = {
       })));
   },
   pricesApiConfigured: () => !!process.env.PRICES_API_KEY?.trim(),
+  ebayConfigured,
+  // Condition 'any' unless ebay_allow_used is "false". Fixed-price listings only.
+  searchEbay: (query) => ebayBrowseSearch(query, db.getConfig('ebay_allow_used') === 'false' ? 'new' : 'any', 100, { buyItNowOnly: true }),
   notify: notifyAll,
   sleep,
 };

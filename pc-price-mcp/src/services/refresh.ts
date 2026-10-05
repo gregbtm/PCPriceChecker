@@ -12,6 +12,7 @@ import * as db from '../db.js';
 import type { notifyAll } from '../notifications.js';
 import type { ScrapedProduct } from '../sources/url-scraper.js';
 import type { RetailerId, RetailerSearchResult } from '../sources/uk-retailers.js';
+import type { EbayBrowseResult, EbayListing } from '../sources/ebay-browse.js';
 import { evaluateAlerts } from './alerts.js';
 import { alertOnRepeatedFailures } from './scrape-health.js';
 import { matchesQuery } from './query-match.js';
@@ -23,6 +24,9 @@ export interface RefreshDeps {
   /** Returns offers, or throws. Only called when pricesApiConfigured() is true. */
   searchPricesApi: (query: string, country: string) => Promise<db.PriceSnapshot[]>;
   pricesApiConfigured: () => boolean;
+  /** Optional eBay tier (official Browse API, needs free developer keys). Absent/unconfigured = skipped. */
+  searchEbay?: (query: string) => Promise<EbayBrowseResult>;
+  ebayConfigured?: () => boolean;
   notify: typeof notifyAll;
   sleep: (ms: number) => Promise<void>;
 }
@@ -43,15 +47,37 @@ const RETAILER_GAP_MS = 2_000;
  * Listing attributes for a component with a hardware profile (P1-3, P1-5). Returns {} when the
  * component has no (known) profile, in which case callers fall back to the interim query filter.
  */
-function profileAttrs(component: db.TrackedComponent, name: string | undefined): Partial<db.PriceSnapshot> {
+function profileAttrs(component: db.TrackedComponent, name: string | undefined, price: number): Partial<db.PriceSnapshot> {
   const profile = component.profile_id ? PROFILES[component.profile_id] : undefined;
   if (!profile || !name) return {};
   const listing = classifyMemory(name);
   const m = matchesProfile(listing, profile);
+  const flags = [...m.flags];
+  // A price far below what this capacity has ever sold for is more likely a scam or a wrong listing
+  // than a bargain. Never hidden: flagged so the alert says so.
+  const floor = Number(db.getConfig('suspicious_price_per_gb') ?? 2);
+  if (m.match && listing.totalGb && price / listing.totalGb < floor) flags.push('suspiciously_cheap');
   return {
     listingName: name, kitTotalGb: listing.totalGb, modules: listing.modules,
-    profileMatch: m.match, profileFlags: m.flags,
+    profileMatch: m.match, profileFlags: flags,
   };
+}
+
+/**
+ * eBay listings that can be a purchase price: fixed price (not an auction bid), priced in GBP,
+ * not "for parts or not working" (conditionId 7000), and not known to ship from outside the UK.
+ */
+export function eligibleEbayListing(l: EbayListing): boolean {
+  return l.price != null && l.price > 0 && l.currency === 'GBP' && l.buyItNow
+    && l.conditionId !== '7000' && (!l.location || l.location === 'GB');
+}
+
+/** Caveats the buyer must see: eBay prices exclude delivery, and most conditions are not "new". */
+export function ebayFlags(l: EbayListing): string[] {
+  const flags = ['delivery_excluded'];
+  if (l.conditionId !== '1000' && l.conditionId !== '1500') flags.push('used_condition');
+  if (l.feedbackPct != null && l.feedbackPct < 98) flags.push('seller_feedback_low');
+  return flags;
 }
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -95,7 +121,7 @@ export async function refreshComponent(
         if (scraped.price == null) return { offers: [], error: 'no price extracted from page' };
         return { offers: [{ source: scraped.method, price: scraped.price, currency: scraped.currency,
           retailer: domain, url, inStock: scraped.inStock, stockState: scraped.stockState,
-          ...profileAttrs(component, scraped.name) }] };
+          ...profileAttrs(component, scraped.name, scraped.price) }] };
       });
     }
   } else {
@@ -111,7 +137,26 @@ export async function refreshComponent(
           .filter(x => x.price != null && x.price > 0 && x.currency === 'GBP' && (hasProfile || matchesQuery(x.name, component.search_query)))
           .map(x => ({ source: `uk-retailer:${id}`, price: x.price as number, currency: x.currency,
             retailer: r.retailer, url: x.url, inStock: x.inStock, stockState: x.stockState,
-            ...profileAttrs(component, x.name) }));
+            ...profileAttrs(component, x.name, x.price as number) }));
+        return { offers };
+      });
+      await deps.sleep(RETAILER_GAP_MS);
+    }
+    if (deps.searchEbay && deps.ebayConfigured?.()) {
+      await attempt('ebay', async () => {
+        const r = await deps.searchEbay!(component.search_query);
+        if (r.error) return { offers: [], error: r.error };
+        const hasProfile = !!(component.profile_id && PROFILES[component.profile_id]);
+        const offers = r.listings.filter(eligibleEbayListing)
+          .filter(l => hasProfile || matchesQuery(l.title, component.search_query))
+          .map(l => {
+            const attrs = profileAttrs(component, l.title, l.price as number);
+            return {
+              source: 'ebay', price: l.price as number, currency: 'GBP', retailer: 'eBay UK', url: l.url,
+              inStock: true, stockState: 'in_stock' as const, listingName: l.title, ...attrs,
+              profileFlags: [...(attrs.profileFlags ?? []), ...ebayFlags(l)],
+            };
+          });
         return { offers };
       });
       await deps.sleep(RETAILER_GAP_MS);

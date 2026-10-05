@@ -150,10 +150,24 @@ function mapItem(raw: Record<string, unknown>): EbayListing {
 
 // ── Public API ─────────────────────────────────────────────────────────────
 
+export function ebayConfigured(): boolean {
+  return !!(process.env.EBAY_CLIENT_ID?.trim() && process.env.EBAY_CLIENT_SECRET?.trim());
+}
+
+/** Browse API `filter` value. Comma-separated filters are ANDed. */
+export function buildEbayFilter(condition: EbayCondition, buyItNowOnly: boolean): string | null {
+  const parts: string[] = [];
+  const cond = CONDITION_FILTER[condition];
+  if (cond) parts.push(cond);
+  if (buyItNowOnly) parts.push('buyingOptions:{FIXED_PRICE}');   // auction bids are not purchase prices
+  return parts.length > 0 ? parts.join(',') : null;
+}
+
 export async function ebayBrowseSearch(
   query:      string,
   condition:  EbayCondition = 'any',
   maxResults  = 20,
+  opts:       { buyItNowOnly?: boolean } = {},
 ): Promise<EbayBrowseResult> {
   const t0 = Date.now();
   try {
@@ -164,8 +178,8 @@ export async function ebayBrowseSearch(
       limit: String(Math.min(maxResults, 200)),
     });
 
-    const condFilter = CONDITION_FILTER[condition];
-    if (condFilter) params.set('filter', condFilter);
+    const filter = buildEbayFilter(condition, opts.buyItNowOnly ?? false);
+    if (filter) params.set('filter', filter);
 
     const res = await fetch(`${BROWSE_URL}/item_summary/search?${params}`, {
       headers: browseHeaders(token),
