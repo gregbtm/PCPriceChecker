@@ -4,7 +4,7 @@
  */
 import * as db from './db.js';
 
-export type NotificationType = 'price_alert' | 'price_drop' | 'restock' | 'test' | 'saved_search';
+export type NotificationType = 'price_alert' | 'price_drop' | 'restock' | 'test' | 'saved_search' | 'scrape_failure';
 
 export interface NotificationPayload {
   type: NotificationType;
@@ -25,6 +25,7 @@ const DISCORD_COLORS: Record<NotificationType, number> = {
   restock:       0xFF8800,
   test:          0x9B59B6,
   saved_search:  0xF59E0B,
+  scrape_failure: 0xE74C3C,
 };
 
 const DISCORD_TITLES: Record<NotificationType, string> = {
@@ -33,6 +34,7 @@ const DISCORD_TITLES: Record<NotificationType, string> = {
   restock:       '📦 Back In Stock!',
   test:          '🧪 Test Notification',
   saved_search:  '🔍 Saved Search Match!',
+  scrape_failure: '⚠️ Price Scraper Failing',
 };
 
 function fmtPrice(amount: number, currency = 'GBP'): string {
@@ -87,6 +89,9 @@ export async function sendSlack(webhookUrl: string, payload: NotificationPayload
     case 'restock':
       text = `📦 *Back In Stock:* ${payload.componentName} at ${payload.retailer}` +
         (payload.price ? ` — *${sym}${payload.price.toFixed(2)}*` : '');
+      break;
+    case 'scrape_failure':
+      text = `⚠️ *Scraper failing:* ${payload.componentName}`;
       break;
     case 'test':
       text = `🧪 *Test notification* from UK PC Price MCP — webhooks are working!`;
@@ -183,10 +188,13 @@ export async function sendNtfy(topic: string, server: string, payload: Notificat
 
   const headers: Record<string, string> = {
     Title: DISCORD_TITLES[payload.type],
-    Tags: payload.type === 'price_drop' ? 'chart_with_downwards_trend' : (payload.type === 'restock' ? 'package' : 'bell'),
+    Tags: payload.type === 'price_drop' ? 'chart_with_downwards_trend' : (payload.type === 'restock' ? 'package' : (payload.type === 'scrape_failure' ? 'warning' : 'bell')),
     Priority: payload.type === 'price_alert' ? 'high' : 'default',
   };
   if (payload.url) headers['Click'] = payload.url;
+  // Self-hosted ntfy with access control needs a token (Bearer), otherwise it answers 403.
+  const ntfyToken = db.getConfig('ntfy_token') ?? process.env.NTFY_TOKEN;
+  if (ntfyToken) headers['Authorization'] = `Bearer ${ntfyToken}`;
 
   try {
     const res = await fetch(`${server.replace(/\/$/, '')}/${topic}`, {

@@ -139,6 +139,18 @@ function initSchema(db: Database.Database): void {
       recorded_at  TEXT    NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS scrape_runs (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      component_id INTEGER REFERENCES tracked_components(id) ON DELETE CASCADE,
+      source       TEXT    NOT NULL,
+      started_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      duration_ms  INTEGER,
+      ok           INTEGER NOT NULL,
+      error        TEXT,
+      offers_found INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_scrape_runs_component_source ON scrape_runs(component_id, source, id DESC);
+
     CREATE TABLE IF NOT EXISTS builds (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT    NOT NULL UNIQUE,
@@ -1128,4 +1140,68 @@ export function deleteScrapeRule(domain: string): boolean {
 
 export function getAllScrapeRules(): ScrapeRule[] {
   return getDb().prepare('SELECT * FROM scrape_rules ORDER BY domain ASC').all() as ScrapeRule[];
+}
+
+
+// ── Scrape runs (P0-8 / P5-1) ──────────────────────────────────────────────
+
+export interface ScrapeRun {
+  id: number; component_id: number | null; source: string; started_at: string;
+  duration_ms: number | null; ok: number; error: string | null; offers_found: number;
+}
+
+export function recordScrapeRun(run: {
+  componentId: number | null; source: string; durationMs?: number | null;
+  ok: boolean; error?: string | null; offersFound?: number;
+}): void {
+  getDb().prepare(`
+    INSERT INTO scrape_runs (component_id, source, duration_ms, ok, error, offers_found)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(run.componentId, run.source, run.durationMs ?? null, run.ok ? 1 : 0,
+    run.error ? run.error.slice(0, 500) : null, run.offersFound ?? 0);
+}
+
+/** Failed runs in a row for this component+source, newest first, stopping at the first success. */
+export function getConsecutiveFailures(componentId: number | null, source: string): number {
+  const rows = getDb().prepare(`
+    SELECT ok FROM scrape_runs WHERE component_id IS ? AND source = ? ORDER BY id DESC LIMIT 100
+  `).all(componentId, source) as { ok: number }[];
+  let n = 0;
+  for (const r of rows) { if (r.ok) break; n++; }
+  return n;
+}
+
+export function getRecentScrapeRuns(limit = 50, componentId?: number): ScrapeRun[] {
+  const where = componentId != null ? 'WHERE component_id = ?' : '';
+  const args: unknown[] = componentId != null ? [componentId, limit] : [limit];
+  return getDb().prepare(`SELECT * FROM scrape_runs ${where} ORDER BY id DESC LIMIT ?`).all(...args) as ScrapeRun[];
+}
+
+export interface SourceHealth {
+  source: string; last_run_at: string; last_success_at: string | null;
+  runs_24h: number; failures_24h: number; last_error: string | null;
+  consecutive_failures: number;
+}
+
+/** One row per source, across all components. Includes sources that have never succeeded. */
+export function getSourceHealth(): SourceHealth[] {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT source, MAX(started_at) AS last_run_at,
+           MAX(CASE WHEN ok = 1 THEN started_at END) AS last_success_at,
+           SUM(CASE WHEN started_at >= datetime('now', '-24 hours') THEN 1 ELSE 0 END) AS runs_24h,
+           SUM(CASE WHEN started_at >= datetime('now', '-24 hours') AND ok = 0 THEN 1 ELSE 0 END) AS failures_24h
+    FROM scrape_runs GROUP BY source ORDER BY source
+  `).all() as Omit<SourceHealth, 'last_error' | 'consecutive_failures'>[];
+  return rows.map(r => {
+    const recent = db.prepare(`SELECT ok, error FROM scrape_runs WHERE source = ? ORDER BY id DESC LIMIT 100`)
+      .all(r.source) as { ok: number; error: string | null }[];
+    let consecutive = 0;
+    for (const x of recent) { if (x.ok) break; consecutive++; }
+    return { ...r, last_error: recent.find(x => !x.ok)?.error ?? null, consecutive_failures: consecutive };
+  });
+}
+
+export function pruneScrapeRuns(days = 30): void {
+  getDb().prepare(`DELETE FROM scrape_runs WHERE started_at < datetime('now', ? || ' days')`).run(`-${days}`);
 }

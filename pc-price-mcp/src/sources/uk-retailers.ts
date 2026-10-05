@@ -577,3 +577,8 @@ export async function searchAllUkRetailers(
 ): Promise<RetailerSearchResult[]> {
   return Promise.all(retailers.map(r => RETAILER_FNS[r](query)));
 }
+
+/** Search a single retailer (the scheduler goes one at a time to keep request rates low). */
+export function searchUkRetailer(id: RetailerId, query: string): Promise<RetailerSearchResult> {
+  return RETAILER_FNS[id](query);
+}
