@@ -53,13 +53,13 @@ Both `tryJsonLd` (`url-scraper.ts`) and `extractJsonLdProducts` (`uk-retailers.t
 ### A-08 AI features hard-wired to cloud endpoints (Medium, Verified)
 `openai-client.ts` uses `https://api.openai.com/v1` (constant) and model `gpt-4o-mini`; `url-scraper.ts` calls `https://api.anthropic.com/v1/messages` with model `claude-haiku-4-5-20251001`. No base-URL override, so a local OpenAI-compatible server (Ollama) cannot be used. Both read keys only from `process.env` although comments say "env or stored in DB config" (Inferred: some startup code may copy DB config to env; in unread files). Fix: P2-4.
 
-### A-09 Apify client leaks runs and swallows errors; depends on community actors (Medium, Verified)
+### A-09 Apify client leaks runs and swallows errors; depends on community actors (Medium, Verified) — **Partly fixed in PR-D** (abort on timeout, errors logged to stderr; actors still third-party and unverified)
 `runApifyActor` polls up to `timeoutSecs`; on timeout it returns `status: 'RUNNING'` and **does not abort the actor run** (possible continued cost). `apifyFetch` returns `null` on any error. Actors used are third-party (`lulzasaur~pcpartpicker-scraper`, `sian.agency~currys-product-scraper`, `s-r~free-google-shopping-scraper...`, `ecomscrape~argos-product-search-scraper`, `studio-amba~idealo-scraper`, `alpha-scraper~amazon-product-details-scraper-single-rental`); their availability, pricing and output schemas are outside this repo's control and conflict with the self-sufficiency goal. The Amazon call passes `countryCode: 'GB'` (UK intent) but the actor's behaviour is Unverified. Fix: P0-11, P2-6.
 
-### A-10 Scheduler hides failures (High, Verified)
+### A-10 Scheduler hides failures (High, Verified) — **Fixed in PR-D** (`scrape_runs`, thrown errors recorded, repeated failures notify, skipped ticks counted)
 `scheduledRefreshAll` wraps each component in `try { ... } catch { await sleep(2000) }` and the interval callback in `try {...} catch {}`. `markScrapeFailed` is only called when no snapshots were produced **without** an exception; a thrown error (e.g. `PRICES_API_KEY` missing, thrown by `getApiKey()`) is swallowed and does not mark the component failed. There is no failure notification and no per-source history. A `running` guard silently skips ticks when a run is still in progress. Fix: P0-8, P5-1.
 
-### A-11 No key-less path for components without URLs (High, Verified)
+### A-11 No key-less path for components without URLs (High, Verified) — **Fixed in PR-D** (direct UK retailer search tier; PricesAPI only when configured). Relevance is an interim token match, not the classifier
 When a component has no `component_urls`/`source_url`, the scheduler calls `searchWithRetry` (PricesAPI) only. Keepa, direct UK retailers and Apify are not used by the scheduler (they are used by MCP/REST tools in unread files). Without `PRICES_API_KEY` such components never update, and the error is swallowed (A-10). Fix: P0-9.
 
 ### A-12 Outlier validation unused in the scheduler and risky for bargains (Medium, Verified)

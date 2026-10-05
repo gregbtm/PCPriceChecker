@@ -64,10 +64,10 @@ Phase 0 correctness
 - [x] P0-5 Shared JSON-LD module (PR-B, `sources/structured-data.ts`)
 - [ ] P0-6 Real HTML parser for rules
 - [ ] P0-7 Safe selector self-healing
-- [ ] P0-8 Scheduler failure visibility (`scrape_runs`)
-- [ ] P0-9 No-paid-key scheduler path
+- [x] P0-8 Scheduler failure visibility (`scrape_runs`, PR-D)
+- [x] P0-9 No-paid-key scheduler path (PR-D; interim `matchesQuery` filter until P1-5)
 - [ ] P0-10 Outlier policy
-- [ ] P0-11 Apify abort and logging
+- [x] P0-11 Apify abort and logging (PR-D)
 - [x] P0-12 Currency handling (PR-B; JSON-LD, meta, rules, DOM and Playwright reject non-GBP. Camofox and AI paths still report whatever they return, see audit A-19)
 
 Phase 1 profile and classifier
@@ -97,11 +97,11 @@ Phase 4 alerting
 - [ ] P4-1 Alert rules (in-stock based)
 - [ ] P4-2 Configurable cooldowns, quiet hours, dedupe
 - [ ] P4-3 Richer alert text
-- [ ] P4-4 Self-hosted ntfy docs/tests
+- [~] P4-4 Self-hosted ntfy (PR-D: `ntfy_token` Bearer support + test; docs not done)
 - [ ] P4-5 Optional n8n workflow
 
 Phase 5 observability and data
-- [ ] P5-1 Health per source and dashboard
+- [~] P5-1 Health per source (PR-D: `scrape_runs`, `/api/health` `scrapers`, `/api/scrape-runs`; dashboard "needs attention" UI not done)
 - [ ] P5-2 Retention/rollup
 - [ ] P5-3 Delivered cost and VAT flag
 - [ ] P5-4 Outlier policy implementation
@@ -215,6 +215,14 @@ These close the questions in `docs/IMPROVEMENT_PLAN.md` section 7. They are the 
 | Hosting for Firecrawl and changedetection.io | **Existing NAS** | Measure before committing (plan P6-2): the NAS already runs many containers. Keep both LAN-only. |
 | Watchtower | **Keep `:latest` auto-update** | The pin-versions principle is waived for the app image only; third-party images stay pinned. Consequence: every merge to `main` is deployed within about 5 minutes, so migrations must stay additive. |
 | Repo public | **Yes** | No personal data, keys, or NAS identifiers in fixtures or docs. |
+
+## 9c. Operating notes added in PR-D
+
+- **Scraper failures:** every source attempt is a row in `scrape_runs`. After `scrape_failure_alert_after` (config key or `SCRAPE_FAILURE_ALERT_AFTER`, default 3) consecutive failures of one source for one component, a single `scrape_failure` notification lists the failing sources; repeats at most once per source per 24 h.
+- **Key-less search tier:** components with no URLs are searched on the retailers in config `scheduler_retailers` (or `SCHEDULER_RETAILERS`, comma-separated ids). Default: `scan, overclockers, ebuyer, ccl, box, novatech, aria, awdit, currys`, one at a time with a 2 s gap (requests per component per tick: 9, previously 1 PricesAPI call). Kingston, Amazon UK and eBay have **no key-less scraper** yet.
+- **Relevance:** a search result is stored only if its title contains every word of the component's `search_query` (SO-DIMM/SODIMM equivalent, `-word` excludes). Use a query like `ddr5 so-dimm 64gb`. Limit: a title that says `2x32GB` without `64GB` is missed. P1-5 replaces this.
+- **Self-hosted ntfy with access control:** set config `ntfy_token` (or `NTFY_TOKEN`) and `ntfy_server`; the app sends `Authorization: Bearer`. Without it an ACL-protected topic answers 403.
+- **Health:** `/api/health` stays `status: ok` and adds `scrapers.failing` (sources with 3+ failures in a row); `/api/scrape-runs?component_id=&limit=` lists recent runs.
 
 ## 10. Glossary
 

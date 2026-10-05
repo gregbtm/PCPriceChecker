@@ -2,7 +2,7 @@
  * Apify API client — run cloud actors for advanced scraping tasks.
  * Primary use: lulzasaur/pcpartpicker-scraper for PCPartPicker price data.
  *
- * Requires APIFY_API_TOKEN in env or stored in DB config.
+ * OPTIONAL paid fallback: nothing in the default pipeline needs it. Requires APIFY_API_TOKEN in env.
  * https://docs.apify.com/api/v2
  */
 
@@ -35,9 +35,15 @@ async function apifyFetch(path: string, opts?: RequestInit): Promise<unknown | n
       ...opts,
       signal: AbortSignal.timeout(30_000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error(`[apify] ${opts?.method ?? 'GET'} ${path.split('?')[0]} -> HTTP ${res.status}`);
+      return null;
+    }
     return await res.json();
-  } catch { return null; }
+  } catch (e) {
+    console.error(`[apify] ${opts?.method ?? 'GET'} ${path.split('?')[0]} failed: ${(e as Error).message}`);
+    return null;
+  }
 }
 
 /** Start an Apify actor run and return the run ID + dataset ID once it succeeds. */
@@ -74,7 +80,10 @@ export async function runApifyActor(
       return { runId, datasetId: '', status: state as 'FAILED' | 'ABORTED' };
     }
   }
-  return { runId, datasetId: '', status: 'RUNNING' };
+  // Client-side timeout: abort the run so it stops consuming (paid) compute (A-09).
+  const aborted = await apifyFetch(`/actor-runs/${runId}/abort`, { method: 'POST' });
+  if (aborted == null) console.error(`[apify] could not abort run ${runId} after ${timeoutSecs}s timeout`);
+  return { runId, datasetId: '', status: 'ABORTED' };
 }
 
 /** Fetch items from an Apify dataset. */

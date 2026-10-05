@@ -6,16 +6,19 @@
  */
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
+import { searchUkRetailer, ALL_RETAILER_IDS, type RetailerId } from './sources/uk-retailers.js';
 import { scrapeProductUrl } from './sources/url-scraper.js';
 import { notifyAll } from './notifications.js';
 import { stockStateFromBoolean } from './services/stock-state.js';
-import { evaluateAlerts } from './services/alerts.js';
+import { refreshComponent, DEFAULT_SEARCH_RETAILERS, type RefreshDeps } from './services/refresh.js';
+import { alertOnRepeatedFailures } from './services/scrape-health.js';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 let lastRunAt: Date | null = null;
 let nextRunAt: Date | null = null;
 let runCount = 0;
+let skippedTicks = 0;
 
 export function getSchedulerStatus() {
   const intervalStr = db.getConfig('auto_refresh_interval_minutes');
@@ -26,6 +29,7 @@ export function getSchedulerStatus() {
     lastRunAt: lastRunAt?.toISOString() ?? null,
     nextRunAt: nextRunAt?.toISOString() ?? null,
     runCount,
+    skippedTicks,
     currentlyRunning: running,
   };
 }
@@ -54,7 +58,7 @@ export function startScheduler(): boolean {
   nextRunAt = new Date(Date.now() + intervalMs);
 
   timer = setInterval(async () => {
-    if (running) return;
+    if (running) { skippedTicks++; return; }   // previous run still going; counted, not silent (A-10)
     running = true;
     lastRunAt = new Date();
     runCount++;
@@ -63,7 +67,9 @@ export function startScheduler(): boolean {
 
     try {
       await scheduledRefreshAll();
-    } catch { /* keep scheduler alive on error */ }
+    } catch (e) {
+      db.recordScrapeRun({ componentId: null, source: 'scheduler', ok: false, error: e instanceof Error ? e.message : String(e) });
+    }
 
     running = false;
   }, intervalMs);
@@ -82,103 +88,65 @@ export function restartScheduler(): boolean {
 
 // ── Core refresh loop ──────────────────────────────────────────────────────
 
-async function scheduledRefreshAll(): Promise<void> {
+const realDeps: RefreshDeps = {
+  scrapeUrl: scrapeProductUrl,
+  searchRetailer: (id, query) => searchUkRetailer(id, query),
+  searchPricesApi: async (query, country) => {
+    const { products } = await searchWithRetry(query, country, 3, 15);
+    return products.flatMap(product => product.offers
+      .filter(offer => offer.price > 0)
+      .map(offer => ({
+        source: 'pricesapi', price: offer.price, currency: offer.currency,
+        retailer: offer.merchant, url: offer.url || null, inStock: offer.inStock,
+        stockState: stockStateFromBoolean(offer.inStock),
+      })));
+  },
+  pricesApiConfigured: () => !!process.env.PRICES_API_KEY?.trim(),
+  notify: notifyAll,
+  sleep,
+};
+
+function configuredRetailers(): RetailerId[] {
+  const raw = db.getConfig('scheduler_retailers') ?? process.env.SCHEDULER_RETAILERS;
+  if (!raw) return DEFAULT_SEARCH_RETAILERS;
+  const wanted = raw.split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
+  const valid = wanted.filter((x): x is RetailerId => (ALL_RETAILER_IDS as string[]).includes(x));
+  return valid.length > 0 ? valid : DEFAULT_SEARCH_RETAILERS;
+}
+
+export async function scheduledRefreshAll(deps: RefreshDeps = realDeps): Promise<void> {
   const components = db.getTrackedComponents();
   if (components.length === 0) return;
 
-  const country = db.getConfig('default_country') ?? 'gb';
-  const dropThresholdPct = Number(db.getConfig('notify_drop_percent') ?? 5);
+  const ctx = {
+    country: db.getConfig('default_country') ?? 'gb',
+    dropThresholdPct: Number(db.getConfig('notify_drop_percent') ?? 5),
+    retailers: configuredRetailers(),
+  };
   const globalIntervalMs = Number(db.getConfig('auto_refresh_interval_minutes') ?? 60) * 60_000;
 
   for (const component of components) {
+    if (component.paused) continue;
+
+    // Respect per-component check interval
+    if (component.check_interval_minutes != null && component.last_checked) {
+      const componentIntervalMs = component.check_interval_minutes * 60_000;
+      const elapsed = Date.now() - new Date(component.last_checked + 'Z').getTime();
+      if (elapsed < Math.max(componentIntervalMs, globalIntervalMs)) continue;
+    }
+
     try {
-      // Skip paused components
-      if (component.paused) { continue; }
-
-      // Respect per-component check interval
-      if (component.check_interval_minutes != null && component.last_checked) {
-        const componentIntervalMs = component.check_interval_minutes * 60_000;
-        const elapsed = Date.now() - new Date(component.last_checked + 'Z').getTime();
-        if (elapsed < Math.max(componentIntervalMs, globalIntervalMs)) continue;
-      }
-
-      // Snapshot previous state before refresh
-      const prevLatest = db.getLatestPricePerRetailer(component.id);
-      // Previous best must be a purchasable (in-stock) price, otherwise drop alerts compare against phantom prices
-      const prevBestPrice = db.getBestInStockOffer(component.id)?.price ?? null;
-      const prevStockMap = new Map(prevLatest.map(r => [r.retailer, r.in_stock === 1]));
-
-      const snapshots: db.PriceSnapshot[] = [];
-
-      // Gather URLs to scrape: component_urls table takes priority, then source_url fallback
-      const componentUrls = db.getComponentUrls(component.id);
-      const urlsToScrape = componentUrls.length > 0
-        ? componentUrls.map(u => ({ url: u.url, retailer: u.retailer ?? undefined }))
-        : component.source_url
-          ? [{ url: component.source_url, retailer: undefined }]
-          : [];
-
-      if (urlsToScrape.length > 0) {
-        for (const { url, retailer } of urlsToScrape) {
-          const scraped = await scrapeProductUrl(url);
-          if (scraped.price != null) {
-            const domain = retailer ?? (() => {
-              try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'url'; }
-            })();
-            snapshots.push({
-              source: scraped.method, price: scraped.price, currency: scraped.currency,
-              retailer: domain, url, inStock: scraped.inStock, stockState: scraped.stockState,
-            });
-          }
-        }
-      } else {
-        const { products } = await searchWithRetry(component.search_query, country, 3, 15);
-        for (const product of products) {
-          for (const offer of product.offers) {
-            if (offer.price > 0) {
-              snapshots.push({
-                source: 'pricesapi', price: offer.price, currency: offer.currency,
-                retailer: offer.merchant, url: offer.url || null, inStock: offer.inStock,
-                stockState: stockStateFromBoolean(offer.inStock),
-              });
-            }
-          }
-        }
-      }
-
-      if (snapshots.length === 0) {
-        db.markScrapeFailed(component.id);
-        await sleep(2_000);
-        continue;
-      }
-
-      db.clearScrapeFailed(component.id);
-
-      // Detect stock changes before saving
-      for (const snap of snapshots) {
-        const wasInStock = prevStockMap.get(snap.retailer);
-        if (wasInStock === true && !snap.inStock) {
-          db.recordStockChange(component.id, snap.retailer, true, false, snap.price);
-        } else if (wasInStock === false && snap.inStock) {
-          db.recordStockChange(component.id, snap.retailer, false, true, snap.price);
-          // Check waitlist
-          if (db.isOnWaitlist(component.id, snap.retailer, snap.price)) {
-            await notifyAll({ type: 'restock', componentName: component.name,
-              price: snap.price, currency: snap.currency, retailer: snap.retailer, url: snap.url });
-          }
-        }
-      }
-
-      db.savePriceSnapshots(component.id, snapshots);
-      db.markLastChecked(component.id);
-
-      // Alerts consider in-stock offers only (audit A-01)
-      await evaluateAlerts({ component, prevBestPrice, dropThresholdPct });
-
-      // Throttle between components — PricesAPI free tier has per-minute limits
-      await sleep(3_000);
-    } catch { await sleep(2_000); }
+      await refreshComponent(component, ctx, deps);
+    } catch (e) {
+      // Never swallow silently (A-10): record it, flag the component, and let repeated failures notify.
+      db.recordScrapeRun({ componentId: component.id, source: 'scheduler', ok: false,
+        error: e instanceof Error ? e.message : String(e) });
+      db.markScrapeFailed(component.id);
+      await alertOnRepeatedFailures(component, ['scheduler'], deps.notify).catch(() => {});
+    }
+    await deps.sleep(3_000);
   }
+  db.pruneScrapeRuns(30);
 }
 
 function sleep(ms: number): Promise<void> {

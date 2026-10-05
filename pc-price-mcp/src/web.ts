@@ -924,8 +924,21 @@ export function startWebServer(port: number): void {
   // ── Health check ──────────────────────────────────────────────────────────
 
   app.get('/api/health', (_req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString() });
+    // status stays 'ok' (the container healthcheck must not restart the app because a retailer broke);
+    // scraper trouble is reported in `scrapers` instead.
+    let scrapers: { failing: string[]; sources: db.SourceHealth[] } = { failing: [], sources: [] };
+    try {
+      const sources = db.getSourceHealth();
+      scrapers = { failing: sources.filter(x => x.consecutive_failures >= 3).map(x => x.source), sources };
+    } catch { /* health must never throw */ }
+    res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers });
   });
+
+  app.get('/api/scrape-runs', h(async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50')) || 50, 1), 500);
+    const cid = req.query.component_id ? parseInt(String(req.query.component_id)) : undefined;
+    res.json(db.getRecentScrapeRuns(limit, cid));
+  }));
 
   // ── Export ────────────────────────────────────────────────────────────────
 
