@@ -117,3 +117,36 @@ describe('scheduler drop alerts use in-stock previous/new best', () => {
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ type: 'price_drop', retailer: 'scan', price: 700 }));
   });
 });
+
+describe('stale observations are not purchasable offers', () => {
+  function seedOld(componentId: number, price: number, retailer: string, ageHours: number) {
+    db.getDb().prepare(`INSERT INTO price_records (component_id, source, price, retailer, in_stock, stock_state, recorded_at)
+      VALUES (?, 't', ?, ?, 1, 'in_stock', datetime('now', ?))`).run(componentId, price, retailer, `-${ageHours} hours`);
+  }
+
+  it('a 3-month-old in-stock row is not the best offer, but still shows in the unfiltered history view', () => {
+    const c = fresh(800);
+    seedOld(c.id, 22.34, 'eBay - gingerinka', 24 * 90);   // real example from the owner's RTX 5080 component
+    expect(db.getBestInStockOffer(c.id)).toBeNull();
+    expect(db.getComponentsBelowAlertPrice()).toEqual([]);
+    expect(db.getLatestPricePerRetailer(c.id)).toHaveLength(1);
+  });
+
+  it('fresh rows still count, and the age limit is configurable', () => {
+    const c = fresh(800);
+    seedOld(c.id, 700, 'shop', 40);
+    expect(db.getBestInStockOffer(c.id)?.price).toBe(700);       // inside 48 h
+    db.setConfig('max_offer_age_hours', '24');
+    expect(db.getBestInStockOffer(c.id)).toBeNull();             // 40 h old is now stale
+    db.deleteConfig('max_offer_age_hours');
+  });
+
+  it('no alert fires from a stale cheap row when a fresh, dearer offer is the only current one', async () => {
+    const c = fresh(800);
+    seedOld(c.id, 22.34, 'eBay - gingerinka', 24 * 90);
+    db.savePriceSnapshots(c.id, [snap('Overclockers', 999, 'in_stock')]);
+    const notify = vi.fn().mockResolvedValue({});
+    await evaluateAlerts({ component: c, prevBestPrice: null, dropThresholdPct: 5, notify });
+    expect(notify).not.toHaveBeenCalled();
+  });
+});

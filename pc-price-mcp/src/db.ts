@@ -654,9 +654,21 @@ function purchasable(alias = ''): string {
   return `${alias}stock_state = 'in_stock' AND (${alias}profile_match IS NULL OR ${alias}profile_match = 1)`;
 }
 
+/**
+ * An observation older than this is not evidence that something can be bought now. Default 48 h, the
+ * same window getPriceStats uses for current_best; config `max_offer_age_hours` overrides it.
+ */
+export function maxOfferAgeHours(): number {
+  const n = Number(getConfig('max_offer_age_hours') ?? 48);
+  return Number.isFinite(n) && n >= 1 ? n : 48;
+}
+
 export function getLatestPricePerRetailer(componentId: number, excludeOutliers = true, inStockOnly = false): PriceRecord[] {
   const filter = excludeOutliers ? 'AND is_outlier = 0' : '';
-  const stockFilter = inStockOnly ? `AND ${purchasable('p.')}` : '';
+  // "Purchasable" also means recently seen: a retailer last scraped in July is not in stock today.
+  const stockFilter = inStockOnly
+    ? `AND ${purchasable('p.')} AND p.recorded_at >= datetime('now', '-${Math.ceil(maxOfferAgeHours())} hours')`
+    : '';
   return getDb().prepare(`
     SELECT p.* FROM price_records p
     INNER JOIN (
