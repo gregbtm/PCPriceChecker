@@ -571,10 +571,19 @@ export const ALL_RETAILER_IDS: RetailerId[] = [
   'currys', 'argos', 'johnlewis',
 ];
 
+/** Retailer ids from `ids` that are not known scrapers (typos such as "cc" for "ccl"). */
+export function unknownRetailerIds(ids: string[]): string[] {
+  return ids.filter(id => !(ALL_RETAILER_IDS as string[]).includes(id));
+}
+
 export async function searchAllUkRetailers(
   query: string,
   retailers: RetailerId[] = ALL_RETAILER_IDS,
 ): Promise<RetailerSearchResult[]> {
+  const unknown = unknownRetailerIds(retailers);
+  if (unknown.length > 0) {
+    throw new Error(`Unknown retailer id(s): ${unknown.join(', ')}. Valid ids: ${ALL_RETAILER_IDS.join(', ')}`);
+  }
   return Promise.all(retailers.map(r => RETAILER_FNS[r](query)));
 }
 

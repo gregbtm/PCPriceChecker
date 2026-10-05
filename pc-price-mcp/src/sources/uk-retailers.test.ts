@@ -63,3 +63,18 @@ describe('JSON-LD in retailer scrapers uses the shared module', () => {
     expect(r.results.map(x => x.name)).toEqual([SCAN.kit5200InStock]);
   });
 });
+
+describe('unknown retailer ids give a clear error, not "RETAILER_FNS[r] is not a function"', () => {
+  it('unknownRetailerIds flags typos such as "cc"', async () => {
+    const { unknownRetailerIds } = await import('./uk-retailers.js');
+    expect(unknownRetailerIds(['scan', 'ebuyer', 'cc'])).toEqual(['cc']);
+    expect(unknownRetailerIds(['scan', 'ccl'])).toEqual([]);
+  });
+  it('searchAllUkRetailers rejects before making any request', async () => {
+    const { searchAllUkRetailers } = await import('./uk-retailers.js');
+    const f = vi.fn();
+    vi.stubGlobal('fetch', f);
+    await expect(searchAllUkRetailers('x', ['scan', 'cc'] as never)).rejects.toThrow(/Unknown retailer id\(s\): cc\. Valid ids: scan/);
+    expect(f).not.toHaveBeenCalled();
+  });
+});
