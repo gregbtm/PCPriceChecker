@@ -98,7 +98,7 @@ Phase 4 alerting
 - [ ] P4-2 Configurable cooldowns, quiet hours, dedupe
 - [ ] P4-3 Richer alert text
 - [~] P4-4 Self-hosted ntfy (PR-D: `ntfy_token` Bearer support + test; docs not done)
-- [ ] P4-5 Optional n8n workflow
+- [~] P4-5 Optional n8n workflow (generic `webhook_url` channel + `docs/N8N.md` + example workflow JSON; the JSON is Unverified, never imported into n8n)
 
 Phase 5 observability and data
 - [~] P5-1 Health per source (PR-D: `scrape_runs`, `/api/health` `scrapers`, `/api/scrape-runs`; dashboard "needs attention" UI not done)
@@ -200,6 +200,7 @@ These are general guidance, not verified in this session unless stated.
 | Skip theluckystrike, aravindtri, BestPrice.gr, Prisjakt, Amazon.com tools, ShopSavvy API for now | Not UK-suitable, not verifiable, or paid with unconfirmed UK coverage | Research section 3 |
 | Only `in_stock` can alert; `unknown` stock is treated as not purchasable | A missed alert on a page with no stock signal is recoverable (the row is still stored with `stock_state = unknown`; dashboards do not yet display the state, that is P1-6/P5-1 work); a false "buy now" alert is the failure the owner cares about. Revisit per retailer once its extractor has a reliable stock signal | PR-A, `services/stock-state.ts` |
 | `getLatestPricePerRetailer` keeps its old default (all stock states); alerting uses new `getBestInStockOffer`; `getPriceStats(id, inStockOnly = true)` changes `current_best`/`prev_best_24h` to in-stock | Additive for dashboards that want history, safe default for anything that reports a purchasable price | PR-A, `db.ts` |
+| n8n integration via webhook push and REST polling; never via n8n's database tables | n8n's schema is internal and unstable, and the app cannot reach that database | `docs/N8N.md` |
 | Pin Firecrawl to `v2.11.162` initially | The official guide is verified against that tag; the compose contract changes between releases | Research section 4 |
 
 ## 9b. Owner decisions (answered 2026-10-05)

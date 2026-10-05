@@ -282,9 +282,29 @@ export async function sendApprise(appriseUrl: string, payload: NotificationPaylo
   } catch { return false; }
 }
 
+// ── Generic webhook (n8n, Home Assistant, anything that accepts JSON) ──────
+
+/**
+ * POST the notification as JSON. Config: `webhook_url`, optional `webhook_secret` (sent as the
+ * `X-PCPC-Token` header, matching an n8n "Header Auth" credential). Event name is also in
+ * `X-PCPC-Event`. The body is the payload plus `event` and `ts`; field names are stable.
+ */
+export async function sendWebhook(url: string, secret: string | null, payload: NotificationPayload): Promise<boolean> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-PCPC-Event': payload.type };
+  if (secret) headers['X-PCPC-Token'] = secret;
+  try {
+    const res = await fetch(url, {
+      method: 'POST', headers,
+      body: JSON.stringify({ event: payload.type, ts: new Date().toISOString(), ...payload }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 // ── notifyAll ───────────────────────────────────────────────────────────────
 
-export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean; telegram: boolean; email: boolean; ntfy: boolean; pushover: boolean; gotify: boolean; apprise: boolean }> {
+export async function notifyAll(payload: NotificationPayload): Promise<{ discord: boolean; slack: boolean; telegram: boolean; email: boolean; ntfy: boolean; pushover: boolean; gotify: boolean; apprise: boolean; webhook: boolean }> {
   const discordUrl    = db.getConfig('discord_webhook_url');
   const slackUrl      = db.getConfig('slack_webhook_url');
   const tgToken       = db.getConfig('telegram_bot_token');
@@ -298,8 +318,10 @@ export async function notifyAll(payload: NotificationPayload): Promise<{ discord
   const gotifyUrl     = db.getConfig('gotify_server_url');
   const gotifyToken   = db.getConfig('gotify_app_token');
   const appriseUrl    = db.getConfig('apprise_url');
+  const webhookUrl    = db.getConfig('webhook_url');
+  const webhookSecret = db.getConfig('webhook_secret');
 
-  const [discord, slack, telegram, email, ntfy, pushover, gotify, apprise] = await Promise.all([
+  const [discord, slack, telegram, email, ntfy, pushover, gotify, apprise, webhook] = await Promise.all([
     discordUrl                      ? sendDiscord(discordUrl, payload)                          : Promise.resolve(false),
     slackUrl                        ? sendSlack(slackUrl, payload)                              : Promise.resolve(false),
     tgToken && tgChatId             ? sendTelegram(tgToken, tgChatId, payload)                 : Promise.resolve(false),
@@ -308,7 +330,8 @@ export async function notifyAll(payload: NotificationPayload): Promise<{ discord
     pushToken && pushUser           ? sendPushover(pushToken, pushUser, payload)               : Promise.resolve(false),
     gotifyUrl && gotifyToken        ? sendGotify(gotifyUrl, gotifyToken, payload)              : Promise.resolve(false),
     appriseUrl                      ? sendApprise(appriseUrl, payload)                         : Promise.resolve(false),
+    webhookUrl                      ? sendWebhook(webhookUrl, webhookSecret, payload)          : Promise.resolve(false),
   ]);
 
-  return { discord, slack, telegram, email, ntfy, pushover, gotify, apprise };
+  return { discord, slack, telegram, email, ntfy, pushover, gotify, apprise, webhook };
 }
