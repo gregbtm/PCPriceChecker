@@ -35,7 +35,36 @@ export function getSchedulerStatus() {
   };
 }
 
-export function startScheduler(): boolean {
+const RUN_SOON_DELAY_MS = 30_000;
+let soonTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** One refresh pass with the overlap guard and bookkeeping shared by the interval, the startup run and run-now. */
+async function runTick(deps?: RefreshDeps): Promise<'ran' | 'busy'> {
+  if (running) { skippedTicks++; return 'busy'; }   // previous run still going; counted, not silent (A-10)
+  running = true;
+  lastRunAt = new Date();
+  runCount++;
+  try {
+    await scheduledRefreshAll(deps);
+  } catch (e) {
+    db.recordScrapeRun({ componentId: null, source: 'scheduler', ok: false, error: e instanceof Error ? e.message : String(e) });
+  } finally {
+    running = false;
+  }
+  return 'ran';
+}
+
+/** Start a refresh now (manual trigger). Resolves `done` when the pass finishes; `busy` if one is already running. */
+export function triggerRefreshNow(deps?: RefreshDeps): { status: 'started' | 'busy'; done: Promise<void> } {
+  if (running) { skippedTicks++; return { status: 'busy', done: Promise.resolve() }; }
+  return { status: 'started', done: runTick(deps).then(() => undefined) };
+}
+
+/**
+ * `runSoon`: also do one pass ~30 s after starting. Without it the first pass is a full interval away
+ * (60 min by default) and every restart or image update resets that clock.
+ */
+export function startScheduler(opts: { runSoon?: boolean } = {}): boolean {
   let intervalStr = db.getConfig('auto_refresh_interval_minutes');
 
   // Bootstrap from env var on first run (no DB config yet)
@@ -58,28 +87,20 @@ export function startScheduler(): boolean {
   stopScheduler();
   nextRunAt = new Date(Date.now() + intervalMs);
 
-  timer = setInterval(async () => {
-    if (running) { skippedTicks++; return; }   // previous run still going; counted, not silent (A-10)
-    running = true;
-    lastRunAt = new Date();
-    runCount++;
+  timer = setInterval(() => {
     const intervalMs2 = (Number(db.getConfig('auto_refresh_interval_minutes') ?? 60)) * 60_000;
     nextRunAt = new Date(Date.now() + intervalMs2);
-
-    try {
-      await scheduledRefreshAll();
-    } catch (e) {
-      db.recordScrapeRun({ componentId: null, source: 'scheduler', ok: false, error: e instanceof Error ? e.message : String(e) });
-    }
-
-    running = false;
+    void runTick();
   }, intervalMs);
+
+  if (opts.runSoon) soonTimer = setTimeout(() => { soonTimer = null; void runTick(); }, RUN_SOON_DELAY_MS);
 
   return true;
 }
 
 export function stopScheduler(): void {
   if (timer) { clearInterval(timer); timer = null; nextRunAt = null; }
+  if (soonTimer) { clearTimeout(soonTimer); soonTimer = null; }
 }
 
 export function restartScheduler(): boolean {
