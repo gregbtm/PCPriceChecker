@@ -8,7 +8,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
-import { searchAllUkRetailers, ALL_RETAILER_IDS } from './sources/uk-retailers.js';
+import { searchAllUkRetailers, ALL_RETAILER_IDS, unknownRetailerIds } from './sources/uk-retailers.js';
 import { keepaSearch, keepaGetByAsin, keepaGetUsedPrices } from './sources/keepa.js';
 import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js';
 import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
@@ -209,7 +209,12 @@ export function startWebServer(port: number): void {
     const query = req.query.q as string;
     if (!query) { res.status(400).json({ error: 'q is required' }); return; }
     const rawRetailers = req.query.retailers as string;
-    const retailers = rawRetailers ? rawRetailers.split(',') : [...ALL_RETAILER_IDS];
+    const retailers = rawRetailers ? rawRetailers.split(',').map(r => r.trim()).filter(Boolean) : [...ALL_RETAILER_IDS];
+    const unknown = unknownRetailerIds(retailers);
+    if (unknown.length > 0) {
+      res.status(400).json({ error: `Unknown retailer id(s): ${unknown.join(', ')}`, valid: ALL_RETAILER_IDS });
+      return;
+    }
     const results = await searchAllUkRetailers(query, retailers as Parameters<typeof searchAllUkRetailers>[1]);
     res.json(results);
   }));
