@@ -71,12 +71,12 @@ Phase 0 correctness
 - [x] P0-12 Currency handling (PR-B; JSON-LD, meta, rules, DOM and Playwright reject non-GBP. Camofox and AI paths still report whatever they return, see audit A-19)
 
 Phase 1 profile and classifier
-- [ ] P1-1 Memory classifier
-- [ ] P1-2 Hardware profile model
-- [ ] P1-3 Kit/price-per-GB fields
+- [x] P1-1 Memory classifier (PR-E, `services/memory-classifier.ts`)
+- [x] P1-2 Hardware profile model (PR-E; `n5-air-ram`, `matchesProfile`)
+- [x] P1-3 Kit/price-per-GB fields (PR-E; new `price_records` columns)
 - [ ] P1-4 Compatibility rules (SO-DIMM, ECC, capacity, mobile CPUs)
-- [ ] P1-5 Wire classifier into scheduler/search
-- [ ] P1-6 Dashboard/MCP price-per-GB display
+- [x] P1-5 Wire classifier into scheduler/search (PR-E; scheduler path only, the MCP `refresh_prices`/`track_component` fetch path does not classify yet)
+- [~] P1-6 price per GB shown in alert text (PR-E); dashboard/MCP listing views not done
 
 Phase 2 providers
 - [ ] P2-1 Provider interface
@@ -224,6 +224,14 @@ These close the questions in `docs/IMPROVEMENT_PLAN.md` section 7. They are the 
 - **Relevance:** a search result is stored only if its title contains every word of the component's `search_query` (SO-DIMM/SODIMM equivalent, `-word` excludes). Use a query like `ddr5 so-dimm 64gb`. Limit: a title that says `2x32GB` without `64GB` is missed. P1-5 replaces this.
 - **Self-hosted ntfy with access control:** set config `ntfy_token` (or `NTFY_TOKEN`) and `ntfy_server`; the app sends `Authorization: Bearer`. Without it an ACL-protected topic answers 403.
 - **Health:** `/api/health` stays `status: ok` and adds `scrapers.failing` (sources with 3+ failures in a row); `/api/scrape-runs?component_id=&limit=` lists recent runs.
+
+## 9d. Profiles and the classifier (PR-E)
+
+- Create the tracked item with `profile_id: "n5-air-ram"` (REST `POST /api/components` or the MCP `track_component` tool). Use a query such as `ddr5 so-dimm 64gb`; with a profile the classifier, not the query words, decides what fits.
+- Listings that do not fit (24GB singles, DDR4, desktop DIMM, ECC, CAMM2, wrong capacity, 1-module) are **stored** with `profile_match = 0` for history, but never alert, never count as the best price and never trigger restock events. Accepted: 64GB as a 2-module kit, and 48GB (2x24GB) with the `non_binary_unverified` flag. Flags raised without rejecting: `will_downclock`, `kit_unconfirmed`, `ecc_unstated`, `speed_unstated`.
+- Alert text now carries the listing title, GBP per GB and the flag warnings. A 48GB alert says plainly that 24GB modules are not confirmed to work in the N5 Air.
+- The classifier never guesses: a title that does not say DDR4/DDR5 or SO-DIMM/DIMM is rejected with that reason.
+- **Limit:** the MCP `track_component fetch_now` / `refresh_prices` path (index.ts) is separate from the scheduler and does not classify. Only the scheduler path, which is what produces alerts, is profile-aware.
 
 ## 10. Glossary
 

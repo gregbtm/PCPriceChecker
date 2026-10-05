@@ -159,3 +159,82 @@ describe('scheduler never swallows a component error (A-10)', () => {
     expect(db.getTrackedComponents().find(x => x.id === c.id)?.last_scrape_failed).toBe(1);
   });
 });
+
+describe('P1-3 / P1-5: hardware profile wiring (n5-air-ram)', () => {
+  function profiled(alertPrice: number | null) {
+    const c = fresh(alertPrice);
+    db.setComponentProfile(c.id, 'n5-air-ram');
+    return db.getTrackedComponents().find(x => x.id === c.id)!;
+  }
+  // Real Scan listings, 2026-10-05 prices and stock text (docs/RESEARCH_AND_VERIFICATION.md section 2).
+  const scanPage = () => page('Scan.co.uk', [
+    res(SCAN.kit5600Backorder, 933.49, 'backorder', 'scan'),
+    res(SCAN.kit5200InStock, 893.99, 'in_stock', 'scan'),
+    res(SCAN.single24_5200, 279.98, 'in_stock', 'scan'),
+    res(SCAN.single24_4800, 320.48, 'in_stock', 'scan'),
+    res(SCAN.single24_5600, 322.49, 'in_stock', 'scan'),
+    res(SCAN.ddr4Samsung, 18, 'in_stock', 'scan'),
+  ]);
+
+  it('stores every parsed listing with its attributes, flags non-matches, and derives price per GB', async () => {
+    const c = profiled(null);
+    const { deps } = makeDeps({ scan: scanPage });
+    await refreshComponent(c, ctx(['scan']), deps);
+    const rows = db.getLatestPricePerRetailer(c.id);
+    expect(rows).toHaveLength(6);
+    const kit = rows.find(r => r.price === 893.99)!;
+    expect(kit).toMatchObject({ profile_match: 1, kit_total_gb: 64, modules: 2, price_per_gb: 13.97, listing_name: SCAN.kit5200InStock });
+    expect(rows.find(r => r.price === 279.98)).toMatchObject({ profile_match: 0, kit_total_gb: 24, modules: 1 });
+    expect(rows.find(r => r.price === 18)).toMatchObject({ profile_match: 0 });
+  });
+
+  it('the cheaper in-stock 24GB single is NOT the best offer and never alerts a 64GB target', async () => {
+    const c = profiled(300);   // 24GB singles at 279.98 are under target, but are not the thing being bought
+    const { deps, notify } = makeDeps({ scan: scanPage });
+    await refreshComponent(c, ctx(['scan']), deps);
+    expect(db.getBestInStockOffer(c.id)).toMatchObject({ price: 893.99 });
+    expect(notify).not.toHaveBeenCalled();
+    expect(db.getComponentsBelowAlertPrice()).toEqual([]);
+    expect(db.getPriceStats(c.id).current_best).toBe(893.99);
+  });
+
+  it('without a profile the old behaviour applies (interim query filter), so 24GB singles are not stored', async () => {
+    const c = fresh(null);
+    const { deps } = makeDeps({ scan: scanPage });
+    await refreshComponent(c, ctx(['scan']), deps);
+    expect(db.getLatestPricePerRetailer(c.id).map(r => r.price).sort()).toEqual([893.99, 933.49]);
+  });
+
+  it('alert text carries price per GB, and the non-binary warning for 2x24GB', async () => {
+    const c = profiled(900);
+    const { deps, notify } = makeDeps({ ebuyer: () => page('Ebuyer', [
+      res('48GB (2x24GB) Kingston FURY Impact DDR5 5600MT/s SODIMM CL40', 600, 'in_stock', 'ebuyer'),
+    ]) });
+    await refreshComponent(c, ctx(['ebuyer']), deps);
+    const alert = notify.mock.calls.map(x => x[0]).find(p => p.type === 'price_alert');
+    expect(alert.price).toBe(600);
+    expect(alert.message).toContain('£12.50/GB');
+    expect(alert.message).toContain('not confirmed to work');
+  });
+
+  it('a non-matching listing coming back in stock does not trigger a restock notification', async () => {
+    const c = profiled(null);
+    db.addToWaitlist?.(c.id, null, null);
+    let inStock = false;
+    const { deps, notify } = makeDeps({ scan: () => page('Scan.co.uk', [
+      res(SCAN.single24_5200, 279.98, inStock ? 'in_stock' : 'out_of_stock', 'scan'),
+    ]) });
+    await refreshComponent(c, ctx(['scan']), deps);
+    inStock = true;
+    await refreshComponent(c, ctx(['scan']), deps);
+    expect(notify.mock.calls.filter(x => x[0].type === 'restock')).toHaveLength(0);
+    expect(db.getRecentStockChanges(24)).toHaveLength(0);
+  });
+
+  it('unknown profile ids fall back to the no-profile path instead of crashing', async () => {
+    const c = fresh(null);
+    db.setComponentProfile(c.id, 'does-not-exist');
+    const { deps } = makeDeps({ scan: scanPage });
+    await expect(refreshComponent(db.getTrackedComponents()[0], ctx(['scan']), deps)).resolves.toBeDefined();
+  });
+});

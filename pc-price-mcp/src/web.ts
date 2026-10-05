@@ -30,6 +30,7 @@ import {
 } from './sources/apify.js';
 import { budgetBuilder, buildVsBuy, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
 import { checkCompatibility } from './services/compatibility.js';
+import { PROFILES } from './services/memory-classifier.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
 import { getDealScoresForAll } from './services/deal-scorer.js';
 
@@ -119,13 +120,18 @@ export function startWebServer(port: number): void {
   }));
 
   app.post('/api/components', h(async (req, res) => {
-    const { name, search_query, category = 'other', alert_price, notes } = req.body;
+    const { name, search_query, category = 'other', alert_price, notes, profile_id } = req.body;
     if (!name || !search_query) {
       res.status(400).json({ error: 'name and search_query are required' });
       return;
     }
+    if (profile_id && !PROFILES[profile_id]) {
+      res.status(400).json({ error: `unknown profile_id; known: ${Object.keys(PROFILES).join(', ')}` });
+      return;
+    }
     const component = db.addTrackedComponent(name, category, search_query,
       alert_price ? Number(alert_price) : undefined, notes);
+    if (profile_id) { db.setComponentProfile(component.id, profile_id); component.profile_id = profile_id; }
     res.json(component);
   }));
 

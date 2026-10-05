@@ -1,0 +1,93 @@
+import { describe, it, expect } from 'vitest';
+import { classifyMemory, matchesProfile, N5_AIR_RAM } from './memory-classifier.js';
+import { SCAN, SYNTHETIC } from '../test/fixtures.js';
+
+describe('classifyMemory on real Scan titles (docs/RESEARCH_AND_VERIFICATION.md section 2)', () => {
+  it('64GB (2x32GB) Corsair 5600', () => {
+    expect(classifyMemory(SCAN.kit5600Backorder)).toEqual({
+      ddr: 5, formFactor: 'SODIMM', ecc: false, registered: false,
+      modules: 2, moduleGb: 32, totalGb: 64, speedMts: 5600, cl: 48, voltage: 1.1,
+    });
+  });
+  it('64GB (2x32GB) Corsair 5200 (PC5-41600)', () => {
+    expect(classifyMemory(SCAN.kit5200InStock)).toMatchObject({ ddr: 5, formFactor: 'SODIMM', modules: 2, totalGb: 64, speedMts: 5200, cl: 44, voltage: 1.1 });
+  });
+  it('24GB singles are 1 module', () => {
+    for (const [t, mts] of [[SCAN.single24_5200, 5200], [SCAN.single24_4800, 4800], [SCAN.single24_5600, 5600]] as const) {
+      expect(classifyMemory(t)).toMatchObject({ ddr: 5, modules: 1, moduleGb: 24, totalGb: 24, speedMts: mts });
+    }
+  });
+  it('DDR4 SO-DIMMs', () => {
+    expect(classifyMemory(SCAN.ddr4Samsung)).toMatchObject({ ddr: 4, formFactor: 'SODIMM', totalGb: 4, speedMts: 2400, cl: 17, voltage: 1.2 });
+    expect(classifyMemory(SCAN.ddr4Corsair)).toMatchObject({ ddr: 4, formFactor: 'SODIMM', totalGb: 4, speedMts: 2133, cl: 15 });
+  });
+  it('the marketing title states 5600MHz and no kit layout', () => {
+    expect(classifyMemory(SYNTHETIC.marketing)).toMatchObject({ ddr: 5, formFactor: 'SODIMM', totalGb: 64, modules: null, speedMts: 5600 });
+  });
+});
+
+describe('classifyMemory edge cases (synthetic titles)', () => {
+  it('desktop DIMM, UDIMM, RDIMM, CAMM2, ECC', () => {
+    expect(classifyMemory(SYNTHETIC.desktop64).formFactor).toBe('DIMM');
+    expect(classifyMemory(SYNTHETIC.desktopUdimm)).toMatchObject({ formFactor: 'DIMM', speedMts: 6000, totalGb: 64 });
+    expect(classifyMemory(SYNTHETIC.rdimm)).toMatchObject({ formFactor: 'DIMM', registered: true, ecc: true });
+    expect(classifyMemory(SYNTHETIC.camm2).formFactor).toBe('CAMM2');
+    expect(classifyMemory(SYNTHETIC.eccSodimm)).toMatchObject({ formFactor: 'SODIMM', ecc: true });
+  });
+  it('does not mistake on-die ECC for module ECC', () => {
+    expect(classifyMemory('32GB DDR5 SODIMM 5600MHz with on-die ECC').ecc).toBeNull();
+  });
+  it('accepts SO-DIMM spellings, the × sign and spaces in 2 x 32GB', () => {
+    expect(classifyMemory('64GB 2 × 32GB DDR5 SO DIMM').formFactor).toBe('SODIMM');
+    expect(classifyMemory('64GB 2 × 32GB DDR5 SO DIMM')).toMatchObject({ modules: 2, moduleGb: 32 });
+    expect(classifyMemory('DDR5 SODIMM 2x32GB')).toMatchObject({ totalGb: 64, modules: 2 });
+  });
+  it('ignores GB/s and storage-sized numbers, never invents fields', () => {
+    expect(classifyMemory('DDR5 SODIMM 44.8GB/s').totalGb).toBeNull();
+    expect(classifyMemory('some memory')).toEqual({ ddr: null, formFactor: null, ecc: null, registered: null,
+      modules: null, moduleGb: null, totalGb: null, speedMts: null, cl: null, voltage: null });
+  });
+  it('a kit whose arithmetic does not add up is not trusted as a kit', () => {
+    expect(classifyMemory('64GB (2x16GB) DDR5 SODIMM')).toMatchObject({ totalGb: 32, modules: 2 });
+  });
+});
+
+describe('matchesProfile: n5-air-ram', () => {
+  const m = (t: string) => matchesProfile(classifyMemory(t), N5_AIR_RAM);
+
+  it('accepts "64GB (2x32GB) DDR5 SODIMM ... Non-ECC" (both real Scan kits)', () => {
+    expect(m(SCAN.kit5200InStock)).toEqual({ match: true, reasons: [], flags: [] });
+    expect(m(SCAN.kit5600Backorder)).toEqual({ match: true, reasons: [], flags: [] });
+  });
+  it('rejects DDR4 SO-DIMM titles', () => {
+    for (const t of [SCAN.ddr4Samsung, SCAN.ddr4Corsair]) {
+      const r = m(t);
+      expect(r.match).toBe(false);
+      expect(r.reasons.join(' ')).toMatch(/DDR4, need DDR5/);
+    }
+  });
+  it('rejects desktop DIMM, UDIMM, RDIMM, CAMM2 and ECC', () => {
+    expect(m(SYNTHETIC.desktop64).reasons.join()).toMatch(/DIMM, need SODIMM/);
+    expect(m(SYNTHETIC.desktopUdimm).match).toBe(false);
+    expect(m(SYNTHETIC.rdimm).match).toBe(false);
+    expect(m(SYNTHETIC.camm2).reasons.join()).toMatch(/CAMM2, need SODIMM/);
+    expect(m(SYNTHETIC.eccSodimm).reasons.join()).toMatch(/ECC/);
+  });
+  it('rejects wrong capacities: 24GB singles, 1x64GB (kit required)', () => {
+    expect(m(SCAN.single24_5200).match).toBe(false);
+    expect(m(SYNTHETIC.single64).reasons.join()).toMatch(/1 module/);
+  });
+  it('accepts 2x24GB (48GB) only with the unverified-compatibility flag', () => {
+    const r = m(SYNTHETIC.kit48);
+    expect(r).toMatchObject({ match: true, reasons: [] });
+    expect(r.flags).toContain('non_binary_unverified');
+  });
+  it('flags rather than rejects: faster than 5600, unconfirmed kit layout', () => {
+    expect(m(SYNTHETIC.fast64)).toMatchObject({ match: true, flags: expect.arrayContaining(['will_downclock']) });
+    expect(m(SCAN.kit5200InStock).flags).not.toContain('will_downclock');
+    expect(m(SYNTHETIC.marketing)).toMatchObject({ match: true, flags: expect.arrayContaining(['kit_unconfirmed', 'ecc_unstated']) });
+  });
+  it('rejects a title that does not say DDR generation (never guess)', () => {
+    expect(m(SYNTHETIC.noGen).reasons.join()).toMatch(/generation .* not stated/);
+  });
+});
