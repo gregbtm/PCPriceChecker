@@ -1,3 +1,13 @@
+import { parseStockText, stockStateFromAvailability, stockStateFromBoolean, type StockState } from '../services/stock-state.js';
+
+/** Both stock fields from one state so they cannot disagree (inStock is true only for in_stock). */
+function stk(state: StockState): { inStock: boolean; stockState: StockState } {
+  return { inStock: state === 'in_stock', stockState: state };
+}
+/** Stock state from the visible text of a result block (e.g. "Due 8th Oct" -> backorder). */
+function blockStock(block: string): { inStock: boolean; stockState: StockState } {
+  return stk(parseStockText(block.replace(/<[^>]+>/g, ' ')));
+}
 /**
  * Direct scrapers for UK PC component retailers (no API key required).
  * Covered: Scan.co.uk, Overclockers UK, Ebuyer, CCL Online, Box.co.uk,
@@ -14,6 +24,8 @@ export interface RetailerResult {
   price: number | null;
   currency: string;
   inStock: boolean;
+  /** Tri-state; absent on legacy callers. `inStock` is true only when this is 'in_stock'. */
+  stockState?: StockState;
   url: string;
   sku?: string;
   scraperNote?: string;
@@ -69,7 +81,7 @@ function extractJsonLdProducts(html: string, retailer: string, baseUrl: string):
         results.push({
           retailer, name: item.name ?? 'Unknown', price,
           currency: offer?.priceCurrency ?? 'GBP',
-          inStock: offer?.availability ? !offer.availability.includes('OutOfStock') : true,
+          ...stk(stockStateFromAvailability(offer?.availability)),
           url: item.url ?? offer?.url ?? baseUrl,
           sku: item.sku ?? item.mpn,
         });
@@ -118,7 +130,7 @@ function parseProductBlocks(html: string, retailer: string, domain: string, fall
       if (name.length < 3 || name.length > 250) continue;
       results.push({
         retailer, name, price, currency: 'GBP',
-        inStock: !block.toLowerCase().includes('out of stock') && !block.toLowerCase().includes('unavailable'),
+        ...blockStock(block),
         url: linkMatch
           ? linkMatch[1].startsWith('http') ? linkMatch[1] : `https://www.${domain}${linkMatch[1]}`
           : fallbackUrl,
@@ -165,7 +177,7 @@ async function scrapeRetailer(
         name: p.name ?? p.title ?? p.displayName ?? 'Unknown',
         price: p.price != null ? Number(p.price) : (p.priceRange?.min ?? null),
         currency: 'GBP',
-        inStock: p.inStock != null ? Boolean(p.inStock) : (p.available != null ? Boolean(p.available) : p.stock_status !== 'outofstock'),
+        ...stk(p.inStock != null ? stockStateFromBoolean(Boolean(p.inStock)) : (p.available != null ? stockStateFromBoolean(Boolean(p.available)) : parseStockText(p.stock_status))),
         url: p.url ? (p.url.startsWith('http') ? p.url : `https://www.${domain}${p.url}`) : searchUrl,
         sku: p.sku ?? p.id,
       }));
@@ -185,7 +197,7 @@ async function scrapeRetailer(
       .map(m => parseFloat(m[1].replace(/,/g, ''))).filter(p => p > 10 && p < 50_000);
     if (prices.length > 0) {
       results = [{ retailer, name: 'Search results', price: Math.min(...prices), currency: 'GBP',
-        inStock: true, url: searchUrl, scraperNote: 'Only lowest price extracted — page requires JS rendering' }];
+        ...stk('unknown'), url: searchUrl, scraperNote: 'Only lowest price extracted — page requires JS rendering' }];
     }
   }
 
@@ -212,7 +224,7 @@ export async function scanSearch(query: string): Promise<RetailerSearchResult> {
         if (!price || price <= 0) continue;
         results.push({
           retailer: 'Scan.co.uk', name: titleAttr[1].trim(), price, currency: 'GBP',
-          inStock: !block.toLowerCase().includes('no stock'),
+          ...blockStock(block),
           url: link ? `https://www.scan.co.uk${link[1]}` : url,
         });
       }
@@ -241,7 +253,7 @@ export async function ebuyerSearch(query: string): Promise<RetailerSearchResult>
             if (!p.name || p.price == null) continue;
             results.push({
               retailer: 'Ebuyer', name: p.name, price: Number(p.price), currency: 'GBP',
-              inStock: p.inStock ?? true,
+              ...stk(stockStateFromBoolean(typeof p.inStock === 'boolean' ? p.inStock : null)),
               url: p.url ? (p.url.startsWith('http') ? p.url : `https://www.ebuyer.com${p.url}`) : url,
               sku: p.sku,
             });
@@ -301,7 +313,8 @@ export async function corsairSearch(query: string): Promise<RetailerSearchResult
             retailer: 'Corsair UK',
             name: String((p as Record<string, unknown>).name ?? (p as Record<string, unknown>).title ?? 'Unknown'),
             price: (p as Record<string, unknown>).price != null ? Number((p as Record<string, unknown>).price) : null,
-            currency: 'GBP', inStock: (p as Record<string, unknown>).inStock !== false,
+            currency: 'GBP',
+            ...stk(stockStateFromBoolean(typeof (p as Record<string, unknown>).inStock === 'boolean' ? ((p as Record<string, unknown>).inStock as boolean) : null)),
             url: (p as Record<string, unknown>).url ? `https://www.corsair.com${(p as Record<string, unknown>).url}` : url,
           }));
         } catch { /* continue */ }
@@ -335,7 +348,7 @@ export async function coolerMasterSearch(query: string): Promise<RetailerSearchR
         if (name.length < 3) continue;
         items.push({
           retailer: 'Cooler Master UK', name, price, currency: 'GBP',
-          inStock: !block.toLowerCase().includes('out of stock'),
+          ...blockStock(block),
           url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://www.coolermaster.com${linkM[1]}`) : url,
         });
       }
@@ -369,7 +382,7 @@ export async function fractalSearch(query: string): Promise<RetailerSearchResult
         if (name.length < 3) continue;
         items.push({
           retailer: 'Fractal Design', name, price, currency: 'GBP',
-          inStock: !block.toLowerCase().includes('out of stock'),
+          ...blockStock(block),
           url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://www.fractaldesign.com${linkM[1]}`) : url,
         });
       }
@@ -395,7 +408,7 @@ export async function thermaltakeSearch(query: string): Promise<RetailerSearchRe
         if (name.length < 3) continue;
         items.push({
           retailer: 'Thermaltake UK', name, price, currency: 'GBP',
-          inStock: !block.toLowerCase().includes('out of stock'),
+          ...blockStock(block),
           url: linkM ? (linkM[1].startsWith('http') ? linkM[1] : `https://uk.thermaltake.com${linkM[1]}`) : url,
         });
       }
@@ -431,7 +444,7 @@ export async function currysSearch(query: string): Promise<RetailerSearchResult>
         name: [p.brandName, p.name].filter(Boolean).join(' ') || p.title || 'Unknown',
         price: rawPrice != null ? Number(rawPrice) : null,
         currency: 'GBP',
-        inStock: offer.availability === 'IN_STOCK' || offer.availability === 'AVAILABLE' || offer.availability == null,
+        ...stk(offer.availability == null ? 'unknown' : (/^(IN_STOCK|AVAILABLE)$/.test(String(offer.availability)) ? 'in_stock' : parseStockText(String(offer.availability).replace(/_/g, ' ')))),
         url: p.links?.www ?? p.url ?? `https://www.currys.co.uk/search/${encodeURIComponent(query)}/`,
         sku: String(p.id ?? p.sku ?? ''),
       };
@@ -471,7 +484,7 @@ export async function argosSearch(query: string): Promise<RetailerSearchResult> 
             name: p.name ?? p.title ?? 'Unknown',
             price: price && price > 0 ? price : null,
             currency: 'GBP',
-            inStock: (p.attributes?.availabilityType ?? p.availabilityType ?? '').toLowerCase() !== 'outofstock',
+            ...stk(parseStockText(String(p.attributes?.availabilityType ?? p.availabilityType ?? ''))),
             url: slug ? (slug.startsWith('http') ? slug : `https://www.argos.co.uk${slug}`) : url,
             sku: String(p.partNumber ?? p.id ?? ''),
           };
@@ -513,7 +526,7 @@ export async function johnLewisSearch(query: string): Promise<RetailerSearchResu
             name: p.title ?? p.name ?? 'Unknown',
             price: rawPrice != null ? parseFloat(String(rawPrice)) : null,
             currency: 'GBP',
-            inStock: p.availableInStock !== false && p.stockStatus !== 'OUTOFSTOCK',
+            ...stk(p.stockStatus === 'OUTOFSTOCK' || p.availableInStock === false ? 'out_of_stock' : (p.availableInStock === true ? 'in_stock' : parseStockText(String(p.stockStatus ?? '')))),
             url: p.seoURL ? `https://www.johnlewis.com${p.seoURL}` : (p.url ?? url),
             sku: String(p.id ?? ''),
           };

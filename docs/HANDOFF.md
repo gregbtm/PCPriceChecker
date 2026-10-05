@@ -57,8 +57,8 @@ Status words used everywhere: **Verified**, **Partly verified**, **Unverified**,
 ## 5. Progress tracker (update as work lands)
 
 Phase 0 correctness
-- [ ] P0-1 Stock-aware best price
-- [ ] P0-2 Stock tri-state and migration
+- [x] P0-1 Stock-aware best price (PR-A)
+- [x] P0-2 Stock tri-state and migration (PR-A)
 - [ ] P0-3 John Lewis price fix
 - [ ] P0-4 Remove "Search results" fallback
 - [ ] P0-5 Shared JSON-LD module
@@ -114,7 +114,7 @@ Phase 6 deployment
 - [ ] P6-5 Backup/restore notes
 
 Phase 7 tests and docs
-- [ ] P7-1 Test runner and CI
+- [x] P7-1 Test runner and CI (Vitest, `npm test`, CI step; PR-A)
 - [ ] P7-2 Fixtures and tests
 - [ ] P7-3 Docs and `.env.example`
 
@@ -198,6 +198,8 @@ These are general guidance, not verified in this session unless stated.
 | Use changedetection.io's REST API, not its community MCP, for the integration | The MCP is young (0.1.0), single-maintainer, and has no price/restock tool | Research section 5 |
 | Keep paid sources as optional fallbacks | Owner wants self-sufficiency, not feature loss | Plan principle 1 |
 | Skip theluckystrike, aravindtri, BestPrice.gr, Prisjakt, Amazon.com tools, ShopSavvy API for now | Not UK-suitable, not verifiable, or paid with unconfirmed UK coverage | Research section 3 |
+| Only `in_stock` can alert; `unknown` stock is treated as not purchasable | A missed alert on a page with no stock signal is recoverable (the row is still stored with `stock_state = unknown`; dashboards do not yet display the state, that is P1-6/P5-1 work); a false "buy now" alert is the failure the owner cares about. Revisit per retailer once its extractor has a reliable stock signal | PR-A, `services/stock-state.ts` |
+| `getLatestPricePerRetailer` keeps its old default (all stock states); alerting uses new `getBestInStockOffer`; `getPriceStats(id, inStockOnly = true)` changes `current_best`/`prev_best_24h` to in-stock | Additive for dashboards that want history, safe default for anything that reports a purchasable price | PR-A, `db.ts` |
 | Pin Firecrawl to `v2.11.162` initially | The official guide is verified against that tag; the compose contract changes between releases | Research section 4 |
 
 ## 10. Glossary

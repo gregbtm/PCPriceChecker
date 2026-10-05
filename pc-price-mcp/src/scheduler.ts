@@ -8,6 +8,8 @@ import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
 import { scrapeProductUrl } from './sources/url-scraper.js';
 import { notifyAll } from './notifications.js';
+import { stockStateFromBoolean } from './services/stock-state.js';
+import { evaluateAlerts } from './services/alerts.js';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -102,7 +104,8 @@ async function scheduledRefreshAll(): Promise<void> {
 
       // Snapshot previous state before refresh
       const prevLatest = db.getLatestPricePerRetailer(component.id);
-      const prevBestPrice = prevLatest[0]?.price ?? null;
+      // Previous best must be a purchasable (in-stock) price, otherwise drop alerts compare against phantom prices
+      const prevBestPrice = db.getBestInStockOffer(component.id)?.price ?? null;
       const prevStockMap = new Map(prevLatest.map(r => [r.retailer, r.in_stock === 1]));
 
       const snapshots: db.PriceSnapshot[] = [];
@@ -124,7 +127,7 @@ async function scheduledRefreshAll(): Promise<void> {
             })();
             snapshots.push({
               source: scraped.method, price: scraped.price, currency: scraped.currency,
-              retailer: domain, url, inStock: scraped.inStock,
+              retailer: domain, url, inStock: scraped.inStock, stockState: scraped.stockState,
             });
           }
         }
@@ -136,6 +139,7 @@ async function scheduledRefreshAll(): Promise<void> {
               snapshots.push({
                 source: 'pricesapi', price: offer.price, currency: offer.currency,
                 retailer: offer.merchant, url: offer.url || null, inStock: offer.inStock,
+                stockState: stockStateFromBoolean(offer.inStock),
               });
             }
           }
@@ -168,28 +172,8 @@ async function scheduledRefreshAll(): Promise<void> {
       db.savePriceSnapshots(component.id, snapshots);
       db.markLastChecked(component.id);
 
-      const newBest = db.getLatestPricePerRetailer(component.id)[0];
-      if (!newBest) { await sleep(2_000); continue; }
-
-      // Price alert check (with 24h cooldown to prevent repeat spam)
-      if (component.alert_price != null && newBest.price <= component.alert_price
-          && db.shouldSendAlert(component.id, 1440)) {
-        await notifyAll({ type: 'price_alert', componentName: component.name,
-          price: newBest.price, currency: newBest.currency, retailer: newBest.retailer,
-          alertThreshold: component.alert_price, url: newBest.url });
-        db.markLastAlerted(component.id);
-      }
-
-      // Price drop notification (vs previous best, must exceed threshold %, 6h cooldown)
-      if (prevBestPrice != null && newBest.price < prevBestPrice) {
-        const dropPct = ((prevBestPrice - newBest.price) / prevBestPrice) * 100;
-        if (dropPct >= dropThresholdPct && db.shouldSendAlert(component.id, 360)) {
-          await notifyAll({ type: 'price_drop', componentName: component.name,
-            price: newBest.price, currency: newBest.currency, retailer: newBest.retailer,
-            dropAmount: prevBestPrice - newBest.price, dropPercent: dropPct, url: newBest.url });
-          db.markLastAlerted(component.id);
-        }
-      }
+      // Alerts consider in-stock offers only (audit A-01)
+      await evaluateAlerts({ component, prevBestPrice, dropThresholdPct });
 
       // Throttle between components — PricesAPI free tier has per-minute limits
       await sleep(3_000);

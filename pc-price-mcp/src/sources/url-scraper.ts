@@ -12,15 +12,24 @@ import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js'
 import { scrapeWithCamofox } from './camofox-client.js';
 import { openaiExtractPrice, openaiHealSelectors } from './openai-client.js';
 import * as db from '../db.js';
+import { parseStockText, stockStateFromAvailability, stockStateFromBoolean, type StockState } from '../services/stock-state.js';
 
 export interface ScrapedProduct {
   name: string;
   price: number | null;
   currency: string;
+  /** True only when stockState === 'in_stock'. Kept for backward compatibility. */
   inStock: boolean;
+  /** Tri-state; `unknown` means no stock signal was found (never assumed available). */
+  stockState?: StockState;
   url: string;
   image?: string;
   method: 'json-ld' | 'meta' | 'rules' | 'dom' | 'playwright' | 'ai' | 'failed';
+}
+
+/** Both stock fields from one state, so they can never disagree. */
+function stock(state: StockState): { inStock: boolean; stockState: StockState } {
+  return { inStock: state === 'in_stock', stockState: state };
 }
 
 const BROWSER_HEADERS = {
@@ -59,7 +68,7 @@ function tryJsonLd(html: string): Partial<ScrapedProduct> | null {
         return {
           name: item.name != null ? String(item.name) : undefined,
           price, currency: offer.priceCurrency != null ? String(offer.priceCurrency) : 'GBP',
-          inStock: !/OutOfStock/i.test(String(offer.availability ?? '')),
+          ...stock(stockStateFromAvailability(offer.availability)),
           image: img, method: 'json-ld',
         };
       }
@@ -85,7 +94,7 @@ function tryMeta(html: string): Partial<ScrapedProduct> | null {
   const currency = get('property', 'product:price:currency') ?? get('property', 'og:price:currency') ?? 'GBP';
   const avail = get('property', 'product:availability') ?? get('property', 'og:availability');
   const image = get('property', 'og:image') ?? get('name', 'twitter:image');
-  return { name, price, currency, inStock: avail ? /in.?stock/i.test(avail) : true, image, method: 'meta' };
+  return { name, price, currency, ...stock(stockStateFromAvailability(avail)), image, method: 'meta' };
 }
 
 // ── Step 3: User-defined rules (simplified regex-based selector matching) ──
@@ -120,7 +129,7 @@ function tryRules(html: string, rule: db.ScrapeRule): Partial<ScrapedProduct> | 
   const availText = pickText(rule.avail_selector);
   return {
     name: nameText ?? undefined, price, currency: 'GBP',
-    inStock: availText ? /in.?stock|available|add to/i.test(availText) : true,
+    ...stock(parseStockText(availText)),
     method: 'rules',
   };
 }
@@ -140,7 +149,14 @@ function tryDom(html: string): Partial<ScrapedProduct> | null {
   ];
   for (const p of patterns) {
     const m = html.match(p);
-    if (m) { const price = parsePrice(m[1]); if (price) return { name, price, currency: 'GBP', inStock: true, method: 'dom' }; }
+    if (m) {
+      const price = parsePrice(m[1]);
+      if (price) {
+        // No stock signal is NOT in stock: only trust an explicit stock element.
+        const stockText = html.match(/class="[^"]*stock[^"]*"[^>]*>([^<]{1,120})</i)?.[1];
+        return { name, price, currency: 'GBP', ...stock(parseStockText(stockText)), method: 'dom' };
+      }
+    }
   }
   return null;
 }
@@ -181,12 +197,12 @@ async function tryPlaywright(url: string): Promise<Partial<ScrapedProduct> | nul
         if (m) { const p = parseFloat(m[1]); if (p > 0 && p < 50000) { price = p; break; } }
       }
       const stockEl = document.querySelector('[class*="stock"],[itemprop="availability"],[data-testid*="stock"]');
-      const inStock = stockEl ? /in.?stock|available|add to/i.test(stockEl.textContent ?? '') : true;
-      return { name, price, inStock };
+      const stockText = stockEl ? (stockEl.textContent ?? '') : '';
+      return { name, price, stockText };
     }, url).catch(() => null);
 
     if (extracted?.price) {
-      return { name: extracted.name, price: extracted.price, currency: 'GBP', inStock: extracted.inStock, method: 'playwright' };
+      return { name: extracted.name, price: extracted.price, currency: 'GBP', ...stock(parseStockText(extracted.stockText)), method: 'playwright' };
     }
     return null;
   } catch { return null; }
@@ -202,7 +218,7 @@ async function tryCamofox(url: string): Promise<Partial<ScrapedProduct> | null> 
   if (!camofoxUrl) return null;
   const result = await scrapeWithCamofox(url, camofoxUrl);
   if (!result?.price) return null;
-  return { name: result.name, price: result.price, currency: result.currency, inStock: result.inStock, method: 'playwright' };
+  return { name: result.name, price: result.price, currency: result.currency, ...stock(stockStateFromBoolean(result.inStock)), method: 'playwright' };
 }
 
 // ── AI self-healing: propose new selectors when rules fail ────────────────
@@ -287,7 +303,7 @@ async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
         const m = raw.match(/\{[\s\S]*\}/);
         if (m) {
           const parsed = JSON.parse(m[0]);
-          if (parsed?.price) return { name: parsed.name, price: Number(parsed.price), currency: parsed.currency ?? 'GBP', inStock: parsed.inStock !== false, method: 'ai' };
+          if (parsed?.price) return { name: parsed.name, price: Number(parsed.price), currency: parsed.currency ?? 'GBP', ...stock(stockStateFromBoolean(typeof parsed.inStock === 'boolean' ? parsed.inStock : null)), method: 'ai' };
         }
       }
     } catch { /* fall through */ }
@@ -295,7 +311,7 @@ async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
 
   // Fall back to OpenAI
   const openai = await openaiExtractPrice(text);
-  if (openai?.price) return { name: openai.name, price: openai.price, currency: openai.currency, inStock: openai.inStock, method: 'ai' };
+  if (openai?.price) return { name: openai.name, price: openai.price, currency: openai.currency, ...stock(stockStateFromBoolean(openai.inStock)), method: 'ai' };
 
   return null;
 }
@@ -304,7 +320,7 @@ async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
 
 export async function scrapeProductUrl(url: string): Promise<ScrapedProduct> {
   const domain = extractDomain(url);
-  const fallback: ScrapedProduct = { name: domain, price: null, currency: 'GBP', inStock: false, url, method: 'failed' };
+  const fallback: ScrapedProduct = { name: domain, price: null, currency: 'GBP', inStock: false, stockState: 'unknown', url, method: 'failed' };
 
   let html = '';
   try {

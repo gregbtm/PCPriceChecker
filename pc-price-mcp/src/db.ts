@@ -2,6 +2,9 @@ import Database from 'better-sqlite3';
 import { mkdirSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import type { StockState } from './services/stock-state.js';
+
+export type { StockState };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DB_DIR = join(__dirname, '..', 'data');
@@ -41,7 +44,9 @@ export interface ScrapeRule {
 export interface PriceRecord {
   id: number; component_id: number; source: string; price: number;
   currency: string; retailer: string; url: string | null;
-  in_stock: number; recorded_at: string;
+  in_stock: number;       // 1 only when stock_state === 'in_stock' (kept for compatibility)
+  stock_state: StockState;
+  recorded_at: string;
   is_outlier: number;   // 0 | 1
   confidence: number | null;
   z_score: number | null;
@@ -49,6 +54,8 @@ export interface PriceRecord {
 export interface PriceSnapshot {
   source: string; price: number; currency: string;
   retailer: string; url: string | null; inStock: boolean;
+  /** Preferred over `inStock` when present; `inStock` alone maps to in_stock / out_of_stock. */
+  stockState?: StockState;
   // Optional validation fields — populated when validatePrices() is called before saving
   isOutlier?: boolean;
   confidence?: number;
@@ -276,6 +283,10 @@ function runMigrations(db: Database.Database): void {
   if (!prCols.includes('is_outlier')) db.exec('ALTER TABLE price_records ADD COLUMN is_outlier INTEGER NOT NULL DEFAULT 0');
   if (!prCols.includes('confidence'))  db.exec('ALTER TABLE price_records ADD COLUMN confidence REAL DEFAULT 1.0');
   if (!prCols.includes('z_score'))     db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
+  if (!prCols.includes('stock_state')) db.exec('ALTER TABLE price_records ADD COLUMN stock_state TEXT');
+  // Backfill rows written before the tri-state existed from the legacy boolean.
+  db.exec(`UPDATE price_records SET stock_state = CASE WHEN in_stock = 1 THEN 'in_stock' ELSE 'out_of_stock' END
+           WHERE stock_state IS NULL`);
 
   const tcCols = (db.prepare('PRAGMA table_info(tracked_components)').all() as Array<{ name: string }>).map(c => c.name);
   if (!tcCols.includes('source_url'))             db.exec('ALTER TABLE tracked_components ADD COLUMN source_url TEXT');
@@ -568,13 +579,14 @@ export function getBatchSparklines(ids: number[], days = 7): Map<number, Sparkli
 export function savePriceSnapshots(componentId: number, snapshots: PriceSnapshot[]): void {
   const db = getDb();
   const insert = db.prepare(`
-    INSERT INTO price_records (component_id, source, price, currency, retailer, url, in_stock, is_outlier, confidence, z_score)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO price_records (component_id, source, price, currency, retailer, url, in_stock, stock_state, is_outlier, confidence, z_score)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   db.transaction((snaps: PriceSnapshot[]) => {
     for (const s of snaps) {
+      const state: StockState = s.stockState ?? (s.inStock ? 'in_stock' : 'out_of_stock');
       insert.run(
-        componentId, s.source, s.price, s.currency, s.retailer, s.url ?? null, s.inStock ? 1 : 0,
+        componentId, s.source, s.price, s.currency, s.retailer, s.url ?? null, state === 'in_stock' ? 1 : 0, state,
         s.isOutlier ? 1 : 0,
         s.confidence ?? 1.0,
         s.zScore ?? null,
@@ -591,16 +603,30 @@ export function getPriceHistory(componentId: number, days = 30): PriceRecord[] {
   `).all(componentId, `-${days}`) as PriceRecord[];
 }
 
-export function getLatestPricePerRetailer(componentId: number, excludeOutliers = true): PriceRecord[] {
+/**
+ * Latest row per retailer/source, cheapest first.
+ *
+ * `inStockOnly` filters AFTER picking each retailer's latest row, so a retailer
+ * whose newest observation is out of stock is excluded even if an older row was
+ * in stock. Default stays false for dashboards/history; anything that alerts or
+ * reports a purchasable "best price" must pass true (or use getBestInStockOffer).
+ */
+export function getLatestPricePerRetailer(componentId: number, excludeOutliers = true, inStockOnly = false): PriceRecord[] {
   const filter = excludeOutliers ? 'AND is_outlier = 0' : '';
+  const stockFilter = inStockOnly ? `AND p.stock_state = 'in_stock'` : '';
   return getDb().prepare(`
     SELECT p.* FROM price_records p
     INNER JOIN (
       SELECT retailer, source, MAX(recorded_at) AS max_date
       FROM price_records WHERE component_id = ? ${filter} GROUP BY retailer, source
     ) latest ON p.retailer = latest.retailer AND p.source = latest.source AND p.recorded_at = latest.max_date
-    WHERE p.component_id = ? ${filter} ORDER BY p.price ASC
+    WHERE p.component_id = ? ${filter} ${stockFilter} ORDER BY p.price ASC, p.id DESC
   `).all(componentId, componentId) as PriceRecord[];
+}
+
+/** Cheapest offer that can actually be bought now (latest observation per retailer is in stock). */
+export function getBestInStockOffer(componentId: number): PriceRecord | null {
+  return getLatestPricePerRetailer(componentId, true, true)[0] ?? null;
 }
 
 export interface PriceTrend {
@@ -627,7 +653,9 @@ export interface PriceStats {
   currency: string;
 }
 
-export function getPriceStats(componentId: number): PriceStats {
+/** `inStockOnly` (default true) restricts current_best / prev_best_24h to in-stock observations. */
+export function getPriceStats(componentId: number, inStockOnly = true): PriceStats {
+  const stockClause = inStockOnly ? `AND stock_state = 'in_stock'` : '';
   const db = getDb();
   const stats = db.prepare(`
     SELECT MIN(price) AS all_time_low, MAX(price) AS all_time_high,
@@ -639,12 +667,12 @@ export function getPriceStats(componentId: number): PriceStats {
 
   const currentRow = db.prepare(`
     SELECT MIN(price) AS price FROM price_records
-    WHERE component_id = ? AND is_outlier = 0 AND recorded_at >= datetime('now', '-48 hours')
+    WHERE component_id = ? AND is_outlier = 0 ${stockClause} AND recorded_at >= datetime('now', '-48 hours')
   `).get(componentId) as any;
 
   const prevRow = db.prepare(`
     SELECT MIN(price) AS price FROM price_records
-    WHERE component_id = ? AND is_outlier = 0
+    WHERE component_id = ? AND is_outlier = 0 ${stockClause}
       AND recorded_at >= datetime('now', '-96 hours')
       AND recorded_at < datetime('now', '-24 hours')
   `).get(componentId) as any;
@@ -673,7 +701,7 @@ export function getRecentPriceDrops(minDropPercent = 2): PriceDrop[] {
     const dropAmount = stats.prev_best_24h - stats.current_best;
     const dropPercent = (dropAmount / stats.prev_best_24h) * 100;
     if (dropPercent < minDropPercent) continue;
-    const best = getLatestPricePerRetailer(c.id)[0];
+    const best = getBestInStockOffer(c.id) ?? undefined;
     drops.push({ component: c, currentBest: stats.current_best, previousBest: stats.prev_best_24h,
       dropAmount, dropPercent, currency: stats.currency,
       bestRetailer: best?.retailer ?? 'Unknown', bestUrl: best?.url ?? null });
@@ -691,9 +719,8 @@ export interface AlertCandidate {
 export function getComponentsBelowAlertPrice(): AlertCandidate[] {
   const results: AlertCandidate[] = [];
   for (const c of getTrackedComponents().filter(c => c.alert_price != null)) {
-    const latest = getLatestPricePerRetailer(c.id);
-    if (latest.length === 0) continue;
-    const best = latest[0];
+    const best = getBestInStockOffer(c.id);
+    if (!best) continue;
     if (best.price <= c.alert_price!) {
       results.push({ component: c, currentBestPrice: best.price, currency: best.currency,
         retailer: best.retailer, url: best.url,
@@ -832,7 +859,7 @@ export function getBuildSummary(buildId: number): BuildSummary | null {
   const bestPrices = new Map<number, { price: number; currency: string; retailer: string; url: string | null }>();
   let totalCost = 0; let missingPrices = 0;
   for (const item of items) {
-    const best = getLatestPricePerRetailer(item.component_id)[0];
+    const best = getBestInStockOffer(item.component_id);
     if (best) {
       bestPrices.set(item.component_id, { price: best.price, currency: best.currency, retailer: best.retailer, url: best.url });
       totalCost += best.price * item.quantity;
@@ -1030,7 +1057,7 @@ export function getBatchDealRatios(componentIds: number[]): Map<number, DealRati
   const current = db.prepare(`
     SELECT component_id, MIN(price) AS current_best
     FROM price_records
-    WHERE component_id IN (${placeholders}) AND is_outlier = 0
+    WHERE component_id IN (${placeholders}) AND is_outlier = 0 AND stock_state = 'in_stock'
       AND recorded_at >= datetime('now', '-48 hours')
     GROUP BY component_id
   `).all(...componentIds) as { component_id: number; current_best: number }[];
