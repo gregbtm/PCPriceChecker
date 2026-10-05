@@ -35,7 +35,7 @@ async function chatComplete(model: string, messages: { role: string; content: st
 }
 
 export interface OpenAiExtracted {
-  name?: string; price: number; currency: string; inStock: boolean;
+  name?: string; price: number; currency: string; inStock: boolean | null;
 }
 
 export async function openaiExtractPrice(pageText: string): Promise<OpenAiExtracted | null> {
@@ -52,7 +52,7 @@ export async function openaiExtractPrice(pageText: string): Promise<OpenAiExtrac
   if (!m) return null;
   try {
     const p = JSON.parse(m[0]);
-    if (p?.price) return { name: p.name, price: Number(p.price), currency: p.currency ?? 'GBP', inStock: p.inStock !== false };
+    if (p?.price) return { name: p.name, price: Number(p.price), currency: p.currency ?? 'GBP', inStock: typeof p.inStock === 'boolean' ? p.inStock : null };
   } catch { /* ignore */ }
   return null;
 }

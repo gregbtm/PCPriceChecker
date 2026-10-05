@@ -29,19 +29,19 @@ Per-component URLs and intervals, pause, tags, unit pricing fields, stock-change
 
 Each finding: ID, severity, evidence level, evidence, recommended fix (task ID in `docs/IMPROVEMENT_PLAN.md`).
 
-### A-01 Best price and alerts ignore stock (High, Verified)
+### A-01 Best price and alerts ignore stock (High, Verified) — **Fixed in PR-A** (`getBestInStockOffer`, `services/alerts.ts`; reproduced first by `services/alerts.test.ts`)
 `db.getLatestPricePerRetailer()` selects the latest row per retailer/source ordered by `price ASC` with **no `in_stock` filter**. `scheduler.ts` takes `getLatestPricePerRetailer(id)[0]` as `newBest` for the target-price alert and the price-drop alert, and `prevLatest[0]` as `prevBestPrice`. The same pattern is used by `getComponentsBelowAlertPrice`, `getBuildSummary`, `getRecentPriceDrops` (best row) and `getPriceStats` (`current_best` = `MIN(price)` over 48 h with no stock filter) and `getBatchDealRatios`. **Effect:** an out-of-stock listing at a low price triggers "deal" alerts for something that cannot be bought. During a RAM shortage this is the most damaging defect. Fix: P0-1.
 
-### A-02 Stock is binary and defaults to "in stock" (High, Verified; live impact Inferred)
+### A-02 Stock is binary and defaults to "in stock" (High, Verified; live impact Inferred) — **Fixed in PR-A for `price_records`, the generic scraper and the UK retailer extractors** (`price_records.stock_state`, `services/stock-state.ts`). Still open: `pricesapi`/Keepa/other sources only expose a boolean, so they map to in_stock/out_of_stock/unknown; Scan's live HTML was not inspected, so the "Due 8th Oct" -> backorder behaviour is verified on the text only (**Partly verified**)
 `url-scraper.ts`: `tryMeta`, `tryRules`, `tryDom`, and the Playwright evaluation all default `inStock` to `true` when no stock signal is found (`avail ? ... : true`, `availText ? ... : true`, literal `true`). `uk-retailers.ts`: JSON-LD uses `offer?.availability ? !includes('OutOfStock') : true`; the Scan extractor sets `inStock: !block.toLowerCase().includes('no stock')`; the generic block parser tests only for `out of stock` / `unavailable`. **Observed live (2026-10-05, Scan):** a 64GB kit showed "Due 8th Oct" instead of an in-stock message. A backorder state like this would be treated as in stock by the logic above (Inferred: live HTML not inspected). Fix: P0-2.
 
-### A-03 John Lewis uses the "was" price (Medium, Verified)
+### A-03 John Lewis uses the "was" price (Medium, Verified) — **Fixed in PR-B** (`johnLewisPrice`)
 `johnLewisSearch`: `const rawPrice = p.price?.was ?? p.price?.now ?? ...`. `was` is the pre-discount price and is preferred when present. Fix: P0-3.
 
-### A-04 Misleading "Search results" fallback (Medium, Verified)
+### A-04 Misleading "Search results" fallback (Medium, Verified) — **Fixed in PR-B** (fallback removed, not quarantined)
 `scrapeRetailer` last resort: if nothing is parsed, it emits one result named `Search results` priced at the **minimum GBP amount > 10 anywhere on the page**, which can be an accessory, delivery threshold or banner. If persisted it pollutes history and can fire alerts. Fix: P0-4.
 
-### A-05 JSON-LD handling is narrow and duplicated (Medium, Verified)
+### A-05 JSON-LD handling is narrow and duplicated (Medium, Verified) — **Fixed in PR-B** (`sources/structured-data.ts` replaces both copies)
 Both `tryJsonLd` (`url-scraper.ts`) and `extractJsonLdProducts` (`uk-retailers.ts`) require `item['@type'] === 'Product'` exactly, read only `offers[0]`, read `offer.price` only (no `AggregateOffer.lowPrice`, no `priceSpecification`), and do not walk `@graph` or `@type` arrays. Currency defaults to GBP. Fix: P0-5.
 
 ### A-06 "Selector rules" are regex approximations; `price_attribute` unused (Medium, Verified)
@@ -83,7 +83,7 @@ Root README quick start: image `ghcr.io/gregbtm/pc-price-checker:latest`, port 3
 ### A-18 No tests, no HTML parser (Medium, Verified)
 `package.json` has no test script or test dependency and no `cheerio`/`jsdom`-style package; all scraping is regex-based. Retailer layout changes will break scrapers silently (A-10). Fix: P7-1, P7-2.
 
-### A-19 Currency and price-parse assumptions (Low/Medium, Verified)
+### A-19 Currency and price-parse assumptions (Low/Medium, Verified) — **Mostly fixed in PR-B** (`services/price-text.ts`: was/RRP/save prices skipped, symbol and ISO currency detected, non-GBP rejected; Camofox and AI extraction still trust the currency they return)
 `tryRules`, `tryDom` and the Playwright path hard-code `currency: 'GBP'`. `parsePrice` takes the first number (optionally after `£`), so a `Was £x` price appearing first wins; accepted range is 0 to 50,000. Fix: P0-12.
 
 ### A-20 Interval semantics (Info, Verified)

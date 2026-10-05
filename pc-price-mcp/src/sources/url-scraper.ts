@@ -12,15 +12,26 @@ import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js'
 import { scrapeWithCamofox } from './camofox-client.js';
 import { openaiExtractPrice, openaiHealSelectors } from './openai-client.js';
 import * as db from '../db.js';
+import { extractStructuredProducts, bestOffer } from './structured-data.js';
+import { parsePriceText, isAcceptableCurrency } from '../services/price-text.js';
+import { parseStockText, stockStateFromAvailability, stockStateFromBoolean, type StockState } from '../services/stock-state.js';
 
 export interface ScrapedProduct {
   name: string;
   price: number | null;
   currency: string;
+  /** True only when stockState === 'in_stock'. Kept for backward compatibility. */
   inStock: boolean;
+  /** Tri-state; `unknown` means no stock signal was found (never assumed available). */
+  stockState?: StockState;
   url: string;
   image?: string;
   method: 'json-ld' | 'meta' | 'rules' | 'dom' | 'playwright' | 'ai' | 'failed';
+}
+
+/** Both stock fields from one state, so they can never disagree. */
+function stock(state: StockState): { inStock: boolean; stockState: StockState } {
+  return { inStock: state === 'in_stock', stockState: state };
 }
 
 const BROWSER_HEADERS = {
@@ -33,37 +44,22 @@ function extractDomain(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
 }
 
+/** Price from text; null for non-GBP text (P0-12) so it is never stored as GBP. */
 function parsePrice(text: string, regex?: string | null): number | null {
-  if (regex) {
-    try { const m = text.match(new RegExp(regex)); if (m?.[1]) return parseFloat(m[1].replace(/,/g, '')); } catch { /* bad regex */ }
-  }
-  const m = text.replace(/,/g, '').match(/£?\s*([\d]+(?:\.\d{1,2})?)/);
-  const p = m ? parseFloat(m[1]) : NaN;
-  return p > 0 && p < 50_000 ? p : null;
+  const parsed = parsePriceText(text, regex);
+  return parsed && isAcceptableCurrency(parsed.currency) ? parsed.price : null;
 }
 
 // ── Step 1: JSON-LD ────────────────────────────────────────────────────────
 
 function tryJsonLd(html: string): Partial<ScrapedProduct> | null {
-  for (const [, raw] of html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)) {
-    try {
-      const data = JSON.parse(raw);
-      const items: Record<string, unknown>[] = Array.isArray(data) ? data : [data];
-      for (const item of items) {
-        if (item['@type'] !== 'Product') continue;
-        const offer = (Array.isArray(item.offers) ? (item.offers as Record<string, unknown>[])[0] : item.offers) as Record<string, unknown> | undefined;
-        if (!offer) continue;
-        const price = offer.price != null ? Number(offer.price) : null;
-        if (!price || isNaN(price) || price <= 0) continue;
-        const img = Array.isArray(item.image) ? String(item.image[0]) : (item.image ? String(item.image) : undefined);
-        return {
-          name: item.name != null ? String(item.name) : undefined,
-          price, currency: offer.priceCurrency != null ? String(offer.priceCurrency) : 'GBP',
-          inStock: !/OutOfStock/i.test(String(offer.availability ?? '')),
-          image: img, method: 'json-ld',
-        };
-      }
-    } catch { /* skip */ }
+  for (const product of extractStructuredProducts(html)) {
+    const offer = bestOffer(product);   // non-GBP offers are skipped (P0-12)
+    if (!offer) continue;
+    return {
+      name: product.name, price: offer.price, currency: 'GBP',
+      ...stock(offer.stockState), image: product.image, method: 'json-ld',
+    };
   }
   return null;
 }
@@ -82,10 +78,11 @@ function tryMeta(html: string): Partial<ScrapedProduct> | null {
   const price = parsePrice(priceStr);
   if (!price) return null;
   const name = get('property', 'og:title') ?? get('name', 'twitter:title');
-  const currency = get('property', 'product:price:currency') ?? get('property', 'og:price:currency') ?? 'GBP';
+  const currency = (get('property', 'product:price:currency') ?? get('property', 'og:price:currency') ?? 'GBP').toUpperCase();
+  if (!isAcceptableCurrency(currency)) return null;   // P0-12
   const avail = get('property', 'product:availability') ?? get('property', 'og:availability');
   const image = get('property', 'og:image') ?? get('name', 'twitter:image');
-  return { name, price, currency, inStock: avail ? /in.?stock/i.test(avail) : true, image, method: 'meta' };
+  return { name, price, currency, ...stock(stockStateFromAvailability(avail)), image, method: 'meta' };
 }
 
 // ── Step 3: User-defined rules (simplified regex-based selector matching) ──
@@ -120,7 +117,7 @@ function tryRules(html: string, rule: db.ScrapeRule): Partial<ScrapedProduct> | 
   const availText = pickText(rule.avail_selector);
   return {
     name: nameText ?? undefined, price, currency: 'GBP',
-    inStock: availText ? /in.?stock|available|add to/i.test(availText) : true,
+    ...stock(parseStockText(availText)),
     method: 'rules',
   };
 }
@@ -140,7 +137,14 @@ function tryDom(html: string): Partial<ScrapedProduct> | null {
   ];
   for (const p of patterns) {
     const m = html.match(p);
-    if (m) { const price = parsePrice(m[1]); if (price) return { name, price, currency: 'GBP', inStock: true, method: 'dom' }; }
+    if (m) {
+      const price = parsePrice(m[1]);
+      if (price) {
+        // No stock signal is NOT in stock: only trust an explicit stock element.
+        const stockText = html.match(/class="[^"]*stock[^"]*"[^>]*>([^<]{1,120})</i)?.[1];
+        return { name, price, currency: 'GBP', ...stock(parseStockText(stockText)), method: 'dom' };
+      }
+    }
   }
   return null;
 }
@@ -177,16 +181,17 @@ async function tryPlaywright(url: string): Promise<Partial<ScrapedProduct> | nul
         const el = document.querySelector(sel);
         if (!el) continue;
         const txt = el.getAttribute('content') ?? el.getAttribute('data-price') ?? el.textContent ?? '';
+        if (/[$€]/.test(txt) && !/£/.test(txt)) continue;   // non-GBP price (P0-12)
         const m = txt.replace(/,/g, '').match(/£?\s*([\d]+(?:\.\d{1,2})?)/);
         if (m) { const p = parseFloat(m[1]); if (p > 0 && p < 50000) { price = p; break; } }
       }
       const stockEl = document.querySelector('[class*="stock"],[itemprop="availability"],[data-testid*="stock"]');
-      const inStock = stockEl ? /in.?stock|available|add to/i.test(stockEl.textContent ?? '') : true;
-      return { name, price, inStock };
+      const stockText = stockEl ? (stockEl.textContent ?? '') : '';
+      return { name, price, stockText };
     }, url).catch(() => null);
 
     if (extracted?.price) {
-      return { name: extracted.name, price: extracted.price, currency: 'GBP', inStock: extracted.inStock, method: 'playwright' };
+      return { name: extracted.name, price: extracted.price, currency: 'GBP', ...stock(parseStockText(extracted.stockText)), method: 'playwright' };
     }
     return null;
   } catch { return null; }
@@ -202,7 +207,7 @@ async function tryCamofox(url: string): Promise<Partial<ScrapedProduct> | null> 
   if (!camofoxUrl) return null;
   const result = await scrapeWithCamofox(url, camofoxUrl);
   if (!result?.price) return null;
-  return { name: result.name, price: result.price, currency: result.currency, inStock: result.inStock, method: 'playwright' };
+  return { name: result.name, price: result.price, currency: result.currency, ...stock(stockStateFromBoolean(result.inStock)), method: 'playwright' };
 }
 
 // ── AI self-healing: propose new selectors when rules fail ────────────────
@@ -287,7 +292,7 @@ async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
         const m = raw.match(/\{[\s\S]*\}/);
         if (m) {
           const parsed = JSON.parse(m[0]);
-          if (parsed?.price) return { name: parsed.name, price: Number(parsed.price), currency: parsed.currency ?? 'GBP', inStock: parsed.inStock !== false, method: 'ai' };
+          if (parsed?.price) return { name: parsed.name, price: Number(parsed.price), currency: parsed.currency ?? 'GBP', ...stock(stockStateFromBoolean(typeof parsed.inStock === 'boolean' ? parsed.inStock : null)), method: 'ai' };
         }
       }
     } catch { /* fall through */ }
@@ -295,7 +300,7 @@ async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
 
   // Fall back to OpenAI
   const openai = await openaiExtractPrice(text);
-  if (openai?.price) return { name: openai.name, price: openai.price, currency: openai.currency, inStock: openai.inStock, method: 'ai' };
+  if (openai?.price) return { name: openai.name, price: openai.price, currency: openai.currency, ...stock(stockStateFromBoolean(openai.inStock)), method: 'ai' };
 
   return null;
 }
@@ -304,7 +309,7 @@ async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
 
 export async function scrapeProductUrl(url: string): Promise<ScrapedProduct> {
   const domain = extractDomain(url);
-  const fallback: ScrapedProduct = { name: domain, price: null, currency: 'GBP', inStock: false, url, method: 'failed' };
+  const fallback: ScrapedProduct = { name: domain, price: null, currency: 'GBP', inStock: false, stockState: 'unknown', url, method: 'failed' };
 
   let html = '';
   try {

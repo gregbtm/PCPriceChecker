@@ -2549,7 +2549,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             currency: scraped.currency,
             retailer: domain,
             url,
-            inStock: scraped.inStock,
+            inStock: scraped.inStock, stockState: scraped.stockState,
           }]);
         }
 
