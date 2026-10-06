@@ -61,6 +61,10 @@ export interface PriceRecord {
   /** null = not evaluated (no profile), 1 = fits the component's profile, 0 = does not. */
   profile_match: number | null;
   profile_flags: string | null;   // comma-separated
+  /** Known delivery charge in GBP (0 = free); null = not known, so the price may exclude delivery (P5-3). */
+  delivery_cost: number | null;
+  /** 1 = price includes VAT, 0 = excludes it, null = not stated. */
+  vat_included: number | null;
 }
 export interface PriceSnapshot {
   source: string; price: number; currency: string;
@@ -74,6 +78,9 @@ export interface PriceSnapshot {
   /** undefined/null = not evaluated; false rows are stored but never alert or count as best price. */
   profileMatch?: boolean | null;
   profileFlags?: string[];
+  /** P5-3: known delivery charge (0 = free) and whether the price includes VAT; omitted when the source does not say. */
+  deliveryCost?: number | null;
+  vatIncluded?: boolean | null;
   // Optional validation fields — populated when validatePrices() is called before saving
   isOutlier?: boolean;
   confidence?: number;
@@ -315,7 +322,8 @@ function runMigrations(db: Database.Database): void {
   if (!prCols.includes('z_score'))     db.exec('ALTER TABLE price_records ADD COLUMN z_score REAL');
   if (!prCols.includes('stock_state')) db.exec('ALTER TABLE price_records ADD COLUMN stock_state TEXT');
   for (const [col, ddl] of [['listing_name', 'TEXT'], ['kit_total_gb', 'INTEGER'], ['modules', 'INTEGER'],
-    ['price_per_gb', 'REAL'], ['profile_match', 'INTEGER'], ['profile_flags', 'TEXT']] as const) {
+    ['price_per_gb', 'REAL'], ['profile_match', 'INTEGER'], ['profile_flags', 'TEXT'],
+    ['delivery_cost', 'REAL'], ['vat_included', 'INTEGER']] as const) {
     if (!prCols.includes(col)) db.exec(`ALTER TABLE price_records ADD COLUMN ${col} ${ddl}`);
   }
   // Backfill rows written before the tri-state existed from the legacy boolean.
@@ -633,8 +641,8 @@ export function savePriceSnapshots(componentId: number, snapshots: PriceSnapshot
   const db = getDb();
   const insert = db.prepare(`
     INSERT INTO price_records (component_id, source, price, currency, retailer, url, in_stock, stock_state, is_outlier, confidence, z_score,
-      listing_name, kit_total_gb, modules, price_per_gb, profile_match, profile_flags)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      listing_name, kit_total_gb, modules, price_per_gb, profile_match, profile_flags, delivery_cost, vat_included)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   db.transaction((snaps: PriceSnapshot[]) => {
     for (const s of snaps) {
@@ -648,6 +656,8 @@ export function savePriceSnapshots(componentId: number, snapshots: PriceSnapshot
         s.kitTotalGb ? Math.round((s.price / s.kitTotalGb) * 100) / 100 : null,
         s.profileMatch == null ? null : (s.profileMatch ? 1 : 0),
         s.profileFlags && s.profileFlags.length > 0 ? s.profileFlags.join(',') : null,
+        s.deliveryCost ?? null,
+        s.vatIncluded == null ? null : (s.vatIncluded ? 1 : 0),
       );
     }
   })(snapshots);

@@ -42,6 +42,8 @@ export function formatOffer(o: db.PriceRecord): string {
   const flags = (o.profile_flags ?? '').split(',').map(f => SHORT_FLAG[f] ?? '').filter(Boolean);
   const parts = [money(o.price), name, o.retailer];
   if (o.price_per_gb != null) parts.push(`${money(o.price_per_gb)}/GB`);
+  if (o.delivery_cost != null) parts.push(o.delivery_cost === 0 ? 'free delivery' : `+${money(o.delivery_cost)} delivery = ${money(o.price + o.delivery_cost)}`);
+  if (o.vat_included === 0) parts.push('ex VAT');
   if (flags.length > 0) parts.push(flags.join(', '));
   return parts.join(' · ');
 }

@@ -15,6 +15,8 @@ export interface BestFields {
   best_currency: string; best_url: string | null;
   best_purchasable_price: number | null; best_purchasable_retailer: string | null; best_purchasable_url: string | null;
   best_purchasable_flags: string | null;
+  /** P1-6/P5-3: shown for the same offer as best_price. */
+  best_price_per_gb: number | null; best_delivery_cost: number | null; best_flags: string | null;
 }
 
 export function bestFields(c: db.TrackedComponent): BestFields {
@@ -32,5 +34,8 @@ export function bestFields(c: db.TrackedComponent): BestFields {
     best_purchasable_retailer: purchasable?.retailer ?? null,
     best_purchasable_url: purchasable?.url ?? null,
     best_purchasable_flags: purchasable?.profile_flags ?? null,
+    best_price_per_gb: shown?.price_per_gb ?? null,
+    best_delivery_cost: shown?.delivery_cost ?? null,
+    best_flags: shown?.profile_flags ?? null,
   };
 }

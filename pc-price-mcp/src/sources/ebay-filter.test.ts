@@ -61,3 +61,14 @@ describe('ebayCredentialStatus (diagnostic that never prints a secret)', () => {
     expect(await ebayCredentialStatus(false)).toMatchObject({ configured: true, source: 'environment', tokenOk: true });
   });
 });
+
+describe('P5-3 eBay delivery cost', () => {
+  const item = (shippingOptions: unknown) => ({ itemId: '1', title: 't', price: { value: '492.00', currency: 'GBP' }, shippingOptions });
+  it('takes the cheapest stated charge, 0 when free, null when none is given', async () => {
+    const { mapItem } = await import('./ebay-browse.js');
+    expect(mapItem(item([{ shippingCostType: 'FIXED', shippingCost: { value: '4.99' } }, { shippingCostType: 'FIXED', shippingCost: { value: '2.50' } }])).shippingCost).toBe(2.5);
+    expect(mapItem(item([{ shippingCostType: 'FREE', shippingCost: { value: '0.00' } }])).shippingCost).toBe(0);
+    expect(mapItem(item([{ shippingCostType: 'CALCULATED' }])).shippingCost).toBeNull();
+    expect(mapItem({ itemId: '2', title: 't' }).shippingCost).toBeNull();
+  });
+});

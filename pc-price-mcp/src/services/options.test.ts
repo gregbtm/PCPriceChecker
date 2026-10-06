@@ -189,3 +189,20 @@ describe('daily summary', () => {
     expect(buildSummary([c])).toContain('No matching in-stock listing seen in the last 48 hours.');
   });
 });
+
+describe('P5-3 delivery cost and VAT', () => {
+  it('stores them, and the offer line shows total cost only when delivery is known', () => {
+    db.getDb().exec('DELETE FROM price_records; DELETE FROM tracked_components;');
+    const c = db.addTrackedComponent('64GB', 'ram', 'ddr5 so-dimm 64gb', 350);
+    db.savePriceSnapshots(c.id, [
+      { ...offer(FANXIANG, 492, '111'), deliveryCost: 5, vatIncluded: true, profileFlags: [] },
+      { ...offer(CORSAIR, 511.6, '222'), deliveryCost: 0, profileFlags: [] },
+      { ...offer(KINGSTON, 899.2, '333'), vatIncluded: false },
+    ]);
+    const lines = topOffers(c.id, 5).map(o => formatOffer(o));
+    expect(lines[0]).toContain('+£5.00 delivery = £497.00');
+    expect(lines[1]).toContain('free delivery');
+    expect(lines[2]).toContain('ex VAT');
+    expect(lines[2]).not.toContain('delivery =');
+  });
+});

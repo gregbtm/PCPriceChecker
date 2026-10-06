@@ -82,7 +82,8 @@ export function eligibleEbayListing(l: EbayListing): boolean {
 
 /** Caveats the buyer must see: eBay prices exclude delivery, and most conditions are not "new". */
 export function ebayFlags(l: EbayListing): string[] {
-  const flags = ['delivery_excluded'];
+  // Delivery is only a caveat when eBay did not state it; a stated charge travels as `deliveryCost` instead (P5-3).
+  const flags: string[] = l.shippingCost == null ? ['delivery_excluded'] : [];
   if (l.conditionId !== '1000' && l.conditionId !== '1500') flags.push('used_condition');
   if (l.feedbackPct != null && l.feedbackPct < 98) flags.push('seller_feedback_low');
   return flags;
@@ -158,6 +159,7 @@ export async function refreshComponent(
           .filter(x => x.price != null && x.price > 0 && x.currency === 'GBP' && (hasProfile || matchesQuery(x.name, component.search_query)))
           .map(x => ({ source: `uk-retailer:${id}`, price: x.price as number, currency: x.currency,
             retailer: r.retailer, url: x.url, inStock: x.inStock, stockState: x.stockState,
+            ...(x.vatIncluded != null ? { vatIncluded: x.vatIncluded } : {}),
             ...profileAttrs(component, x.name, x.price as number) }));
         return { offers };
       });
@@ -175,6 +177,7 @@ export async function refreshComponent(
             return {
               source: 'ebay', price: l.price as number, currency: 'GBP', retailer: 'eBay UK', url: l.url,
               inStock: true, stockState: 'in_stock' as const, listingName: l.title, ...attrs,
+              deliveryCost: l.shippingCost ?? null,
               profileFlags: [...(attrs.profileFlags ?? []), ...ebayFlags(l)],
             };
           });
