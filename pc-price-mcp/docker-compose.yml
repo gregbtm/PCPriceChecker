@@ -6,11 +6,11 @@
 # ──────────
 # 1. Copy .env.example to .env and fill in your API keys
 # 2. docker compose up -d
-# 3. Open http://localhost:3000
+# 3. Open http://localhost:38574  (HOST_PORT; the container itself listens on 3000)
 #
 # WHAT STARTS AUTOMATICALLY
 # ─────────────────────────
-# • Web dashboard + REST API  (port 3000)
+# • Web dashboard + REST API  (container port 3000, host port ${HOST_PORT:-38574})
 # • Background price refresh scheduler (set SCHEDULER_INTERVAL_MINUTES below)
 # • Watchtower — pulls new images from GHCR every 5 minutes, zero-downtime
 #

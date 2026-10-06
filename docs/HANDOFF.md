@@ -110,13 +110,13 @@ Phase 6 deployment
 - [ ] P6-1 Compose services (pinned, LAN-only, limited)
 - [ ] P6-2 Host decision and measurement
 - [ ] P6-3 Firecrawl image vs build-from-source check
-- [ ] P6-4 README/compose reconciliation
-- [ ] P6-5 Backup/restore notes
+- [x] P6-4 Docs reconciled (README, compose header, DEPLOYMENT.md now say image pc-price-mcp, host port 38574)
+- [x] P6-5 Backup/restore notes in docs/OPERATIONS.md (backup call verified locally, not on the NAS)
 
 Phase 7 tests and docs
 - [x] P7-1 Test runner and CI (Vitest, `npm test`, CI step; PR-A)
 - [ ] P7-2 Fixtures and tests
-- [ ] P7-3 Docs and `.env.example`
+- [x] P7-3 README, DEPLOYMENT.md, .env.example, docs/OPERATIONS.md updated for the new settings
 
 ## 6. Environment and tooling notes
 
