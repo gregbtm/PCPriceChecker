@@ -44,13 +44,13 @@ Each finding: ID, severity, evidence level, evidence, recommended fix (task ID i
 ### A-05 JSON-LD handling is narrow and duplicated (Medium, Verified) — **Fixed in PR-B** (`sources/structured-data.ts` replaces both copies)
 Both `tryJsonLd` (`url-scraper.ts`) and `extractJsonLdProducts` (`uk-retailers.ts`) require `item['@type'] === 'Product'` exactly, read only `offers[0]`, read `offer.price` only (no `AggregateOffer.lowPrice`, no `priceSpecification`), and do not walk `@graph` or `@type` arrays. Currency defaults to GBP. Fix: P0-5.
 
-### A-06 "Selector rules" are regex approximations; `price_attribute` unused (Medium, Verified)
+### A-06 "Selector rules" are regex approximations; `price_attribute` unused (Medium, Verified) — **Fixed (cheerio selectors, price_attribute)**
 `tryRules` extracts the first `.class`, `#id` or `[attr="v"]` token from the selector and matches it with a regular expression such as `class="[^"]*cls[^"]*"[^>]*>([^<]{1,300})<`. It cannot handle descendant/child combinators, pseudo-classes, or text split across nested tags (e.g. `<span>£<span>799</span>.99</span>`). `ScrapeRule.price_attribute` exists in the schema but is never read. Fix: P0-6 (real parser, e.g. cheerio/linkedom/node-html-parser).
 
-### A-07 LLM self-healing is unsound and unvalidated (Medium, Verified)
+### A-07 LLM self-healing is unsound and unvalidated (Medium, Verified) — **Fixed (structural excerpt, validated, throttled)**
 `healSelectors` strips all tags (`replace(/<[^>]+>/g, ' ')`) and sends the first 4000 characters of plain text to the LLM, asking for CSS selectors. Plain text contains no structure, so selector proposals are guesses. The result is written straight to `scrape_rules` (overwriting an existing rule) with no check that it extracts a price from the page. It is invoked on every failing scrape (`healSelectors(...).catch(() => {})`), so it can run repeatedly. Fix: P0-7.
 
-### A-08 AI features hard-wired to cloud endpoints (Medium, Verified)
+### A-08 AI features hard-wired to cloud endpoints (Medium, Verified) — **Fixed for OpenAI-compatible servers; see HANDOFF 9p**
 `openai-client.ts` uses `https://api.openai.com/v1` (constant) and model `gpt-4o-mini`; `url-scraper.ts` calls `https://api.anthropic.com/v1/messages` with model `claude-haiku-4-5-20251001`. No base-URL override, so a local OpenAI-compatible server (Ollama) cannot be used. Both read keys only from `process.env` although comments say "env or stored in DB config" (Inferred: some startup code may copy DB config to env; in unread files). Fix: P2-4.
 
 ### A-09 Apify client leaks runs and swallows errors; depends on community actors (Medium, Verified) — **Partly fixed in PR-D** (abort on timeout, errors logged to stderr; actors still third-party and unverified)
@@ -62,13 +62,13 @@ Both `tryJsonLd` (`url-scraper.ts`) and `extractJsonLdProducts` (`uk-retailers.t
 ### A-11 No key-less path for components without URLs (High, Verified) — **Fixed in PR-D** (direct UK retailer search tier; PricesAPI only when configured). Relevance is an interim token match, not the classifier
 When a component has no `component_urls`/`source_url`, the scheduler calls `searchWithRetry` (PricesAPI) only. Keepa, direct UK retailers and Apify are not used by the scheduler (they are used by MCP/REST tools in unread files). Without `PRICES_API_KEY` such components never update, and the error is swallowed (A-10). Fix: P0-9.
 
-### A-12 Outlier validation unused in the scheduler and risky for bargains (Medium, Verified)
+### A-12 Outlier validation unused in the scheduler and risky for bargains (Medium, Verified) — **Policy documented: flag, never hide (HANDOFF 9j)**
 `scheduler.ts` imports only `db`, `pricesapi`, `url-scraper`, `notifications`; it never calls `validatePrices`, so `is_outlier`/`confidence` stay at defaults for scheduled data (other call sites may exist in unread files). The MAD z-score (`> 3.5`) is computed across retailers at one instant: a genuinely cheap listing among several similar prices can be flagged as an outlier and excluded from "best price" (`is_outlier = 0` filters are used in most queries), and when MAD is 0 nothing is flagged. Fix: P0-10, P5-4.
 
-### A-13 Unbounded history growth (Low, Verified)
+### A-13 Unbounded history growth (Low, Verified) — **Fixed (price_retention_days)**
 No pruning or rollup of `price_records`/`stock_history`. At an hourly interval with many retailers this grows steadily. Fix: P5-2.
 
-### A-14 Hard-coded alert cooldowns (Low, Verified)
+### A-14 Hard-coded alert cooldowns (Low, Verified) — **Fixed (configurable cooldowns)**
 `shouldSendAlert(id, 1440)` for target alerts and `360` for drops are literals in `scheduler.ts`. A rare, fast-moving RAM restock can be suppressed by a 24 h cooldown after an earlier alert. Fix: P4-2.
 
 ### A-15 Keepa stock and plan assumptions (Low/Medium, Verified code; plan Unverified)
@@ -77,10 +77,10 @@ No pruning or rollup of `price_records`/`stock_history`. At an hourly interval w
 ### A-16 Compatibility rules do not model SO-DIMM/ECC/capacity (Medium, Verified) — **Partly addressed in PR-E** for memory listings via `services/memory-classifier.ts` and the `n5-air-ram` profile; `compatibility.ts` itself (P1-4, mobile CPUs) is unchanged
 `compatibility.ts` detects DDR generation, speed and capacity numbers from text but has no form-factor (SO-DIMM vs DIMM), ECC, slot-count or total-capacity checks, and its CPU/motherboard socket regexes cover desktop AM4/AM5/LGA1700/LGA1851 only, so Ryzen 7 255 resolves to `unknown`. Fix: P1-4.
 
-### A-17 Documentation and deployment inconsistencies (Low, Verified)
+### A-17 Documentation and deployment inconsistencies (Low, Verified) — **Fixed (docs/OPERATIONS.md)**
 Root README quick start: image `ghcr.io/gregbtm/pc-price-checker:latest`, port 3000. Compose: image `ghcr.io/gregbtm/pc-price-mcp:latest`, default host port 38574, Watchtower auto-updating `:latest` every 5 minutes. `:latest` plus auto-update conflicts with a pin-versions policy. Fix: P6-4.
 
-### A-18 No tests, no HTML parser (Medium, Verified)
+### A-18 No tests, no HTML parser (Medium, Verified) — **Fixed (Vitest, cheerio)**
 `package.json` has no test script or test dependency and no `cheerio`/`jsdom`-style package; all scraping is regex-based. Retailer layout changes will break scrapers silently (A-10). Fix: P7-1, P7-2.
 
 ### A-19 Currency and price-parse assumptions (Low/Medium, Verified) — **Mostly fixed in PR-B** (`services/price-text.ts`: was/RRP/save prices skipped, symbol and ISO currency detected, non-GBP rejected; Camofox and AI extraction still trust the currency they return)

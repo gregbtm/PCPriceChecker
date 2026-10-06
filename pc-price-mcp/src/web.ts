@@ -3,8 +3,12 @@
  * Binds to 0.0.0.0 so it's accessible on the local network (NAS use).
  * Serves static files from ../public and REST API at /api/*.
  */
+import { topOffers, formatOffer } from './services/offers.js';
 import { discoverProductPages } from './sources/searxng.js';
-import { changedetectionConfigured, spike as cdSpike } from './sources/changedetection.js';
+import { changedetectionConfigured, spike as cdSpike, listWatches as cdListWatches, createRestockWatch, deleteWatch as cdDeleteWatch, PCPC_TITLE_PREFIX } from './sources/changedetection.js';
+import { firecrawlConfigured } from './sources/firecrawl.js';
+import { llmConfigured } from './sources/openai-client.js';
+import { N8N_WORKFLOWS, buildN8nWorkflow } from './data/n8n-workflows.js';
 import express, { Request, Response, NextFunction } from 'express';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -14,9 +18,9 @@ import { searchAllUkRetailers, ALL_RETAILER_IDS, unknownRetailerIds, SEARCH_URLS
 import { keepaSearch, keepaGetByAsin, keepaGetUsedPrices } from './sources/keepa.js';
 import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js';
 import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
-import { ebayBrowseSearch, ebayBrowseGetItem, ebayCredentialStatus, type EbayCondition } from './sources/ebay-browse.js';
+import { ebayBrowseSearch, ebayBrowseGetItem, ebayCredentialStatus, ebayConfigured, type EbayCondition } from './sources/ebay-browse.js';
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
-import { getSchedulerStatus, restartScheduler, stopScheduler, triggerRefreshNow } from './scheduler.js';
+import { getSchedulerStatus, restartScheduler, stopScheduler, triggerRefreshNow, refreshOneNow } from './scheduler.js';
 import { notifyAll } from './notifications.js';
 import { searchCex, getCexProduct } from './sources/cex.js';
 import { searchDataset, browseDataset, DATASET_SLUGS, type DatasetSlug } from './sources/pcpartpicker-dataset.js';
@@ -155,32 +159,34 @@ export function startWebServer(port: number): void {
     res.json({ ok: true });
   }));
 
+  /** Refresh one component through the scheduler's path: retailers, eBay, watches, PricesAPI only if configured. */
+  app.patch('/api/components/:id/profile', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const { profile_id } = req.body ?? {};
+    if (profile_id && !PROFILES[profile_id]) { res.status(400).json({ error: `unknown profile_id; known: ${Object.keys(PROFILES).join(', ')}` }); return; }
+    db.setComponentProfile(id, profile_id || null);
+    res.json({ ok: true });
+  }));
+
   app.post('/api/components/:id/refresh', h(async (req, res) => {
     const id = parseInt(param(req.params.id));
     const component = db.getTrackedComponentById(id);
     if (!component) { res.status(404).json({ error: 'Component not found' }); return; }
+    const before = db.getRecentScrapeRuns(1, id)[0]?.id ?? 0;
+    const { snapshots } = await refreshOneNow(component);
+    const runs = db.getRecentScrapeRuns(50, id).filter(r => r.id > before);
+    res.json({ saved: snapshots, products: 0, runs, latest: db.getLatestPricePerRetailer(id) });
+  }));
 
-    const country = (req.body?.country as string) ?? db.getConfig('default_country') ?? 'gb';
-    const { products } = await searchWithRetry(component.search_query, country, 3, 15);
-    const snapshots: db.PriceSnapshot[] = [];
-
-    for (const p of products) {
-      for (const o of p.offers) {
-        if (o.price > 0) {
-          snapshots.push({
-            source: 'pricesapi', price: o.price, currency: o.currency,
-            retailer: o.merchant, url: o.url || null, inStock: o.inStock,
-          });
-        }
-      }
-    }
-    if (snapshots.length > 0) {
-      db.savePriceSnapshots(id, snapshots);
-      db.markLastChecked(id);
-    }
-
-    const latest = db.getLatestPricePerRetailer(id);
-    res.json({ saved: snapshots.length, products: products.length, latest });
+  /** The cheapest purchasable offers and the "options" list for a component (what an alert would use). */
+  app.get('/api/components/:id/offers', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const c = db.getTrackedComponentById(id);
+    if (!c) { res.status(404).json({ error: 'Component not found' }); return; }
+    const offers = topOffers(id, 10, c.consider_price ?? undefined).map(o => ({
+      ...o, line: formatOffer(o), total_price: o.delivery_cost != null ? Math.round((o.price + o.delivery_cost) * 100) / 100 : null,
+    }));
+    res.json({ component: { id: c.id, name: c.name, alert_price: c.alert_price, consider_price: c.consider_price, profile_id: c.profile_id }, offers });
   }));
 
   app.get('/api/components/:id/history', h(async (req, res) => {
@@ -560,6 +566,69 @@ export function startWebServer(port: number): void {
     }
     const uuid = typeof req.query.uuid === 'string' ? req.query.uuid : undefined;
     try { res.json(await cdSpike(uuid)); } catch (err) { res.status(502).json({ error: (err as Error).message }); }
+  }));
+
+  // ── Integrations (dashboard) ────────────────────────────────────────────
+
+  /** Status of every optional integration and the behaviour settings. Never returns a secret, only whether one is set. */
+  app.get('/api/integrations', h(async (req, res) => {
+    const cfg = db.getAllConfig();
+    const set = (k: string) => !!(cfg[k] ?? '').trim();
+    const appBase = `${req.protocol}://${req.get('host')}`;
+    res.json({
+      appBase,
+      ntfy: { configured: set('ntfy_topic'), server: cfg.ntfy_server ?? 'https://ntfy.sh', topic: cfg.ntfy_topic ?? '', tokenSet: set('ntfy_token') },
+      webhook: { configured: set('webhook_url'), url: cfg.webhook_url ?? '', secretSet: set('webhook_secret') },
+      ebay: { configured: ebayConfigured() },
+      changedetection: { configured: changedetectionConfigured(), url: cfg.changedetection_url ?? '', keySet: set('changedetection_api_key') || !!process.env.CHANGEDETECTION_API_KEY,
+        autocreate: cfg.changedetection_autocreate !== 'false', novatechSearchUrl: cfg.novatech_search_url ?? '' },
+      firecrawl: { configured: firecrawlConfigured(), url: cfg.firecrawl_url ?? '' },
+      searxng: { configured: set('searxng_url'), url: cfg.searxng_url ?? '' },
+      llm: { configured: llmConfigured(), baseUrl: cfg.openai_base_url ?? '', model: cfg.openai_model ?? '', keySet: set('openai_api_key') },
+      settings: {
+        daily_summary_hour: cfg.daily_summary_hour ?? '8', quiet_hours: cfg.quiet_hours ?? '',
+        alert_cooldown_minutes: cfg.alert_cooldown_minutes ?? '1440', drop_cooldown_minutes: cfg.drop_cooldown_minutes ?? '360',
+        price_retention_days: cfg.price_retention_days ?? '365', max_offer_age_hours: cfg.max_offer_age_hours ?? '48',
+        auto_refresh_interval_minutes: cfg.auto_refresh_interval_minutes ?? '',
+      },
+      n8n: N8N_WORKFLOWS,
+      profiles: Object.values(PROFILES).map(p => ({ id: p.id, label: p.label })),
+    });
+  }));
+
+  app.get('/api/n8n/workflows/:id', h(async (req, res) => {
+    const cfg = db.getAllConfig();
+    const ntfyUrl = cfg.ntfy_topic ? `${(cfg.ntfy_server ?? 'https://ntfy.sh').replace(/\/+$/, '')}/${cfg.ntfy_topic}` : 'https://YOUR-NTFY-HOST/YOUR-TOPIC';
+    const wf = buildN8nWorkflow(param(req.params.id), `${req.protocol}://${req.get('host')}`, ntfyUrl);
+    if (!wf) { res.status(404).json({ error: 'unknown workflow' }); return; }
+    res.setHeader('Content-Disposition', `attachment; filename="${param(req.params.id)}.json"`);
+    res.json(wf);
+  }));
+
+  app.get('/api/changedetection/watches', h(async (_req, res) => {
+    if (!changedetectionConfigured()) { res.status(400).json({ error: 'changedetection.io is not configured' }); return; }
+    try {
+      const watches = await cdListWatches();
+      res.json(watches.map(w => ({ uuid: w.uuid, title: w.title ?? w.page_title ?? '', url: w.url, last_checked: w.last_checked ?? null,
+        last_error: w.last_error || null, ours: String(w.title ?? '').startsWith(PCPC_TITLE_PREFIX) })));
+    } catch (err) { res.status(502).json({ error: (err as Error).message }); }
+  }));
+
+  /** Create a restock/price watch for a product URL and optionally attach the URL to a component. */
+  app.post('/api/changedetection/watches', h(async (req, res) => {
+    if (!changedetectionConfigured()) { res.status(400).json({ error: 'changedetection.io is not configured' }); return; }
+    const { url, title, browser, component_id } = req.body ?? {};
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) { res.status(400).json({ error: 'url must be an http(s) address' }); return; }
+    try {
+      const uuid = await createRestockWatch({ url, title: `${PCPC_TITLE_PREFIX}: ${String(title ?? url).slice(0, 100)}`, browser: !!browser });
+      if (component_id != null) db.addComponentUrl(Number(component_id), url, null, 'changedetection watch');
+      res.json({ uuid });
+    } catch (err) { res.status(502).json({ error: (err as Error).message }); }
+  }));
+
+  app.delete('/api/changedetection/watches/:uuid', h(async (req, res) => {
+    try { await cdDeleteWatch(param(req.params.uuid)); res.json({ ok: true }); }
+    catch (err) { res.status(400).json({ error: (err as Error).message }); }
   }));
 
   /** P2-5: optional SearXNG discovery of product pages (suggestions only; nothing is added automatically). */

@@ -145,15 +145,37 @@ function configuredRetailers(): RetailerId[] {
   return valid.length > 0 ? valid : DEFAULT_SEARCH_RETAILERS;
 }
 
-export async function scheduledRefreshAll(deps: RefreshDeps = realDeps): Promise<void> {
-  const components = db.getTrackedComponents();
-  if (components.length === 0) return;
-
-  const ctx = {
+function refreshContext() {
+  return {
     country: db.getConfig('default_country') ?? 'gb',
     dropThresholdPct: Number(db.getConfig('notify_drop_percent') ?? 5),
     retailers: configuredRetailers(),
   };
+}
+
+// Manual refreshes run one after another, never in parallel, so the dashboard's "refresh all" cannot hammer a retailer.
+let manualChain: Promise<unknown> = Promise.resolve();
+
+/** Refresh one component now through the same path as the scheduler (all tiers, scrape_runs, alerts). */
+export function refreshOneNow(component: db.TrackedComponent, deps: RefreshDeps = realDeps): Promise<{ snapshots: number }> {
+  const run = manualChain.then(async () => {
+    try {
+      return await refreshComponent(component, refreshContext(), deps);
+    } catch (e) {
+      db.recordScrapeRun({ componentId: component.id, source: 'scheduler', ok: false, error: e instanceof Error ? e.message : String(e) });
+      db.markScrapeFailed(component.id);
+      throw e;
+    }
+  });
+  manualChain = run.catch(() => undefined);
+  return run;
+}
+
+export async function scheduledRefreshAll(deps: RefreshDeps = realDeps): Promise<void> {
+  const components = db.getTrackedComponents();
+  if (components.length === 0) return;
+
+  const ctx = refreshContext();
   const globalIntervalMs = Number(db.getConfig('auto_refresh_interval_minutes') ?? 60) * 60_000;
 
   for (const component of components) {

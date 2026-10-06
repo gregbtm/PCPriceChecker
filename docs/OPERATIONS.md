@@ -8,6 +8,20 @@ The REST API and dashboard have **no authentication**, and `GET /api/config` ret
 ## Settings
 Settings live in the SQLite `config` table and are changed with `POST /api/config` and body `{"key":"...","value":"..."}` (empty value deletes the key). A value stored this way **overrides the container's environment** at startup. Keys: `ntfy_server`, `ntfy_topic`, `ntfy_token`, `webhook_url`, `webhook_secret`, `ebay_client_id`, `ebay_client_secret`, `changedetection_url`, `changedetection_api_key`, `changedetection_autocreate` (`false` stops the app creating Novatech watches), `quiet_hours` (e.g. `22:00-07:00`, local time, default none), `alert_cooldown_minutes` (1440), `drop_cooldown_minutes` (360), `price_retention_days` (365, 0 keeps everything), `daily_summary_hour` (8, `off` disables), `max_offer_age_hours` (48), `scheduler_retailers`, `suspicious_price_per_gb` (2). Per component: `PATCH /api/components/:id/alert` with `alert_price` and `consider_price`.
 
+## Dashboard: Integrations tab
+Everything below can be set from the dashboard's **Integrations** tab (sidebar menu): ntfy, alert behaviour (cooldowns, quiet hours, daily summary hour, retention), the n8n webhook and workflow downloads, changedetection.io (connection check, watches list, add or delete watches, optional Novatech page), the optional tiers, a scraper-health table with recent runs, and buttons to run a pass, test notifications and send the daily summary. Secrets are write-only there (a stored value shows as "set"). Per component, the bell button now sets the alert price, the "worth a look" price and the hardware profile, and the cart button lists the current qualifying offers.
+
+## Checking scrape runs from a shell
+```bash
+APP=http://192.168.1.240:38574
+curl -s $APP/api/scrape-runs?limit=30 | python3 -m json.tool          # newest first: source, ok, error, offers_found
+curl -s "$APP/api/scrape-runs?limit=200" | python3 -c "import json,sys;[print(r['started_at'],r['source'],'ok' if r['ok'] else 'FAIL',r['offers_found'],(r['error'] or '')[:80]) for r in json.load(sys.stdin)]"
+curl -s $APP/api/health | python3 -m json.tool                        # scrapers.sources: last success, failures in 24h, in a row
+curl -s "$APP/api/scrape-runs?limit=200" | python3 -c "import json,sys;[print(r['started_at'],r['error']) for r in json.load(sys.stdin) if r['source']=='search:novatech']"
+curl -s -X POST $APP/api/scheduler/run                                # start a pass now (202), then re-run the first command
+```
+`search:novatech` should show a "pending" failure on the first pass (the watch is being created) and offers on the next. A source with `ok: 1` and `offers_found: 0` is healthy but found nothing relevant.
+
 ## Checking that it works
 - `GET /api/health` includes a `scrapers` section (last success per source).
 - `GET /api/scrape-runs`: every source attempt; failing sources show `ok: 0` and the error. Three failures in a row notify once per source per 24 hours.
@@ -33,6 +47,9 @@ Restore: stop the container, replace `/data/pc-prices.db` (and delete any `-wal`
 
 ## Known limits
 Scan, Overclockers, Box, Currys and CCL return HTTP 403 from the NAS and Ebuyer refuses connections; none of that is worked around. Novatech product pages work through a changedetection.io watch; AWD-IT and eBay work directly. See `docs/RESEARCH_AND_VERIFICATION.md` rows 23-30.
+
+## Novatech: more than 24 results
+Novatech's search shows the first 24 of its results in relevance order, and page-size or sort parameters could not be found. Instead watch a listing page that is already narrow: open Novatech's Memory > Laptop Memory (DDR5) category in a browser, copy the address, and set it as **Novatech page to watch** on the Integrations tab (config `novatech_search_url`; `{q}` in the address is replaced by the component's search text, so a category address needs none). The snapshot format is the same; the SO-DIMM profile still decides what counts. **Unverified** until a category address has been used: the parser expects the same product block layout as the search page.
 
 ## Optional: changedetection-mcp
 Claude can manage changedetection.io watches through the community MCP `changedetection-mcp` (PyPI 0.1.0, one maintainer, Python 3.11+; tools: list/get/create/update/delete/recheck watches, history, snapshot diff, tags, system info; **no price or restock tool**). It is for ad-hoc management only: this app talks to the changedetection.io REST API directly and does not depend on it. Install pinned (`pip install changedetection-mcp==0.1.0`, optionally `--require-hashes` with the hashes in `docs/RESEARCH_AND_VERIFICATION.md` section 5) and set `CHANGEDETECTION_BASE_URL` and `CHANGEDETECTION_API_KEY`. Not tested here against the owner's instance (research row 3: "Live test" outstanding).

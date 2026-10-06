@@ -17,7 +17,10 @@ export const WATCHED_RETAILERS: RetailerId[] = ['novatech'];
 export async function searchViaWatch(id: RetailerId, query: string, now = Date.now()): Promise<RetailerSearchResult | null> {
   if (!WATCHED_RETAILERS.includes(id)) return null;
   const t0 = Date.now();
-  const url = SEARCH_URLS[id]!(query);
+  // Optional override (config novatech_search_url): a full URL, with {q} replaced by the query. Use it to watch a category page,
+  // for example the DDR5 laptop-memory listing, which shows far more relevant kits than a keyword search's first 24 results.
+  const override = db.getConfig(`${id}_search_url`);
+  const url = override ? override.replace('{q}', encodeURIComponent(query)) : SEARCH_URLS[id]!(query);
   const done = (results: RetailerSearchResult['results'], error?: string): RetailerSearchResult =>
     ({ retailer: 'Novatech', results, scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error });
 

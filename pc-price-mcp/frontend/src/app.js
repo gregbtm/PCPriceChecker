@@ -169,6 +169,53 @@ function app() {
     tags: [],
     activeTagFilter: null,
 
+
+    // Integrations tab (HANDOFF 9q)
+    integrations: null,
+    intForm: {},
+    intSaving: '',
+    scrapeRuns: [],
+    cdWatches: [],
+    cdWatchesError: '',
+    cdNew: { url: '', title: '', browser: false, component_id: '' },
+    cdSpikeResult: null,
+    ebayStatus: null,
+    showOffersModal: false,
+    offersData: null,
+    alertConsider: '',
+    alertProfile: '',
+    intGroups: [
+      { id: 'ntfy', title: 'Alerts: ntfy (self-hosted)', help: 'Where price alerts, the options list, scraper failures and the daily summary are sent. Leave the token empty for an open server.', fields: [
+        { key: 'ntfy_server', label: 'ntfy server', placeholder: 'https://ntfy.example.lan' },
+        { key: 'ntfy_topic', label: 'Topic', placeholder: 'pcpricechecker' },
+        { key: 'ntfy_token', label: 'Access token', secret: true, placeholder: 'tk_… (only if the server needs a login)' },
+      ] },
+      { id: 'alerts', title: 'Alert behaviour', help: 'Cooldowns stop repeats of the same deal; a different retailer or a price 1% lower bypasses them. Quiet hours hold alerts back (local time).', fields: [
+        { key: 'alert_cooldown_minutes', label: 'Price alert cooldown (minutes)', placeholder: '1440' },
+        { key: 'drop_cooldown_minutes', label: 'Price drop cooldown (minutes)', placeholder: '360' },
+        { key: 'quiet_hours', label: 'Quiet hours', placeholder: '22:00-07:00 (empty = none)' },
+        { key: 'daily_summary_hour', label: 'Daily summary hour (0-23, or "off")', placeholder: '8' },
+        { key: 'max_offer_age_hours', label: 'Ignore offers older than (hours)', placeholder: '48' },
+        { key: 'price_retention_days', label: 'Keep raw price rows for (days, 0 = forever)', placeholder: '365' },
+        { key: 'auto_refresh_interval_minutes', label: 'Refresh every (minutes)', placeholder: '60' },
+      ] },
+      { id: 'n8n', title: 'n8n (webhook)', help: 'The app posts every alert as JSON to this n8n Webhook node. Use the production URL, not /webhook-test/.', fields: [
+        { key: 'webhook_url', label: 'Webhook URL', placeholder: 'http://NAS-IP:5678/webhook/pcpc' },
+        { key: 'webhook_secret', label: 'Header token (X-PCPC-Token)', secret: true, placeholder: 'optional' },
+      ] },
+      { id: 'cd', title: 'changedetection.io', help: 'Reads JavaScript-heavy pages (Novatech) through your own changedetection.io browser. The app creates its watches itself, titled "PCPC: …".', fields: [
+        { key: 'changedetection_url', label: 'URL', placeholder: 'https://changedetection.example.lan' },
+        { key: 'changedetection_api_key', label: 'API key', secret: true, placeholder: 'Settings > API in changedetection.io' },
+        { key: 'novatech_search_url', label: 'Novatech page to watch (optional)', placeholder: 'A category URL, or a search URL with {q}; empty = keyword search' },
+      ] },
+      { id: 'other', title: 'Optional tiers (all off by default)', help: 'Firecrawl renders JavaScript pages, SearXNG suggests product pages, a local LLM (Ollama) can extract prices. None is required.', fields: [
+        { key: 'firecrawl_url', label: 'Firecrawl URL', placeholder: 'http://NAS-IP:3002' },
+        { key: 'searxng_url', label: 'SearXNG URL', placeholder: 'http://NAS-IP:8080' },
+        { key: 'openai_base_url', label: 'Local LLM base URL', placeholder: 'http://NAS-IP:11434/v1' },
+        { key: 'openai_model', label: 'Local LLM model', placeholder: 'llama3.1:8b' },
+      ] },
+    ],
+
     // Needs attention
     needsAttention: [],
     scraperHealth: { failing: [], sources: [] },
@@ -311,6 +358,7 @@ function app() {
         this.loadNeedsAttention(),
       ]);
       this._schedulerTimer = setInterval(() => this.loadSchedulerStatus(), 30_000);
+      this.$watch('activeTab', t => { if (t === 'integrations') { this.loadIntegrations(); this.loadScrapeRuns(); this.loadCdWatches().catch(() => {}); } });
       window.addEventListener('pc:vat-changed', e => { this.vatMode = e.detail; });
       window.addEventListener('pc:components-changed', () => Promise.all([this.loadComponents(), this.loadTags()]));
     },
@@ -318,6 +366,94 @@ function app() {
     // ── Data loaders ───────────────────────────────────────────────────────
     async loadComponents()     { await this.loadFrom('/api/components',              'components'); },
     async loadSchedulerStatus(){ await this.loadFrom('/api/scheduler',               'schedulerStatus'); },
+
+    // ── Integrations tab ───────────────────────────────────────────────────
+    async loadIntegrations() {
+      try {
+        const r = await fetch('/api/integrations');
+        this.integrations = await r.json();
+        const c = await (await fetch('/api/config')).json();
+        const form = {};
+        for (const g of this.intGroups) for (const f of g.fields) form[f.key] = f.secret ? '' : (c[f.key] ?? '');
+        this.intForm = form;
+      } catch { /* the tab shows "unavailable" */ }
+    },
+    secretIsSet(key) {
+      const i = this.integrations; if (!i) return false;
+      return { ntfy_token: i.ntfy.tokenSet, webhook_secret: i.webhook.secretSet, changedetection_api_key: i.changedetection.keySet }[key] ?? false;
+    },
+    async saveGroup(g) {
+      this.intSaving = g.id;
+      try {
+        for (const f of g.fields) {
+          const v = (this.intForm[f.key] ?? '').toString().trim();
+          if (f.secret && v === '') continue;          // an empty secret box means "leave it as it is"
+          await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: f.key, value: v === '' ? null : v }) });
+        }
+        this.showToast(`✅ ${g.title} saved`);
+        await this.loadIntegrations();
+      } finally { this.intSaving = ''; }
+    },
+    async clearSecret(key) {
+      if (!confirm('Remove this stored value?')) return;
+      await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, value: null }) });
+      await this.loadIntegrations();
+    },
+    async testNotifications() {
+      const r = await fetch('/api/notifications/test', { method: 'POST' });
+      const d = await r.json();
+      const ok = Object.entries(d).filter(([, v]) => v).map(([k]) => k);
+      this.showToast(ok.length ? `✅ Delivered via: ${ok.join(', ')}` : '❌ No channel delivered (check ntfy server/topic/token)', ok.length ? 'success' : 'error');
+    },
+    async sendSummaryNow() {
+      const d = await (await fetch('/api/daily-summary/send', { method: 'POST' })).json();
+      this.showToast(d.sent ? '✅ Daily summary sent' : '❌ Not sent (no channel delivered, or no component with a profile or options price)', d.sent ? 'success' : 'error');
+    },
+    async runNow() {
+      const r = await fetch('/api/scheduler/run', { method: 'POST' });
+      if (r.status === 409) { this.showToast('A pass is already running'); return; }
+      this.showToast('⏳ Refresh pass started; results appear below');
+      for (let i = 0; i < 72; i++) {                    // up to 6 minutes
+        await new Promise(res => setTimeout(res, 5000));
+        await this.loadSchedulerStatus(); await this.loadScrapeRuns();
+        if (!this.schedulerStatus?.currentlyRunning) break;
+      }
+      await Promise.all([this.loadComponents(), this.loadNeedsAttention(), this.loadAlerts()]);
+    },
+    async loadScrapeRuns() { await this.loadFrom('/api/scrape-runs?limit=100', 'scrapeRuns', true); },
+    async loadCdWatches() {
+      this.cdWatchesError = '';
+      const r = await fetch('/api/changedetection/watches');
+      const d = await r.json();
+      if (!r.ok) { this.cdWatches = []; this.cdWatchesError = d.error || 'unavailable'; return; }
+      this.cdWatches = d;
+    },
+    async createCdWatch() {
+      const n = this.cdNew;
+      const r = await fetch('/api/changedetection/watches', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: n.url, title: n.title || n.url, browser: n.browser, component_id: n.component_id || undefined }) });
+      const d = await r.json();
+      if (!r.ok) { this.showToast(`❌ ${d.error}`, 'error'); return; }
+      this.cdNew = { url: '', title: '', browser: false, component_id: '' };
+      this.showToast('✅ Watch created; the first reading appears after its first check');
+      await this.loadCdWatches();
+    },
+    async deleteCdWatch(w) {
+      if (!confirm(`Delete the watch "${w.title}"?`)) return;
+      const r = await fetch(`/api/changedetection/watches/${w.uuid}`, { method: 'DELETE' });
+      if (!r.ok) this.showToast(`❌ ${(await r.json()).error}`, 'error');
+      await this.loadCdWatches();
+    },
+    async runCdSpike() {
+      const r = await fetch('/api/changedetection/spike');
+      this.cdSpikeResult = await r.json();
+    },
+    async checkEbay() { this.ebayStatus = await (await fetch('/api/ebay/status')).json(); },
+    async openOffers(c) {
+      this.offersData = null; this.showOffersModal = true;
+      this.offersData = await (await fetch(`/api/components/${c.id}/offers`)).json();
+    },
+    fmtRun(r) { return `${r.started_at} · ${r.source} · ${r.ok ? 'ok' : 'FAILED'}${r.offers_found ? ` · ${r.offers_found} offers` : ''}${r.error ? ' · ' + r.error : ''}`; },
     async loadAlerts()         { await this.loadFrom('/api/alerts',                  'alerts'); },
     async loadPriceDrops()     { await this.loadFrom('/api/price-drops?min_percent=2','priceDrops'); },
     async loadStockChanges()   { await this.loadFrom('/api/stock-changes?hours=24',  'stockChanges'); },
@@ -584,10 +720,8 @@ function app() {
     },
     async refreshAll() {
       this.refreshingAll = true;
-      await Promise.all(this.components.map(c => this._refreshOne(c).catch(() => {})));
-      this.refreshingAll = false;
-      await Promise.all([this.loadComponents(), this.loadPriceDrops(), this.loadAlerts(), this.loadStockChanges(), this.loadSparklines(), this.loadNeedsAttention()]);
-      this.showToast('✅ All components refreshed');
+      try { await this.runNow(); } finally { this.refreshingAll = false; }
+      this.showToast('✅ Refresh pass finished');
     },
     async removeComponent(c) {
       if (!confirm(`Remove "${c.name}" and all its price history?`)) return;
@@ -598,6 +732,8 @@ function app() {
     openEditAlert(c) {
       this.alertComponent = c;
       this.alertPrice = c.alert_price ?? '';
+      this.alertConsider = c.consider_price ?? '';
+      this.alertProfile = c.profile_id ?? '';
       this.showAlertModal = true;
     },
     async _setAlert(price) {
@@ -610,7 +746,17 @@ function app() {
       this.showToast(price == null ? '🔕 Alert removed' : '🔔 Alert saved');
       await this.loadComponents();
     },
-    async saveAlert()  { await this._setAlert(isNaN(parseFloat(this.alertPrice)) ? null : parseFloat(this.alertPrice)); },
+    async saveAlert()  {
+      const num = v => (isNaN(parseFloat(v)) ? null : parseFloat(v));
+      const id = this.alertComponent.id;
+      await fetch(`/api/components/${id}/alert`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alert_price: num(this.alertPrice), consider_price: num(this.alertConsider) }) });
+      await fetch(`/api/components/${id}/profile`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_id: this.alertProfile || null }) });
+      this.showAlertModal = false;
+      this.showToast('✅ Alert settings saved');
+      await Promise.all([this.loadComponents(), this.loadAlerts()]);
+    },
     async clearAlert() { await this._setAlert(null); },
 
     // ── History chart ──────────────────────────────────────────────────────
