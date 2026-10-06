@@ -6,7 +6,7 @@ describe('classifyMemory on real Scan titles (docs/RESEARCH_AND_VERIFICATION.md 
   it('64GB (2x32GB) Corsair 5600', () => {
     expect(classifyMemory(SCAN.kit5600Backorder)).toEqual({
       ddr: 5, formFactor: 'SODIMM', ecc: false, registered: false,
-      modules: 2, moduleGb: 32, totalGb: 64, speedMts: 5600, cl: 48, voltage: 1.1,
+      modules: 2, moduleGb: 32, totalGb: 64, speedMts: 5600, cl: 48, voltage: 1.1, bundle: false,
     });
   });
   it('64GB (2x32GB) Corsair 5200 (PC5-41600)', () => {
@@ -45,7 +45,7 @@ describe('classifyMemory edge cases (synthetic titles)', () => {
   it('ignores GB/s and storage-sized numbers, never invents fields', () => {
     expect(classifyMemory('DDR5 SODIMM 44.8GB/s').totalGb).toBeNull();
     expect(classifyMemory('some memory')).toEqual({ ddr: null, formFactor: null, ecc: null, registered: null,
-      modules: null, moduleGb: null, totalGb: null, speedMts: null, cl: null, voltage: null });
+      modules: null, moduleGb: null, totalGb: null, speedMts: null, cl: null, voltage: null, bundle: false });
   });
   it('a kit whose arithmetic does not add up is not trusted as a kit', () => {
     expect(classifyMemory('64GB (2x16GB) DDR5 SODIMM')).toMatchObject({ totalGb: 32, modules: 2 });
@@ -89,5 +89,36 @@ describe('matchesProfile: n5-air-ram', () => {
   });
   it('rejects a title that does not say DDR generation (never guess)', () => {
     expect(m(SYNTHETIC.noGen).reasons.join()).toMatch(/generation .* not stated/);
+  });
+});
+
+describe('bundles: a device sold WITH memory is not a memory kit (real eBay UK listing seen on the owner NAS, 2026-10-06)', () => {
+  const MINI_PC = 'Minisforum Ar900i with Kingston Fury Impact 64gb (2x32) 5600Mt/s DDR5 SODIMM Mem';
+
+  it('the Minisforum mini PC bundle (GBP 800) was wrongly accepted as a 64GB kit and is now rejected', () => {
+    const l = classifyMemory(MINI_PC);
+    expect(l).toMatchObject({ bundle: true, ddr: 5, formFactor: 'SODIMM', totalGb: 64 });   // the memory words are all there...
+    const m = matchesProfile(l, N5_AIR_RAM);
+    expect(m.match).toBe(false);                                                            // ...but it is not a kit
+    expect(m.reasons.join()).toMatch(/bundle/);
+  });
+
+  it('"with" after memory words is an accessory, not a bundle', () => {
+    expect(classifyMemory('Kingston FURY Impact 64GB (2x32GB) DDR5 5600 SODIMM with heatsink').bundle).toBe(false);
+    expect(classifyMemory('64GB DDR5 SODIMM kit including free delivery').bundle).toBe(false);
+  });
+
+  it('a laptop or mini PC "with 64GB" is a bundle; titles without a joiner are not', () => {
+    expect(classifyMemory('Dell Latitude laptop with 64GB DDR5 RAM').bundle).toBe(true);
+    expect(classifyMemory(SCAN.kit5200InStock).bundle).toBe(false);
+    expect(classifyMemory(SYNTHETIC.marketing).bundle).toBe(false);
+  });
+
+  it('real eBay kits from the same result set still match', () => {
+    for (const t of [
+      'Fanxiang 64GB (2x32GB) DDR5 5600MHz SO-DIMM Laptop RAM Memory Kit',
+      'SK Hynix 2x 32GB (64GB) DDR5-5600MHZ SODIMM HMCG88AGBSA095N',
+      'Origin Storage 64GB 2x32GB DDR5 5600MHz SODIMM 1Rx8 Non-ECC 1.1V',
+    ]) expect(matchesProfile(classifyMemory(t), N5_AIR_RAM).match).toBe(true);
   });
 });

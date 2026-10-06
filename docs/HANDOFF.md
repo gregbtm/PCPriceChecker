@@ -232,6 +232,7 @@ These close the questions in `docs/IMPROVEMENT_PLAN.md` section 7. They are the 
 - Create the tracked item with `profile_id: "n5-air-ram"` (REST `POST /api/components` or the MCP `track_component` tool). Use a query such as `ddr5 so-dimm 64gb`; with a profile the classifier, not the query words, decides what fits.
 - Listings that do not fit (24GB singles, DDR4, desktop DIMM, ECC, CAMM2, wrong capacity, 1-module) are **stored** with `profile_match = 0` for history, but never alert, never count as the best price and never trigger restock events. Accepted: 64GB as a 2-module kit, and 48GB (2x24GB) with the `non_binary_unverified` flag. Flags raised without rejecting: `will_downclock`, `kit_unconfirmed`, `ecc_unstated`, `speed_unstated`.
 - Alert text now carries the listing title, GBP per GB and the flag warnings. A 48GB alert says plainly that 24GB modules are not confirmed to work in the N5 Air.
+- **Bundles are rejected:** a title where "with / incl / including / plus" appears with nothing memory-related before it ("Minisforum Ar900i with Kingston Fury Impact 64gb ...", a real GBP 800 eBay listing the first version accepted) is a device sold with RAM, not a kit.
 - The classifier never guesses: a title that does not say DDR4/DDR5 or SO-DIMM/DIMM is rejected with that reason.
 - **Limit:** the MCP `track_component fetch_now` / `refresh_prices` path (index.ts) is separate from the scheduler and does not classify. Only the scheduler path, which is what produces alerts, is profile-aware.
 

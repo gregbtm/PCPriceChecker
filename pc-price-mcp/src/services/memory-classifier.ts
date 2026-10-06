@@ -18,6 +18,11 @@ export interface MemoryListing {
   speedMts: number | null;
   cl: number | null;
   voltage: number | null;
+  /**
+   * The title sells another product WITH memory ("Minisforum Ar900i with Kingston Fury Impact 64gb ...").
+   * True when "with / incl / including / plus" appears and nothing memory-related precedes it.
+   */
+  bundle: boolean;
 }
 
 const SIZES = new Set([2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256]);
@@ -79,6 +84,11 @@ export function classifyMemory(title: string): MemoryListing {
     }
   }
 
+  // Bundle: "<device> with <memory>" (a mini PC or laptop sold with RAM is not a RAM kit).
+  const joiner = t.match(/\b(?:with|incl\.?|including|plus)\b/i);
+  const bundle = !!joiner && joiner.index !== undefined
+    && !/\b(?:ddr\s?\d?|so[\s-]?dimm|dimm|ram|memory|kit|modules?|\d+\s*gb)\b/i.test(t.slice(0, joiner.index));
+
   const cl = t.match(/\bC(?:AS|L)\s?-?(\d{2})\b/i);
   const v = t.match(/\b(1\.\d{1,2})\s?V\b/i);
 
@@ -87,6 +97,7 @@ export function classifyMemory(title: string): MemoryListing {
     speedMts: parseSpeed(t, ddr),
     cl: cl ? +cl[1] : null,
     voltage: v ? +v[1] : null,
+    bundle,
   };
 }
 
@@ -133,6 +144,7 @@ export function matchesProfile(listing: MemoryListing, profile: MemoryProfile): 
   if (listing.formFactor == null) reasons.push('form factor (SO-DIMM/DIMM) not stated');
   else if (listing.formFactor !== profile.formFactor) reasons.push(`${listing.formFactor}, need ${profile.formFactor}`);
 
+  if (listing.bundle) reasons.push('bundle: memory sold with another product, not a memory kit');
   if (listing.registered === true) reasons.push('registered memory');
   if (listing.ecc === true && !profile.allowEcc) reasons.push('ECC memory, platform is non-ECC');
   if (listing.ecc === null && !profile.allowEcc) flags.push('ecc_unstated');
