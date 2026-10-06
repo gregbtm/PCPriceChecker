@@ -1,3 +1,5 @@
+import { classifyMemory } from './memory-classifier.js';
+
 // Static compatibility rules for PC component combinations.
 // No external API needed — data based on manufacturer specifications.
 
@@ -25,6 +27,9 @@ export interface ComponentList {
   case?: string;
   cooler?: string;
   storage?: string;
+  /** Optional platform limits (P1-4), e.g. from a hardware profile: slot count and maximum total memory. */
+  ramSlots?: number;
+  maxMemoryGb?: number;
 }
 
 // ── Socket detection ───────────────────────────────────────────────────────
@@ -34,6 +39,7 @@ type MemoryStandard = 'DDR4' | 'DDR5' | 'DDR4/DDR5' | 'unknown';
 
 function detectCpuSocket(cpu: string): CpuSocket {
   const c = cpu.toLowerCase();
+  if (detectMobileCpu(cpu)) return 'unknown';   // a mobile part is not an AM5/LGA desktop socket (P1-4)
   // Ryzen 9000 / 7000 → AM5
   if (/ryzen\s+[579]\s+[79][0-9]{3}/.test(c)) return 'AM5';
   // Ryzen 5000 / 3000 / 2000 / 1000 → AM4
@@ -45,6 +51,19 @@ function detectCpuSocket(cpu: string): CpuSocket {
   if (/i[3579]-1[2-4]\d{3}/.test(c)) return 'LGA1700';
   if (/core i[3579] 1[2-4]\d{3}/.test(c)) return 'LGA1700';
   return 'unknown';
+}
+
+/**
+ * Mobile/APU parts (P1-4): the Ryzen 7 255 class (three-digit 200-series), Ryzen 7040/8040 H/U/HS parts and Core Ultra H/U.
+ * They are soldered or SO-DIMM platforms, never an AM5 desktop socket, so they must be recognised BEFORE the AM5 pattern,
+ * which would otherwise read "Ryzen 7 7840HS" as a desktop 7000-series chip. All of these use DDR5.
+ */
+export function detectMobileCpu(cpu: string): boolean {
+  const c = cpu.toLowerCase();
+  return /ryzen\s+[3579]\s+2[0-9]{2}\b(?!\s*[a-z]*x)/.test(c)          // Ryzen 5 240, Ryzen 7 255
+    || /ryzen\s+[3579]\s+[5-9][0-9]{3}\s*(?:hs|h|u|hx3d|hx)\b/.test(c)   // 7840HS, 8845HS, 7945HX
+    || /ryzen\s+ai\b/.test(c)
+    || /core\s+ultra\s+[579]\s+\d{3}[hu]\b/.test(c);
 }
 
 function detectMoboSocket(mobo: string): CpuSocket {
@@ -188,6 +207,44 @@ export function checkCompatibility(components: ComponentList): CompatibilityResu
         message: `${cpu} (${cpuSocket}) requires ${expectedMem} but the RAM appears to be ${ramType}.`,
         affectedComponents: [cpu, ram],
       });
+    }
+  }
+
+  // 3b. Form factor, ECC, slots and capacity (P1-4). Only when the text states enough to be sure.
+  if (ram) {
+    const listing = classifyMemory(ram);
+    const mobile = !!cpu && detectMobileCpu(cpu);
+    const desktopBoard = !!motherboard && detectMoboSocket(motherboard) !== 'unknown';
+    if (listing.formFactor === 'SODIMM' && desktopBoard) {
+      issues.push({ severity: 'error', type: 'form_factor_mismatch',
+        message: 'This RAM is SO-DIMM (laptop/mini PC) but the motherboard is a desktop board that takes full-size DIMMs.',
+        affectedComponents: [ram, motherboard!] });
+    }
+    if (listing.formFactor === 'DIMM' && mobile && !motherboard) {
+      issues.push({ severity: 'error', type: 'form_factor_mismatch',
+        message: `${cpu} is a mobile/mini-PC platform that takes SO-DIMM memory, but this RAM is a full-size desktop DIMM.`,
+        affectedComponents: [cpu!, ram] });
+    }
+    if (mobile && !motherboard) {
+      if (listing.ddr === 4) {
+        issues.push({ severity: 'error', type: 'memory_platform_mismatch',
+          message: `${cpu} uses DDR5 but the RAM appears to be DDR4.`, affectedComponents: [cpu!, ram] });
+      }
+    }
+    if (listing.ecc === true) {
+      warnings.push({ severity: 'warning', type: 'ecc_unsupported',
+        message: 'ECC memory is only used as ECC on platforms that support it; most consumer and mini-PC boards run it as non-ECC or reject it. Check the board specification.',
+        affectedComponents: [ram] });
+    }
+    if (components.ramSlots != null && listing.modules != null && listing.modules > components.ramSlots) {
+      issues.push({ severity: 'error', type: 'ram_slots_exceeded',
+        message: `${listing.modules} modules need ${listing.modules} slots but the platform has ${components.ramSlots}.`,
+        affectedComponents: [ram] });
+    }
+    if (components.maxMemoryGb != null && listing.totalGb != null && listing.totalGb > components.maxMemoryGb) {
+      issues.push({ severity: 'error', type: 'ram_capacity_exceeded',
+        message: `${listing.totalGb}GB is above the platform maximum of ${components.maxMemoryGb}GB.`,
+        affectedComponents: [ram] });
     }
   }
 
