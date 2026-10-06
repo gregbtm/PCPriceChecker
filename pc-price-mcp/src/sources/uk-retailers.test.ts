@@ -203,3 +203,39 @@ describe('diagnoseRetailerPage (read-only page diagnostic)', () => {
     await expect(diagnoseRetailerPage('currys', 'x')).rejects.toThrow(/No plain-HTML search address/);
   });
 });
+
+describe('diagnoseRetailerPage: where might a JS-rendered site keep its products?', () => {
+  const html = `<html><head><title>Search</title></head><body>
+    <script id="search-data" type="application/json">{"products":[{"name":"Kingston Fury 64GB (2x32GB) DDR5 SODIMM","price":412.5}]} ${' '.repeat(300)}</script>
+    <script src="/static/js/search-results.min.js"></script><script src="/static/js/app.js"></script>
+    <div data-price="129.99" data-name="Corsair kit"></div></body></html>`;
+
+  it('reports price attributes, JSON price pairs, inline data scripts and script hints', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => html }));
+    const { diagnoseRetailerPage } = await import('./uk-retailers.js');
+    const d = await diagnoseRetailerPage('novatech', 'x');
+    expect(d.signals.poundPrices).toBe(0);
+    expect(d.signals.priceAttributes).toBe(1);
+    expect(d.signals.jsonPricePairs).toBe(1);
+    expect(d.signals.dataScripts).toEqual([{ id: 'search-data', type: 'application/json', bytes: expect.any(Number) }]);
+    expect(d.signals.scriptHints).toEqual(['/static/js/search-results.min.js']);
+    expect(d.needle).toBeUndefined();
+  });
+
+  it('needle returns the count and snippets around a word from the expected results', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => html }));
+    const { diagnoseRetailerPage } = await import('./uk-retailers.js');
+    const d = await diagnoseRetailerPage('novatech', 'x', 'kingston');
+    expect(d.needle).toMatchObject({ term: 'kingston', count: 1 });
+    expect(d.needle!.contexts[0]).toContain('Kingston Fury 64GB');
+    const none = await diagnoseRetailerPage('novatech', 'x', 'nonexistent-brand');
+    expect(none.needle).toMatchObject({ count: 0, contexts: [] });
+  });
+
+  it('a regex-looking needle is matched literally', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '<p>a.b (c) [d] a+b</p>' }));
+    const { diagnoseRetailerPage } = await import('./uk-retailers.js');
+    expect((await diagnoseRetailerPage('novatech', 'x', '(c)')).needle?.count).toBe(1);
+    expect((await diagnoseRetailerPage('novatech', 'x', 'a.b')).needle?.count).toBe(1);
+  });
+});

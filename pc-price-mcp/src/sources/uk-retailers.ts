@@ -663,9 +663,21 @@ export interface RetailerPageDiagnosis {
   bytes: number;
   title: string | null;
   /** Signals the extractors look for. No JSON-LD products and no price in the raw HTML means the page needs JS rendering. */
-  signals: { jsonLdBlocks: number; jsonLdProducts: number; nextData: boolean; stateVariables: string[]; poundPrices: number };
+  signals: {
+    jsonLdBlocks: number; jsonLdProducts: number; nextData: boolean; stateVariables: string[]; poundPrices: number;
+    /** `data-...price...="123.45"` attributes: prices stored in markup without a pound sign. */
+    priceAttributes: number;
+    /** `"price": 123.45` style pairs inside inline JSON. */
+    jsonPricePairs: number;
+    /** Inline JSON/data script blocks (type or id, size): where a site may keep its product list. */
+    dataScripts: { id: string | null; type: string | null; bytes: number }[];
+    /** External script files whose name mentions search, product or listing: hints at an API the page calls. */
+    scriptHints: string[];
+  };
   /** Up to 3 snippets of raw HTML around the first GBP prices, so an extractor can be written without saving the page. */
   priceContexts: string[];
+  /** Optional `needle`: how often a word occurs in the raw HTML and up to 4 snippets around it (e.g. a brand from the expected results). */
+  needle?: { term: string; count: number; contexts: string[] };
   /** First characters of the visible text, to recognise block pages ("Just a moment...", "Access denied"). */
   textSample: string;
 }
@@ -674,7 +686,7 @@ export interface RetailerPageDiagnosis {
  * Read-only diagnostic: fetch one retailer's search page exactly as the scraper does and describe what
  * it contains. Only addresses from SEARCH_URLS can be fetched (no arbitrary URL, so it cannot be used as a proxy).
  */
-export async function diagnoseRetailerPage(id: RetailerId, query: string): Promise<RetailerPageDiagnosis> {
+export async function diagnoseRetailerPage(id: RetailerId, query: string, needle?: string): Promise<RetailerPageDiagnosis> {
   const build = SEARCH_URLS[id];
   if (!build) throw new Error(`No plain-HTML search address for "${id}". Available: ${Object.keys(SEARCH_URLS).join(', ')}`);
   const url = build(query);
@@ -700,8 +712,21 @@ export async function diagnoseRetailerPage(id: RetailerId, query: string): Promi
       nextData: /id="__NEXT_DATA__"/.test(html),
       stateVariables: [...new Set([...html.matchAll(/window\.(__\w+__)\s*=/g)].map(m => m[1]))],
       poundPrices: prices.length,
+      priceAttributes: (html.match(/data-[\w-]*price[\w-]*="[\d.]+"/gi) ?? []).length,
+      jsonPricePairs: (html.match(/"(?:price|sellPrice|priceIncVat|priceInc|currentPrice)"\s*:\s*"?[\d.]+/gi) ?? []).length,
+      dataScripts: [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)]
+        .map(m => ({ id: m[1].match(/\bid="([^"]+)"/)?.[1] ?? null, type: m[1].match(/\btype="([^"]+)"/)?.[1] ?? null, bytes: m[2].length }))
+        .filter(x => x.bytes > 200 && (x.type?.includes('json') || x.id))
+        .slice(0, 8),
+      scriptHints: [...new Set([...html.matchAll(/<script[^>]*\bsrc="([^"]+)"/gi)].map(m => m[1]).filter(u => /search|product|listing/i.test(u)))].slice(0, 8),
     },
     priceContexts: contexts,
     textSample: stripHtml(html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '')).slice(0, 400),
+    ...(needle ? (() => {
+      const term = needle.slice(0, 40);
+      const re = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      const hits = [...html.matchAll(re)];
+      return { needle: { term, count: hits.length, contexts: hits.slice(0, 4).map(m => html.slice(Math.max(0, (m.index ?? 0) - 250), (m.index ?? 0) + 250).replace(/\s+/g, ' ')) } };
+    })() : {}),
   };
 }

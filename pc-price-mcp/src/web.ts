@@ -228,7 +228,8 @@ export function startWebServer(port: number): void {
     const q = String(req.query.q ?? 'ddr5 so-dimm 64gb');
     if (!id) { res.status(400).json({ error: 'retailer is required', valid: Object.keys(SEARCH_URLS) }); return; }
     if (!(id in SEARCH_URLS)) { res.status(400).json({ error: `no plain-HTML search address for "${id}"`, valid: Object.keys(SEARCH_URLS) }); return; }
-    res.json(await diagnoseRetailerPage(id as RetailerId, q));
+    const needle = req.query.needle ? String(req.query.needle) : undefined;
+    res.json(await diagnoseRetailerPage(id as RetailerId, q, needle));
   }));
 
   app.get('/api/search/api', h(async (req, res) => {
