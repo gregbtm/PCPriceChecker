@@ -47,3 +47,35 @@ export async function alertOnRepeatedFailures(
   for (const d of due) db.setConfig(`scrape_fail_alerted:${d.source}`, String(now));
   return due.map(d => d.source);
 }
+
+/**
+ * Back-off for a source that keeps failing (HTTP 403 from a retailer that blocks the server, a dead PricesAPI key):
+ * after BLOCKED_AFTER failures in a row, across all components, it is tried once every 24 hours instead of on every pass.
+ * Hourly attempts against a site that refuses us changed nothing but the load on it (polite scraping), and the
+ * "failing" notice has long since been sent. Only `search:*` and `pricesapi` sources back off; component URLs, eBay and
+ * watches are always tried. A success resets it, and the 24-hour probe is a normal recorded run.
+ */
+export const BLOCKED_AFTER = 10;
+const PROBE_EVERY_MS = 24 * 3_600_000;
+
+export function backsOff(source: string): boolean {
+  return source.startsWith('search:') || source === 'pricesapi';
+}
+
+export function inBackoff(source: string, now = Date.now()): boolean {
+  if (!backsOff(source)) return false;
+  const st = db.getSourceRunState(source);
+  if (st.consecutive < BLOCKED_AFTER || !st.lastRunAt) return false;
+  return now - new Date(st.lastRunAt.replace(' ', 'T') + 'Z').getTime() < PROBE_EVERY_MS;
+}
+
+export type SourceStatus = 'ok' | 'failing' | 'blocked' | 'idle' | 'disabled';
+
+/** Dashboard/health classification. `disabled`: a search source no longer in the configured retailer list. */
+export function sourceStatus(h: Pick<db.SourceHealth, 'source' | 'last_run_at' | 'consecutive_failures'>, enabledSearchIds: string[], now = Date.now()): SourceStatus {
+  if (h.source.startsWith('search:') && !enabledSearchIds.includes(h.source.slice('search:'.length))) return 'disabled';
+  const ageMs = now - new Date(h.last_run_at.replace(' ', 'T') + 'Z').getTime();
+  if (h.consecutive_failures >= BLOCKED_AFTER) return ageMs > 2 * PROBE_EVERY_MS ? 'idle' : 'blocked';
+  if (ageMs > 6 * 3_600_000) return 'idle';
+  return h.consecutive_failures >= failureThreshold() ? 'failing' : 'ok';
+}

@@ -20,6 +20,8 @@ import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js'
 import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
 import { ebayBrowseSearch, ebayBrowseGetItem, ebayCredentialStatus, ebayConfigured, type EbayCondition } from './sources/ebay-browse.js';
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
+import { configuredRetailers } from './scheduler.js';
+import { sourceStatus } from './services/scrape-health.js';
 import { getSchedulerStatus, restartScheduler, stopScheduler, triggerRefreshNow, refreshOneNow } from './scheduler.js';
 import { notifyAll } from './notifications.js';
 import { searchCex, getCexProduct } from './sources/cex.js';
@@ -580,6 +582,7 @@ export function startWebServer(port: number): void {
       ntfy: { configured: set('ntfy_topic'), server: cfg.ntfy_server ?? 'https://ntfy.sh', topic: cfg.ntfy_topic ?? '', tokenSet: set('ntfy_token') },
       webhook: { configured: set('webhook_url'), url: cfg.webhook_url ?? '', secretSet: set('webhook_secret') },
       ebay: { configured: ebayConfigured() },
+      prices: { keySet: set('prices_api_key') || !!process.env.PRICES_API_KEY?.trim() },
       changedetection: { configured: changedetectionConfigured(), url: cfg.changedetection_url ?? '', keySet: set('changedetection_api_key') || !!process.env.CHANGEDETECTION_API_KEY,
         autocreate: cfg.changedetection_autocreate !== 'false', novatechSearchUrl: cfg.novatech_search_url ?? '' },
       firecrawl: { configured: firecrawlConfigured(), url: cfg.firecrawl_url ?? '' },
@@ -1065,10 +1068,13 @@ export function startWebServer(port: number): void {
   app.get('/api/health', (_req, res) => {
     // status stays 'ok' (the container healthcheck must not restart the app because a retailer broke);
     // scraper trouble is reported in `scrapers` instead.
-    let scrapers: { failing: string[]; sources: db.SourceHealth[] } = { failing: [], sources: [] };
+    let scrapers: { failing: string[]; sources: Array<db.SourceHealth & { status: string }> } = { failing: [], sources: [] };
     try {
-      const sources = db.getSourceHealth();
-      scrapers = { failing: sources.filter(x => x.consecutive_failures >= 3).map(x => x.source), sources };
+      const enabled = configuredRetailers() as string[];
+      const sources = db.getSourceHealth().map(x => ({ ...x, status: sourceStatus(x, enabled) }));
+      // `failing` = recently failing sources worth a look. Long-blocked sources (403 for days) are `blocked` and probed daily;
+      // retailers no longer in the search list are `disabled`; sources that have not run lately are `idle`.
+      scrapers = { failing: sources.filter(x => x.status === 'failing').map(x => x.source), sources };
     } catch { /* health must never throw */ }
     res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers });
   });

@@ -1248,6 +1248,14 @@ export function getConsecutiveFailures(componentId: number | null, source: strin
   return n;
 }
 
+/** Across all components: failures in a row for one source, and when it last ran (UTC `YYYY-MM-DD HH:MM:SS`). */
+export function getSourceRunState(source: string): { consecutive: number; lastRunAt: string | null } {
+  const rows = getDb().prepare('SELECT ok, started_at FROM scrape_runs WHERE source = ? ORDER BY id DESC LIMIT 200').all(source) as { ok: number; started_at: string }[];
+  let n = 0;
+  for (const r of rows) { if (r.ok) break; n++; }
+  return { consecutive: n, lastRunAt: rows[0]?.started_at ?? null };
+}
+
 export function getRecentScrapeRuns(limit = 50, componentId?: number): ScrapeRun[] {
   const where = componentId != null ? 'WHERE component_id = ?' : '';
   const args: unknown[] = componentId != null ? [componentId, limit] : [limit];

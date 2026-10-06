@@ -635,6 +635,13 @@
         </div>
       </template>
 
+      <template x-if="blockedSources().length > 0 && failingSources().length === 0">
+        <div class="text-xs text-base-content/50 px-1">
+          <span x-text="blockedSources().length"></span> source(s) are blocked or broken for days and are only tried once a day:
+          <span class="font-mono" x-text="blockedSources().map(s => s.source.replace('search:', '')).join(', ')"></span>.
+          Details on the Integrations tab.
+        </div>
+      </template>
       <!-- Scraper health (P5-1): sources whose latest run failed, from /api/health -->
       <template x-if="failingSources().length > 0">
         <div role="alert" class="alert alert-warning alert-soft rounded-xl p-4">
@@ -1360,11 +1367,13 @@
         </div>
         <div class="overflow-x-auto">
           <table class="table table-xs">
-            <thead><tr><th>Source</th><th>Last run</th><th>Last success</th><th>Failures (24h)</th><th>In a row</th><th>Last error</th></tr></thead>
+            <thead><tr><th>Source</th><th>Status</th><th>Last run</th><th>Last success</th><th>Failures (24h)</th><th>In a row</th><th>Last error</th></tr></thead>
             <tbody>
               <template x-for="s in scraperHealth.sources" :key="s.source">
-                <tr :class="s.consecutive_failures >= 3 ? 'text-error' : ''">
-                  <td class="font-mono" x-text="s.source"></td><td x-text="s.last_run_at"></td>
+                <tr :class="s.status === 'failing' ? 'text-error' : (s.status === 'disabled' || s.status === 'idle' ? 'opacity-50' : '')">
+                  <td class="font-mono" x-text="s.source"></td>
+                  <td><span class="badge badge-xs" :class="{ 'badge-success': s.status === 'ok', 'badge-error': s.status === 'failing', 'badge-warning': s.status === 'blocked', 'badge-ghost': s.status === 'idle' || s.status === 'disabled' }" x-text="s.status"></span></td>
+                  <td x-text="s.last_run_at"></td>
                   <td x-text="s.last_success_at || 'never'"></td>
                   <td x-text="s.failures_24h + ' / ' + s.runs_24h"></td><td x-text="s.consecutive_failures"></td>
                   <td class="max-w-xs truncate" :title="s.last_error" x-text="s.last_error || ''"></td>
