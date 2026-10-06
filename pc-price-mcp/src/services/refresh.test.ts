@@ -379,3 +379,23 @@ describe('changedetection.io tier (P3-3)', () => {
     expect(readWatch).not.toHaveBeenCalled();
   });
 });
+
+describe('search pages through a changedetection.io watch', () => {
+  it('uses the watch result for the watched retailer instead of scraping it, and falls back when it returns null', async () => {
+    const c = fresh(350);
+    const watched = page('Novatech', [res('Corsair Vengeance 64GB (2x32GB) DDR5 5600MHz SODIMM kit', 340, 'in_stock', 'novatech')]);
+    const searchRetailer = vi.fn(async () => page('x', [res('Kingston Fury 64GB (2x32GB) DDR5 SO-DIMM 5600MHz', 400, 'in_stock', 'scan')]));
+    const { deps } = makeDeps({}, { searchRetailer, changedetectionConfigured: () => true,
+      searchViaWatch: async (id) => id === 'novatech' ? watched : null });
+    await refreshComponent(c, ctx(['novatech', 'scan']), deps);
+    expect(searchRetailer).toHaveBeenCalledTimes(1);   // only scan was scraped directly
+    expect(db.getBestInStockOffer(c.id)?.price).toBe(340);
+  });
+  it('a pending watch is a recorded failure, not a silent skip', async () => {
+    const c = fresh(350);
+    const { deps } = makeDeps({}, { changedetectionConfigured: () => true,
+      searchViaWatch: async () => ({ retailer: 'Novatech', results: [], scrapedAt: '', durationMs: 1, error: 'watch created; its first snapshot is pending' }) });
+    await refreshComponent(c, ctx(['novatech']), deps);
+    expect(db.getRecentScrapeRuns(5).find(r => r.source === 'search:novatech')).toMatchObject({ ok: 0, error: expect.stringMatching(/pending/) });
+  });
+});

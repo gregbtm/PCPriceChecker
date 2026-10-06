@@ -69,6 +69,15 @@ export async function createRestockWatch(w: NewRestockWatch): Promise<string> {
   return out.uuid;
 }
 
+/** Plain text-change watch (the default processor); `browser` renders JavaScript before taking the snapshot. */
+export async function createTextWatch(w: { url: string; title: string; browser?: boolean }): Promise<string> {
+  const out = (await request('/watch', { method: 'POST', body: {
+    url: w.url, title: w.title, ...(w.browser ? { fetch_backend: 'html_webdriver' } : {}),
+  } })) as { uuid?: string };
+  if (!out?.uuid) throw new Error('changedetection.io did not return a watch uuid');
+  return out.uuid;
+}
+
 export async function recheckWatch(uuid: string): Promise<void> {
   await request(`/watch/${encodeURIComponent(uuid)}?recheck=1`);
 }
@@ -129,7 +138,7 @@ export function parseRestockSnapshot(text: string): { price: number; inStock: bo
   return Number.isFinite(price) && price > 0 ? { price, inStock: m[1].toLowerCase() === 'true' } : null;
 }
 
-const norm = (u: string) => u.replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase();
+export const norm = (u: string) => u.replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase();
 
 /** Latest reading from the watch on `url`, or null when there is no such watch or nothing usable yet. */
 export async function readWatchForUrl(url: string): Promise<WatchReading | null> {
