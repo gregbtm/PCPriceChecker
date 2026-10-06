@@ -33,3 +33,31 @@ describe('eBay Browse request', () => {
     expect(r.error).toContain('HTTP 400');
   });
 });
+
+describe('ebayCredentialStatus (diagnostic that never prints a secret)', () => {
+  it('reports unset, without any request', async () => {
+    const { ebayCredentialStatus } = await import('./ebay-browse.js');
+    const f = vi.fn(); vi.stubGlobal('fetch', f);
+    expect(await ebayCredentialStatus(false)).toMatchObject({ configured: false, source: 'none', tokenOk: false });
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it('shows hints and a rejected-credentials error, naming the config table as the source when it overrides', async () => {
+    process.env.EBAY_CLIENT_ID = '<App ID>'; process.env.EBAY_CLIENT_SECRET = 'PRD-0123456789abcdef-secretvalue';
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401, text: async () => '{"error":"invalid_client"}' })));
+    const { ebayCredentialStatus } = await import('./ebay-browse.js');
+    const r = await ebayCredentialStatus(true);
+    expect(r).toMatchObject({ configured: true, source: 'config-table', tokenOk: false });
+    expect(r.error).toContain('invalid_client');
+    expect(r.clientIdHint).toBe('(8 chars)');   // a placeholder is recognisable by length
+    expect(JSON.stringify(r)).not.toContain('secretvalue');
+    expect(JSON.stringify(r)).not.toContain('0123456789abcdef');
+  });
+
+  it('reports ok when eBay issues a token', async () => {
+    process.env.EBAY_CLIENT_ID = 'GregSpin-PCPriceC-PRD-aaaaaaaaa-bbbbbbbb'; process.env.EBAY_CLIENT_SECRET = 'PRD-cccccccccccc-dddd-eeee-ffff-gggg';
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ access_token: 't', expires_in: 7200 }) })));
+    const { ebayCredentialStatus } = await import('./ebay-browse.js');
+    expect(await ebayCredentialStatus(false)).toMatchObject({ configured: true, source: 'environment', tokenOk: true });
+  });
+});

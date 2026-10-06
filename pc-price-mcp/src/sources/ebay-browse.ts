@@ -210,6 +210,43 @@ export async function ebayBrowseSearch(
   }
 }
 
+export interface EbayCredentialStatus {
+  configured: boolean;
+  /** Where the effective values came from: the config table overrides the container environment at startup. */
+  source: 'config-table' | 'environment' | 'none';
+  /** Enough to recognise the value, never the value: first 3 / last 4 characters and the length. */
+  clientIdHint: string | null;
+  clientSecretHint: string | null;
+  tokenOk: boolean;
+  error?: string;
+}
+
+function hint(v: string | undefined): string | null {
+  if (!v) return null;
+  return v.length <= 8 ? `(${v.length} chars)` : `${v.slice(0, 3)}…${v.slice(-4)} (${v.length} chars)`;
+}
+
+/**
+ * Safe credential diagnostic: shows where the values came from and tries one real OAuth token request,
+ * so a wrong, swapped or placeholder value is visible without printing a secret.
+ */
+export async function ebayCredentialStatus(fromConfigTable: boolean): Promise<EbayCredentialStatus> {
+  const id = process.env.EBAY_CLIENT_ID?.trim();
+  const secret = process.env.EBAY_CLIENT_SECRET?.trim();
+  const base = {
+    clientIdHint: hint(id), clientSecretHint: hint(secret),
+    source: (!id && !secret ? 'none' : fromConfigTable ? 'config-table' : 'environment') as EbayCredentialStatus['source'],
+  };
+  if (!id || !secret) return { ...base, configured: false, tokenOk: false, error: 'EBAY_CLIENT_ID and/or EBAY_CLIENT_SECRET not set' };
+  tokenCache = null;   // force a real request
+  try {
+    await getToken();
+    return { ...base, configured: true, tokenOk: true };
+  } catch (e) {
+    return { ...base, configured: true, tokenOk: false, error: String(e instanceof Error ? e.message : e) };
+  }
+}
+
 export async function ebayBrowseGetItem(itemId: string): Promise<Record<string, unknown> | null> {
   try {
     const token = await getToken();
