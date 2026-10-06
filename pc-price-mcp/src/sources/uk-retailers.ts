@@ -55,6 +55,12 @@ const SHARED_HEADERS = {
 };
 
 const TIMEOUT_MS = 12_000;
+/**
+ * Products kept from one search page. Was 8, which cut off the listing being searched for: on AWD-IT the
+ * 64GB Kingston kit is not among the first 8 results (owner's NAS, 2026-10-06). The page is one request either
+ * way; display paths (searchAllUkRetailers) still trim to 8.
+ */
+const MAX_RESULTS_PER_PAGE = 40;
 
 // ── Shared utilities ───────────────────────────────────────────────────────
 
@@ -190,16 +196,31 @@ async function scrapeRetailer(
   // accessory, delivery threshold or banner, and must never reach price history or alerts.
 
   return {
-    retailer, results: results.slice(0, 8), scrapedAt: new Date().toISOString(),
+    retailer, results: results.slice(0, MAX_RESULTS_PER_PAGE), scrapedAt: new Date().toISOString(),
     durationMs: Date.now() - t0,
     error: results.length === 0 ? `No products parsed — ${retailer} may require JS rendering` : undefined,
   };
 }
 
+// ── Search addresses (one place, used by the scrapers and the diagnostic) ──
+
+const enc = encodeURIComponent;
+/** Search page address per plain-HTML retailer. Ebuyer, CCL, Novatech and AWD-IT were confirmed 2026-10-06 (see verification log). */
+export const SEARCH_URLS: Partial<Record<RetailerId, (q: string) => string>> = {
+  scan:         q => `https://www.scan.co.uk/search?q=${enc(q)}`,
+  overclockers: q => `https://www.overclockers.co.uk/search?q=${enc(q)}`,
+  ebuyer:       q => `https://www.ebuyer.com/searchresults?descriptionfilter=${enc(q)}`,
+  ccl:          q => `https://www.cclonline.com/search?query=${enc(q)}`,
+  box:          q => `https://www.box.co.uk/search?search=${enc(q)}`,
+  novatech:     q => `https://www.novatech.co.uk/search.html?search=${enc(q)}`,
+  aria:         q => `https://www.aria.co.uk/SuperSpecials/?search=${enc(q)}`,
+  awdit:        q => `https://www.awd-it.co.uk/catalogsearch/result/?q=${enc(q)}`,
+};
+
 // ── Individual retailer scrapers ───────────────────────────────────────────
 
 export async function scanSearch(query: string): Promise<RetailerSearchResult> {
-  return scrapeRetailer('Scan.co.uk', `https://www.scan.co.uk/search?q=${encodeURIComponent(query)}`, 'scan.co.uk',
+  return scrapeRetailer('Scan.co.uk', SEARCH_URLS.scan!(query), 'scan.co.uk',
     (html, url) => {
       // Scan uses data-product-title and data-buy-price attributes
       const results: RetailerResult[] = [];
@@ -223,12 +244,12 @@ export async function scanSearch(query: string): Promise<RetailerSearchResult> {
 
 export async function overclockerSearch(query: string): Promise<RetailerSearchResult> {
   return scrapeRetailer('Overclockers UK',
-    `https://www.overclockers.co.uk/search?q=${encodeURIComponent(query)}`, 'overclockers.co.uk');
+    SEARCH_URLS.overclockers!(query), 'overclockers.co.uk');
 }
 
 export async function ebuyerSearch(query: string): Promise<RetailerSearchResult> {
   return scrapeRetailer('Ebuyer', // Search address as used by the site itself, supplied by the owner from a browser 2026-10-06 (old /search?q= was HTTP 404).
-    `https://www.ebuyer.com/searchresults?descriptionfilter=${encodeURIComponent(query)}`, 'ebuyer.com',
+    SEARCH_URLS.ebuyer!(query), 'ebuyer.com',
     (html, url) => {
       const results: RetailerResult[] = [];
       // Ebuyer embeds window.__PRELOADED_STATE__ or similar
@@ -258,12 +279,12 @@ export async function ebuyerSearch(query: string): Promise<RetailerSearchResult>
 export async function cclSearch(query: string): Promise<RetailerSearchResult> {
   // CCL Online. The shop is cclonline.com (ccl.co.uk is a corporate WordPress site whose /search is a 404).
   // Search address supplied by the owner from a browser, 2026-10-06.
-  return scrapeRetailer('CCL Online', `https://www.cclonline.com/search?query=${encodeURIComponent(query)}`, 'cclonline.com');
+  return scrapeRetailer('CCL Online', SEARCH_URLS.ccl!(query), 'cclonline.com');
 }
 
 export async function boxSearch(query: string): Promise<RetailerSearchResult> {
   // Box.co.uk — large UK etailer with strong GPU/CPU stock
-  return scrapeRetailer('Box.co.uk', `https://www.box.co.uk/search?search=${encodeURIComponent(query)}`, 'box.co.uk',
+  return scrapeRetailer('Box.co.uk', SEARCH_URLS.box!(query), 'box.co.uk',
     (html, url) => {
       // Box uses a standard WooCommerce/Magento layout with .product-item blocks
       return parseProductBlocks(html, 'Box.co.uk', 'box.co.uk', url);
@@ -273,12 +294,12 @@ export async function boxSearch(query: string): Promise<RetailerSearchResult> {
 
 export async function novatechSearch(query: string): Promise<RetailerSearchResult> {
   // Novatech — Portsmouth-based, strong on custom build components
-  return scrapeRetailer('Novatech', `https://www.novatech.co.uk/search.html?search=${encodeURIComponent(query)}`, 'novatech.co.uk');
+  return scrapeRetailer('Novatech', SEARCH_URLS.novatech!(query), 'novatech.co.uk');
 }
 
 export async function ariaSearch(query: string): Promise<RetailerSearchResult> {
   // Aria PC — Manchester-based, often competitive on GPUs
-  return scrapeRetailer('Aria PC', `https://www.aria.co.uk/SuperSpecials/?search=${encodeURIComponent(query)}`, 'aria.co.uk');
+  return scrapeRetailer('Aria PC', SEARCH_URLS.aria!(query), 'aria.co.uk');
 }
 
 /** Value of `attr` inside the first tag of `html` that contains `marker`. */
@@ -320,7 +341,7 @@ export function extractMagentoProducts(html: string, retailer: string, baseUrl: 
 
 export async function awditSearch(query: string): Promise<RetailerSearchResult> {
   // Magento search path confirmed from the site's own search form (2026-10-06); the old /search?q= was a 404.
-  return scrapeRetailer('AWD-IT', `https://www.awd-it.co.uk/catalogsearch/result/?q=${encodeURIComponent(query)}`, 'awd-it.co.uk',
+  return scrapeRetailer('AWD-IT', SEARCH_URLS.awdit!(query), 'awd-it.co.uk',
     (html, url) => extractMagentoProducts(html, 'AWD-IT', url));
 }
 
@@ -619,15 +640,68 @@ export function unknownRetailerIds(ids: string[]): string[] {
 export async function searchAllUkRetailers(
   query: string,
   retailers: RetailerId[] = ALL_RETAILER_IDS,
+  perRetailerLimit = 8,
 ): Promise<RetailerSearchResult[]> {
   const unknown = unknownRetailerIds(retailers);
   if (unknown.length > 0) {
     throw new Error(`Unknown retailer id(s): ${unknown.join(', ')}. Valid ids: ${ALL_RETAILER_IDS.join(', ')}`);
   }
-  return Promise.all(retailers.map(r => RETAILER_FNS[r](query)));
+  const all = await Promise.all(retailers.map(r => RETAILER_FNS[r](query)));
+  return all.map(r => ({ ...r, results: r.results.slice(0, perRetailerLimit) }));
 }
 
 /** Search a single retailer (the scheduler goes one at a time to keep request rates low). */
 export function searchUkRetailer(id: RetailerId, query: string): Promise<RetailerSearchResult> {
   return RETAILER_FNS[id](query);
+}
+
+
+export interface RetailerPageDiagnosis {
+  retailer: string;
+  url: string;
+  status: number;
+  bytes: number;
+  title: string | null;
+  /** Signals the extractors look for. No JSON-LD products and no price in the raw HTML means the page needs JS rendering. */
+  signals: { jsonLdBlocks: number; jsonLdProducts: number; nextData: boolean; stateVariables: string[]; poundPrices: number };
+  /** Up to 3 snippets of raw HTML around the first GBP prices, so an extractor can be written without saving the page. */
+  priceContexts: string[];
+  /** First characters of the visible text, to recognise block pages ("Just a moment...", "Access denied"). */
+  textSample: string;
+}
+
+/**
+ * Read-only diagnostic: fetch one retailer's search page exactly as the scraper does and describe what
+ * it contains. Only addresses from SEARCH_URLS can be fetched (no arbitrary URL, so it cannot be used as a proxy).
+ */
+export async function diagnoseRetailerPage(id: RetailerId, query: string): Promise<RetailerPageDiagnosis> {
+  const build = SEARCH_URLS[id];
+  if (!build) throw new Error(`No plain-HTML search address for "${id}". Available: ${Object.keys(SEARCH_URLS).join(', ')}`);
+  const url = build(query);
+  // Same request as the scrapers, but keep the body of non-200 answers: a block page's text is the diagnosis.
+  let html = '';
+  let status = 0;
+  try {
+    const res = await fetch(url, { headers: SHARED_HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    status = res.status;
+    html = await res.text();
+  } catch { /* status 0: network error or timeout */ }
+  const prices = [...html.matchAll(/£\s*[\d,]+(?:\.\d{2})?/g)];
+  const contexts = prices.slice(0, 3).map(m => {
+    const i = m.index ?? 0;
+    return html.slice(Math.max(0, i - 220), i + 120).replace(/\s+/g, ' ');
+  });
+  return {
+    retailer: id, url, status, bytes: html.length,
+    title: html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1].replace(/\s+/g, ' ').trim() ?? null,
+    signals: {
+      jsonLdBlocks: (html.match(/application\/ld\+json/gi) ?? []).length,
+      jsonLdProducts: extractStructuredProducts(html).length,
+      nextData: /id="__NEXT_DATA__"/.test(html),
+      stateVariables: [...new Set([...html.matchAll(/window\.(__\w+__)\s*=/g)].map(m => m[1]))],
+      poundPrices: prices.length,
+    },
+    priceContexts: contexts,
+    textSample: stripHtml(html.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '')).slice(0, 400),
+  };
 }

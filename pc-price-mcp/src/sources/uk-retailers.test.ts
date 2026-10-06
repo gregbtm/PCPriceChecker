@@ -147,3 +147,59 @@ describe('search addresses confirmed from the owner\'s browser, 2026-10-06 (the 
     expect(String(f.mock.calls[0][0])).toBe(expected);
   });
 });
+
+describe('result cap: the listing being searched for must not be cut off (AWD-IT, owner\'s NAS 2026-10-06)', () => {
+  const real = readFileSync(new URL('../test/fixtures/awd-it-kingston-fury-64gb.html', import.meta.url), 'utf8');
+  /** SYNTHETIC page: the real Kingston block placed 10th among 11 other blocks derived from it. */
+  function pageWithKitAt(position: number, total: number): string {
+    const block = real.match(/<li class="item product product-item">[\s\S]*?<\/li>/i)![0];
+    const items = Array.from({ length: total }, (_, i) => i === position
+      ? block
+      : block.replace(/Kingston Fury 64GB \(2x32GB\) DDR5 5600MT\/s CL40 SODIMM Memory - Black/g, `Gaming Monitor ${i}`)
+             .replace(/919\.99/g, `${100 + i}.99`).replace(/kingston-fury-64gb-2x32gb-ddr5-5600mt-s-cl40-sodimm-memory-black/g, `monitor-${i}`));
+    return `<ol class="products list items product-items">${items.join('\n')}</ol>`;
+  }
+  const stub = (html: string) => vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => html }));
+
+  it('awditSearch keeps all 12 products, including the kit at position 10', async () => {
+    stub(pageWithKitAt(9, 12));
+    const { awditSearch } = await import('./uk-retailers.js');
+    const r = await awditSearch('ddr5 so-dimm 64gb');
+    expect(r.results).toHaveLength(12);
+    expect(r.results[9].name).toContain('Kingston Fury 64GB');
+  });
+
+  it('display paths still trim to 8 per retailer', async () => {
+    stub(pageWithKitAt(9, 12));
+    const { searchAllUkRetailers } = await import('./uk-retailers.js');
+    const [r] = await searchAllUkRetailers('x', ['awdit']);
+    expect(r.results).toHaveLength(8);
+    const [all] = await searchAllUkRetailers('x', ['awdit'], 100);
+    expect(all.results).toHaveLength(12);
+  });
+});
+
+describe('diagnoseRetailerPage (read-only page diagnostic)', () => {
+  it('describes a page: title, signals, price contexts and a text sample', async () => {
+    const html = '<html><head><title>Search results - Ebuyer</title></head><body><script>window.__PRELOADED_STATE__={}</script>'
+      + '<div class="product"><span class="p">£1,299.99</span></div><div>£45.00</div></body></html>';
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => html });
+    vi.stubGlobal('fetch', f);
+    const { diagnoseRetailerPage } = await import('./uk-retailers.js');
+    const d = await diagnoseRetailerPage('ebuyer', 'ddr5 so-dimm 64gb');
+    expect(String(f.mock.calls[0][0])).toBe('https://www.ebuyer.com/searchresults?descriptionfilter=ddr5%20so-dimm%2064gb');
+    expect(d).toMatchObject({ status: 200, title: 'Search results - Ebuyer',
+      signals: { jsonLdBlocks: 0, jsonLdProducts: 0, nextData: false, stateVariables: ['__PRELOADED_STATE__'], poundPrices: 2 } });
+    expect(d.priceContexts[0]).toContain('£1,299.99');
+    expect(d.textSample).toContain('£1,299.99');
+  });
+
+  it('recognises a block page and refuses retailers without a built-in address', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403, text: async () => '<html><head><title>Just a moment...</title></head><body>Checking your browser</body></html>' }));
+    const { diagnoseRetailerPage } = await import('./uk-retailers.js');
+    const blocked = await diagnoseRetailerPage('scan', 'x');
+    expect(blocked).toMatchObject({ status: 403, title: 'Just a moment...' });
+    expect(blocked.textSample).toContain('Checking your browser');
+    await expect(diagnoseRetailerPage('currys', 'x')).rejects.toThrow(/No plain-HTML search address/);
+  });
+});

@@ -8,7 +8,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
-import { searchAllUkRetailers, ALL_RETAILER_IDS, unknownRetailerIds } from './sources/uk-retailers.js';
+import { searchAllUkRetailers, ALL_RETAILER_IDS, unknownRetailerIds, SEARCH_URLS, diagnoseRetailerPage, type RetailerId } from './sources/uk-retailers.js';
 import { keepaSearch, keepaGetByAsin, keepaGetUsedPrices } from './sources/keepa.js';
 import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js';
 import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
@@ -217,6 +217,18 @@ export function startWebServer(port: number): void {
     }
     const results = await searchAllUkRetailers(query, retailers as Parameters<typeof searchAllUkRetailers>[1]);
     res.json(results);
+  }));
+
+  /**
+   * Read-only: what does a retailer's search page look like to this server? Used to write or repair an extractor.
+   * Only the built-in search addresses can be fetched (never an arbitrary URL).
+   */
+  app.get('/api/debug/retailer-page', h(async (req, res) => {
+    const id = String(req.query.retailer ?? '');
+    const q = String(req.query.q ?? 'ddr5 so-dimm 64gb');
+    if (!id) { res.status(400).json({ error: 'retailer is required', valid: Object.keys(SEARCH_URLS) }); return; }
+    if (!(id in SEARCH_URLS)) { res.status(400).json({ error: `no plain-HTML search address for "${id}"`, valid: Object.keys(SEARCH_URLS) }); return; }
+    res.json(await diagnoseRetailerPage(id as RetailerId, q));
   }));
 
   app.get('/api/search/api', h(async (req, res) => {
