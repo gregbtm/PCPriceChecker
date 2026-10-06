@@ -171,6 +171,7 @@ function app() {
 
     // Needs attention
     needsAttention: [],
+    scraperHealth: { failing: [], sources: [] },
 
     // Component URLs modal
     showUrlsModal: false,
@@ -324,7 +325,20 @@ function app() {
     async loadPrebuilts()      { await this.loadFrom('/api/prebuilts',               'prebuilts'); },
     async loadSparklines()     { await this.loadFrom('/api/dashboard/sparklines',    'sparklines', true); },
     async loadTags()           { await this.loadFrom('/api/tags',                    'tags',       true); },
-    async loadNeedsAttention() { await this.loadFrom('/api/needs-attention',         'needsAttention', true); },
+    async loadNeedsAttention() { await this.loadFrom('/api/needs-attention',         'needsAttention', true); await this.loadScraperHealth(); },
+    async loadScraperHealth() {
+      try {
+        const r = await fetch('/api/health');
+        const h = await r.json();
+        this.scraperHealth = h.scrapers || { failing: [], sources: [] };
+      } catch { /* the panel is advisory; never break the dashboard for it */ }
+    },
+    /** Sources that failed their latest run, worst first. */
+    failingSources() { return (this.scraperHealth.sources || []).filter(s => s.consecutive_failures > 0).sort((a, b) => b.consecutive_failures - a.consecutive_failures); },
+    fmtFlags(flags) {
+      const map = { used_condition: 'used', delivery_excluded: '+delivery', kit_unconfirmed: 'kit?', will_downclock: 'runs slower', seller_feedback_low: 'low feedback', suspiciously_cheap: 'CHECK SELLER', non_binary_unverified: '24GB unverified' };
+      return (flags || '').split(',').map(f => map[f] || '').filter(Boolean).join(', ');
+    },
     async loadSavedSearches()  { await this.loadFrom('/api/saved-searches',          'savedSearches',  true); },
 
     async loadConfig() {

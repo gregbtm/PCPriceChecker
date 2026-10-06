@@ -100,6 +100,8 @@ export interface EbayListing {
   feedbackPct?: number;
   location?:    string;
   freeShipping: boolean;
+  /** Cheapest stated delivery charge in GBP; null when eBay gives none (calculated or collection only). */
+  shippingCost?: number | null;
   buyItNow:     boolean;
 }
 
@@ -115,7 +117,7 @@ export interface EbayBrowseResult {
 
 // ── Mapper ─────────────────────────────────────────────────────────────────
 
-function mapItem(raw: Record<string, unknown>): EbayListing {
+export function mapItem(raw: Record<string, unknown>): EbayListing {
   const priceInfo = raw.price      as Record<string, unknown> | null;
   const sellerInfo = raw.seller    as Record<string, unknown> | null;
   const image      = raw.image     as Record<string, unknown> | null;
@@ -127,6 +129,10 @@ function mapItem(raw: Record<string, unknown>): EbayListing {
     const cost  = (s.shippingCost as Record<string, unknown> | null)?.value;
     return type === 'FREE' || parseFloat(String(cost ?? '1')) === 0;
   });
+
+  const costs = shipping.map(s => (s.shippingCost as Record<string, unknown> | null)?.value)
+    .filter(v => v != null).map(v => parseFloat(String(v))).filter(n => Number.isFinite(n) && n >= 0);
+  const shippingCost = freeShipping ? 0 : costs.length > 0 ? Math.min(...costs) : null;
 
   const buyingOptions = (raw.buyingOptions as string[] | null) ?? [];
 
@@ -144,6 +150,7 @@ function mapItem(raw: Record<string, unknown>): EbayListing {
       ? parseFloat(String(sellerInfo.feedbackPercentage)) : undefined,
     location:     location?.country != null ? String(location.country) : undefined,
     freeShipping,
+    shippingCost,
     buyItNow:     buyingOptions.includes('FIXED_PRICE'),
   };
 }

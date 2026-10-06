@@ -30,6 +30,8 @@ export interface RetailerResult {
   stockState?: StockState;
   url: string;
   sku?: string;
+  /** Set when the page states the price includes VAT (e.g. Novatech `inc vat`); absent when it does not say. */
+  vatIncluded?: boolean;
   scraperNote?: string;
 }
 

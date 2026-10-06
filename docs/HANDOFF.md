@@ -76,7 +76,7 @@ Phase 1 profile and classifier
 - [x] P1-3 Kit/price-per-GB fields (PR-E; new `price_records` columns)
 - [ ] P1-4 Compatibility rules (SO-DIMM, ECC, capacity, mobile CPUs)
 - [x] P1-5 Wire classifier into scheduler/search (PR-E; scheduler path only, the MCP `refresh_prices`/`track_component` fetch path does not classify yet)
-- [~] P1-6 price per GB shown in alert text (PR-E); dashboard/MCP listing views not done
+- [x] P1-6 price per GB in alert text and on the dashboard best-price cell (`best_price_per_gb`)
 
 Phase 2 providers
 - [ ] P2-1 Provider interface
@@ -101,9 +101,9 @@ Phase 4 alerting
 - [~] P4-5 Optional n8n workflow (generic `webhook_url` channel + `docs/N8N.md` + example workflow JSON; the JSON is Unverified, never imported into n8n)
 
 Phase 5 observability and data
-- [~] P5-1 Health per source (PR-D: `scrape_runs`, `/api/health` `scrapers`, `/api/scrape-runs`; dashboard "needs attention" UI not done)
+- [x] P5-1 Health per source: `scrape_runs`, `/api/health` `scrapers`, dashboard "Scraper health" panel
 - [x] P5-2 Retention/rollup (`price_retention_days`, default 365)
-- [ ] P5-3 Delivered cost and VAT flag
+- [x] P5-3 Delivered cost and VAT flag: `delivery_cost`, `vat_included` (eBay stated shipping; Novatech inc VAT)
 - [x] P5-4 Outlier policy implementation (nothing to hide: scheduled path never excludes by outlier score)
 
 Phase 6 deployment
@@ -321,3 +321,7 @@ With `changedetection_url` and `changedetection_api_key` set, the scheduler read
 ## 9m. Quiet hours and de-duplication (2026-10-06)
 
 Config `quiet_hours` as `HH:MM-HH:MM` in the container's local time (TZ), e.g. `22:00-07:00` (wraps past midnight, end exclusive). Unset or unparseable means none. While quiet, no alert or daily summary is sent and no alert state is recorded, so a deal still true afterwards is sent on the first pass after. De-duplication: the cooldown stops repeats of the same deal; a different retailer/listing, or a price at least 1% below the last alerted price, is news and bypasses it. Alerts are still based on in-stock, profile-matching offers only.
+
+## 9n. Delivery, VAT, price per GB and scraper health on the dashboard (2026-10-06)
+
+New additive columns `price_records.delivery_cost` (GBP, 0 = free, null = unknown) and `vat_included`. eBay now records the cheapest stated delivery charge; when stated it replaces the `delivery_excluded` caveat, which stays when eBay gave none. Novatech prices are recorded as inc VAT. Offer lines show `+£X delivery = £total`, `free delivery` or `ex VAT` when known. **Alerts still compare the item price to your £350/£500 limits, not price plus delivery**: a deliberate choice (delivery is often unknown), so read the delivery note on an eBay alert. The dashboard best-price cell shows price per GB, delivery and short flags, and a "Scraper health" panel lists sources whose latest run failed (from `/api/health`). The frontend was rebuilt from `frontend/` (the build reproduces the committed assets exactly when nothing changes) and smoke-tested in headless Chromium against a seeded database: price per GB, delivery, flags and the health panel rendered with no page errors.

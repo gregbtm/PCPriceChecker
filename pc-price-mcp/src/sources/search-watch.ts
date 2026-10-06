@@ -36,6 +36,6 @@ export async function searchViaWatch(id: RetailerId, query: string, now = Date.n
   const rows = parseNovatechSnapshot(await getLatestSnapshot(watch.uuid));
   return done(rows.map(r => ({
     retailer: 'Novatech', name: r.name, price: r.price, currency: 'GBP', inStock: r.stockState === 'in_stock',
-    stockState: r.stockState, url, sku: r.stockCode,
+    stockState: r.stockState, url, sku: r.stockCode, vatIncluded: true,
   })), rows.length === 0 ? 'snapshot contained no products' : undefined);
 }

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>PC Price Checker – UK Component Monitor</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96' fill='none'%3E%3Crect width='96' height='96' rx='18' fill='%231e293b'/%3E%3Cg stroke='%233B82F6' stroke-width='4.5' stroke-linecap='round'%3E%3Cline x1='22' y1='8' x2='22' y2='17'/%3E%3Cline x1='34' y1='8' x2='34' y2='17'/%3E%3Cline x1='46' y1='8' x2='46' y2='17'/%3E%3Cline x1='22' y1='63' x2='22' y2='72'/%3E%3Cline x1='34' y1='63' x2='34' y2='72'/%3E%3Cline x1='8' y1='26' x2='17' y2='26'/%3E%3Cline x1='8' y1='38' x2='17' y2='38'/%3E%3Cline x1='8' y1='50' x2='17' y2='50'/%3E%3C/g%3E%3Crect x='17' y='17' width='39' height='39' rx='5' stroke='%233B82F6' stroke-width='4.5'/%3E%3Cpath d='M56 36 L76 36 L82 43 L82 70 L56 70 Z' stroke='%2310B981' stroke-width='4.5' stroke-linejoin='round'/%3E%3Ccircle cx='72' cy='46' r='3' fill='%2310B981'/%3E%3Cpath d='M63 57 L70 64 L79 51' stroke='%2310B981' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-  <script type="module" crossorigin src="/assets/index-vCk3ftLI.js"></script>
+  <script type="module" crossorigin src="/assets/index-BnhOdAdm.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-CSFpdDp6.css">
 </head>
 <body class="h-[100dvh] overflow-hidden" x-data="app">
@@ -636,6 +636,27 @@
         </div>
       </template>
 
+      <!-- Scraper health (P5-1): sources whose latest run failed, from /api/health -->
+      <template x-if="failingSources().length > 0">
+        <div role="alert" class="alert alert-warning alert-soft rounded-xl p-4">
+          <div class="flex items-center gap-2 mb-2">
+            <span>🩺</span>
+            <h3 class="font-semibold text-sm">Scraper health (<span x-text="failingSources().length"></span> failing)</h3>
+            <span class="text-xs opacity-60">— 3 failures in a row also sends a notification</span>
+          </div>
+          <div class="space-y-1">
+            <template x-for="s in failingSources()" :key="s.source">
+              <div class="text-xs flex flex-wrap gap-x-3">
+                <span class="font-mono" x-text="s.source"></span>
+                <span x-text="s.consecutive_failures + ' in a row'"></span>
+                <span class="opacity-60" x-text="s.last_success_at ? 'last ok ' + s.last_success_at : 'never succeeded'"></span>
+                <span class="opacity-60 truncate max-w-md" x-text="s.last_error || ''"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+
       <!-- Watchlist table -->
       <div class="bg-base-200 rounded-xl border border-base-300">
         <div class="flex items-center justify-between px-4 py-3 border-b border-base-300">
@@ -714,6 +735,13 @@
                       <span class="font-semibold price-num"
                             :class="c.alert_price && c.best_price <= c.alert_price ? 'text-success' : 'text-base-content'"
                             x-text="fmtPrice(c.best_price, c.best_currency)"></span>
+                    </template>
+                    <template x-if="c.best_price != null && (c.best_price_per_gb != null || c.best_delivery_cost != null || fmtFlags(c.best_flags))">
+                      <div class="text-xs text-base-content/50">
+                        <span x-show="c.best_price_per_gb != null" x-text="'£' + (c.best_price_per_gb ?? 0).toFixed(2) + '/GB'"></span>
+                        <span x-show="c.best_delivery_cost != null" x-text="c.best_delivery_cost === 0 ? ' · free delivery' : ' · +£' + (c.best_delivery_cost ?? 0).toFixed(2) + ' delivery'"></span>
+                        <span x-show="fmtFlags(c.best_flags)" x-text="' · ' + fmtFlags(c.best_flags)"></span>
+                      </div>
                     </template>
                     <template x-if="c.best_price == null">
                       <span class="text-base-content/40">No data</span>
