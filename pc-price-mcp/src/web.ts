@@ -3,6 +3,7 @@
  * Binds to 0.0.0.0 so it's accessible on the local network (NAS use).
  * Serves static files from ../public and REST API at /api/*.
  */
+import { discoverProductPages } from './sources/searxng.js';
 import { changedetectionConfigured, spike as cdSpike } from './sources/changedetection.js';
 import express, { Request, Response, NextFunction } from 'express';
 import { join, dirname } from 'path';
@@ -77,7 +78,12 @@ const DB_KEY_TO_ENV: Record<string, string> = {
   gotify_app_token:     'GOTIFY_APP_TOKEN',
   apprise_url:          'APPRISE_URL',
   openai_api_key:       'OPENAI_API_KEY',
+  openai_base_url:      'OPENAI_BASE_URL',
+  openai_model:         'OPENAI_MODEL',
   apify_api_token:      'APIFY_API_TOKEN',
+  searxng_url:             'SEARXNG_URL',
+  firecrawl_url:           'FIRECRAWL_API_URL',
+  firecrawl_api_key:       'FIRECRAWL_API_KEY',
   changedetection_url:     'CHANGEDETECTION_URL',
   changedetection_api_key: 'CHANGEDETECTION_API_KEY',
 };
@@ -554,6 +560,18 @@ export function startWebServer(port: number): void {
     }
     const uuid = typeof req.query.uuid === 'string' ? req.query.uuid : undefined;
     try { res.json(await cdSpike(uuid)); } catch (err) { res.status(502).json({ error: (err as Error).message }); }
+  }));
+
+  /** P2-5: optional SearXNG discovery of product pages (suggestions only; nothing is added automatically). */
+  app.get('/api/discover', h(async (req, res) => {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    if (!q) { res.status(400).json({ error: 'q is required' }); return; }
+    const domains = typeof req.query.domains === 'string' && req.query.domains
+      ? req.query.domains.split(',').map(d => d.trim()).filter(Boolean)
+      : ['novatech.co.uk', 'awd-it.co.uk', 'scan.co.uk', 'ebuyer.com', 'overclockers.co.uk', 'cclonline.com', 'box.co.uk', 'currys.co.uk', 'kingston.com'];
+    const r = await discoverProductPages(q, domains);
+    if (!Array.isArray(r)) { res.status(400).json(r); return; }
+    res.json({ pages: r });
   }));
 
   app.get('/api/ebay/search', h(async (req, res) => {

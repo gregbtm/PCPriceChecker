@@ -74,30 +74,30 @@ Phase 1 profile and classifier
 - [x] P1-1 Memory classifier (PR-E, `services/memory-classifier.ts`)
 - [x] P1-2 Hardware profile model (PR-E; `n5-air-ram`, `matchesProfile`)
 - [x] P1-3 Kit/price-per-GB fields (PR-E; new `price_records` columns)
-- [ ] P1-4 Compatibility rules (SO-DIMM, ECC, capacity, mobile CPUs)
+- [x] P1-4 Compatibility: SO-DIMM/DIMM, ECC, optional slot/capacity limits, mobile CPUs (Ryzen 7 255 class); a Ryzen 7840HS is no longer read as AM5
 - [x] P1-5 Wire classifier into scheduler/search (PR-E; scheduler path only, the MCP `refresh_prices`/`track_component` fetch path does not classify yet)
 - [x] P1-6 price per GB in alert text and on the dashboard best-price cell (`best_price_per_gb`)
 
 Phase 2 providers
-- [ ] P2-1 Provider interface
-- [ ] P2-2 Firecrawl provider
-- [ ] P2-3 Per-domain strategy memory
-- [ ] P2-4 Local LLM (OpenAI-compatible base URL)
-- [ ] P2-5 SearXNG discovery (optional)
-- [~] P2-6 Paid sources marked optional (Apify marked optional in PR-D; PricesAPI already only used when configured)
+- [x] P2-1 Provider interface (`sources/providers.ts`; `direct` is the unchanged url-scraper chain)
+- [x] P2-2 Firecrawl provider (rawHtml + our extractors; unit-tested, never run against a real Firecrawl)
+- [x] P2-3 Per-domain strategy memory (`provider_strategy:<domain>`)
+- [x] P2-4 Local LLM: `OPENAI_BASE_URL` / `OPENAI_MODEL` (Ollama), key optional, default off
+- [x] P2-5 SearXNG discovery (`/api/discover`, suggestions only; unit-tested only)
+- [x] P2-6 Paid sources optional and documented (docs/OPERATIONS.md table)
 
 Phase 3 changedetection.io
 - [x] P3-1 REST client (`sources/changedetection.ts`)
 - [x] P3-2 Spike: price and stock are in the latest snapshot text (research row 28)
 - [x] P3-3 Integration mode: poll the snapshot for component URLs that have a watch (`refresh.ts`)
 - [x] P3-4 JS-rendering watches: `html_webdriver` runs (row 29); Novatech readable even without it, Ebuyer refused on both fetchers (row 30)
-- [ ] P3-5 Document community MCP
+- [x] P3-5 Community MCP documented as optional (docs/OPERATIONS.md)
 
 Phase 4 alerting
 - [x] P4-1 Alert rules (in-stock based; two tiers, options list, PR-J)
 - [x] P4-2 Configurable cooldowns, quiet hours (`quiet_hours`), offer/price-aware de-duplication (HANDOFF 9m)
 - [x] P4-3 Richer alert text (listing, GBP/GB, caveats, other options; PR-J)
-- [~] P4-4 Self-hosted ntfy (PR-D: `ntfy_token` Bearer support + test; docs not done)
+- [x] P4-4 Self-hosted ntfy documented (docs/NTFY.md); unverified against the owner's server
 - [~] P4-5 Optional n8n workflow (generic `webhook_url` channel + `docs/N8N.md` + example workflow JSON; the JSON is Unverified, never imported into n8n)
 
 Phase 5 observability and data
@@ -107,15 +107,15 @@ Phase 5 observability and data
 - [x] P5-4 Outlier policy implementation (nothing to hide: scheduled path never excludes by outlier score)
 
 Phase 6 deployment
-- [ ] P6-1 Compose services (pinned, LAN-only, limited)
-- [ ] P6-2 Host decision and measurement
-- [ ] P6-3 Firecrawl image vs build-from-source check
+- [x] P6-1 Optional overlays in `pc-price-mcp/deploy/` (Firecrawl, changedetection.io); untested
+- [x] P6-2 Host: existing NAS (owner); how to measure documented; nothing heavy deployed by default
+- [x] P6-3 Prebuilt Firecrawl images exist on GHCR (research row 33)
 - [x] P6-4 Docs reconciled (README, compose header, DEPLOYMENT.md now say image pc-price-mcp, host port 38574)
 - [x] P6-5 Backup/restore notes in docs/OPERATIONS.md (backup call verified locally, not on the NAS)
 
 Phase 7 tests and docs
 - [x] P7-1 Test runner and CI (Vitest, `npm test`, CI step; PR-A)
-- [ ] P7-2 Fixtures and tests
+- [x] P7-2 Fixtures: real titles and captured pages (AWD-IT block, Novatech snapshot, Scan/eBay titles) drive the tests
 - [x] P7-3 README, DEPLOYMENT.md, .env.example, docs/OPERATIONS.md updated for the new settings
 
 ## 6. Environment and tooling notes
@@ -325,3 +325,11 @@ Config `quiet_hours` as `HH:MM-HH:MM` in the container's local time (TZ), e.g. `
 ## 9n. Delivery, VAT, price per GB and scraper health on the dashboard (2026-10-06)
 
 New additive columns `price_records.delivery_cost` (GBP, 0 = free, null = unknown) and `vat_included`. eBay now records the cheapest stated delivery charge; when stated it replaces the `delivery_excluded` caveat, which stays when eBay gave none. Novatech prices are recorded as inc VAT. Offer lines show `+£X delivery = £total`, `free delivery` or `ex VAT` when known. **Alerts still compare the item price to your £350/£500 limits, not price plus delivery**: a deliberate choice (delivery is often unknown), so read the delivery note on an eBay alert. The dashboard best-price cell shows price per GB, delivery and short flags, and a "Scraper health" panel lists sources whose latest run failed (from `/api/health`). The frontend was rebuilt from `frontend/` (the build reproduces the committed assets exactly when nothing changes) and smoke-tested in headless Chromium against a seeded database: price per GB, delivery, flags and the health panel rendered with no page errors.
+
+## 9o. Compatibility rules (2026-10-06)
+
+`services/compatibility.ts` gained, additively: mobile/APU detection (`detectMobileCpu`: Ryzen 5 240 / 7 255 class, Ryzen 7040/8040 H/U/HS/HX, Ryzen AI, Core Ultra H/U), checked before the AM5 pattern (which used to read "Ryzen 7 7840HS" as a desktop chip); SO-DIMM in a desktop board and desktop DIMM with a mobile CPU are errors; DDR4 with a mobile (DDR5) CPU is an error; explicit ECC warns; optional `ramSlots` and `maxMemoryGb` inputs (for example from the `n5-air-ram` profile: 2 slots, 96GB, the 96GB figure is itself Unverified) raise slot and capacity errors only when supplied. Existing desktop rules and results are unchanged (tested). The MCP `check_compatibility` tool schema was not changed; the REST endpoint passes the new optional fields through.
+
+## 9p. Provider chain, local LLM, SearXNG, optional overlays (2026-10-06)
+
+`scheduler.ts` now scrapes component URLs through `scrapeViaChain` (providers `direct` then `firecrawl`, memory-ordered); with Firecrawl unconfigured the behaviour is the old chain exactly. Firecrawl is asked for `rawHtml` only and our own extractors run on it (`extractFromHtml`: JSON-LD, meta, stored rules, DOM). Local LLM: `openai_base_url`/`openai_model` (Ollama). SearXNG: `searxng_url` and `GET /api/discover`. Overlays are reference files under `pc-price-mcp/deploy/`. **All of this is unit-tested with stubs and has not run against a real Firecrawl, Ollama or SearXNG.**

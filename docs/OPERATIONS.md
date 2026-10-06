@@ -33,3 +33,22 @@ Restore: stop the container, replace `/data/pc-prices.db` (and delete any `-wal`
 
 ## Known limits
 Scan, Overclockers, Box, Currys and CCL return HTTP 403 from the NAS and Ebuyer refuses connections; none of that is worked around. Novatech product pages work through a changedetection.io watch; AWD-IT and eBay work directly. See `docs/RESEARCH_AND_VERIFICATION.md` rows 23-30.
+
+## Optional: changedetection-mcp
+Claude can manage changedetection.io watches through the community MCP `changedetection-mcp` (PyPI 0.1.0, one maintainer, Python 3.11+; tools: list/get/create/update/delete/recheck watches, history, snapshot diff, tags, system info; **no price or restock tool**). It is for ad-hoc management only: this app talks to the changedetection.io REST API directly and does not depend on it. Install pinned (`pip install changedetection-mcp==0.1.0`, optionally `--require-hashes` with the hashes in `docs/RESEARCH_AND_VERIFICATION.md` section 5) and set `CHANGEDETECTION_BASE_URL` and `CHANGEDETECTION_API_KEY`. Not tested here against the owner's instance (research row 3: "Live test" outstanding).
+
+## Notifications
+Self-hosted ntfy setup and the 403 fix: `docs/NTFY.md`.
+
+## Optional tiers and where they stand
+| Tier | Enable with | Status |
+|---|---|---|
+| changedetection.io (Novatech search, watched product URLs) | `changedetection_url`, `changedetection_api_key` | Working on the owner's instance (research rows 28-31) |
+| Firecrawl (JavaScript rendering for a product URL) | `firecrawl_url` (+ `firecrawl_api_key` if set up) | Built and unit-tested, **never run against a real Firecrawl**. Nothing needs it today: Novatech works through changedetection.io, AWD-IT and eBay directly, and the other retailers refuse every fetch. See `pc-price-mcp/deploy/firecrawl.override.yml` |
+| Local LLM (Ollama or any OpenAI-compatible server) | `openai_base_url` (e.g. `http://host:11434/v1`), `openai_model`; a key is optional | Off by default; used for AI price extraction and selector self-healing. Unit-tested with a stub, not with a real model |
+| SearXNG discovery | `searxng_url` | `GET /api/discover?q=...&domains=a.co.uk,b.co.uk` suggests product pages; adds nothing by itself. Needs the `json` format enabled in SearXNG. Unit-tested only |
+| PricesAPI, Keepa, Apify | their keys | Optional and off without a key; nothing depends on them. A stale `PRICES_API_KEY` only produces a failing `pricesapi` row |
+
+**Per-domain strategy memory:** for a product URL the app remembers which provider (`direct` or `firecrawl`) last worked for the domain and tries it first; three failures in a row demote it. Stored in config rows `provider_strategy:<domain>`.
+
+**Host decision (P6-2):** the owner chose the existing NAS (32GB RAM, ~130 containers). Nothing heavy is deployed by default. If Firecrawl is ever enabled, measure first (`docker stats`, DSM Resource Monitor) and lower `NUM_WORKERS_PER_QUEUE`, `BROWSER_POOL_SIZE` and `MAX_CONCURRENT_JOBS`, as the overlay does. Prebuilt Firecrawl images exist on GHCR (verified 2026-10-06: `firecrawl/firecrawl` latest and 2.10.1, `firecrawl/playwright-service` latest, `firecrawl/nuq-postgres` latest), so no source build is needed.

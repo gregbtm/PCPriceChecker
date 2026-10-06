@@ -27,7 +27,7 @@ export interface ScrapedProduct {
   stockState?: StockState;
   url: string;
   image?: string;
-  method: 'json-ld' | 'meta' | 'rules' | 'dom' | 'playwright' | 'ai' | 'failed';
+  method: 'json-ld' | 'meta' | 'rules' | 'dom' | 'playwright' | 'ai' | 'failed' | 'firecrawl';
 }
 
 /** Both stock fields from one state, so they can never disagree. */
@@ -273,6 +273,21 @@ async function tryAi(html: string): Promise<Partial<ScrapedProduct> | null> {
   if (openai?.price) return { name: openai.name, price: openai.price, currency: openai.currency, ...stock(stockStateFromBoolean(openai.inStock)), method: 'ai' };
 
   return null;
+}
+
+/**
+ * The deterministic extractors on HTML someone else fetched (Firecrawl, P2-2): JSON-LD, meta tags, the domain's
+ * stored rules, then generic DOM heuristics. No fetching, no LLM, no self-healing.
+ */
+export function extractFromHtml(html: string, domain: string): Partial<ScrapedProduct> | null {
+  const jld = tryJsonLd(html);
+  if (jld?.price) return jld;
+  const meta = tryMeta(html);
+  if (meta?.price) return meta;
+  const rule = db.getScrapeRule(domain);
+  if (rule) { const r = tryRules(html, rule); if (r?.price) return r; }
+  const dom = tryDom(html);
+  return dom?.price ? dom : null;
 }
 
 // ── Main entry ─────────────────────────────────────────────────────────────
