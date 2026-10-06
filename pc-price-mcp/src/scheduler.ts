@@ -13,6 +13,7 @@ import { notifyAll } from './notifications.js';
 import { stockStateFromBoolean } from './services/stock-state.js';
 import { refreshComponent, DEFAULT_SEARCH_RETAILERS, type RefreshDeps } from './services/refresh.js';
 import { alertOnRepeatedFailures } from './services/scrape-health.js';
+import { maybeSendDailySummary } from './services/daily-summary.js';
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
@@ -172,6 +173,11 @@ export async function scheduledRefreshAll(deps: RefreshDeps = realDeps): Promise
     await deps.sleep(3_000);
   }
   db.pruneScrapeRuns(30);
+  try {
+    await maybeSendDailySummary(deps.notify);
+  } catch (e) {
+    db.recordScrapeRun({ componentId: null, source: 'daily-summary', ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
 }
 
 function sleep(ms: number): Promise<void> {

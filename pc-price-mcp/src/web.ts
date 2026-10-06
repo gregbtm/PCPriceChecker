@@ -32,6 +32,7 @@ import { budgetBuilder, buildVsBuy, upgradeAdvisor, type UseCase } from './servi
 import { checkCompatibility } from './services/compatibility.js';
 import { PROFILES } from './services/memory-classifier.js';
 import { bestFields } from './services/component-summary.js';
+import { sendDailySummary } from './services/daily-summary.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
 import { getDealScoresForAll } from './services/deal-scorer.js';
 
@@ -115,7 +116,7 @@ export function startWebServer(port: number): void {
   }));
 
   app.post('/api/components', h(async (req, res) => {
-    const { name, search_query, category = 'other', alert_price, notes, profile_id } = req.body;
+    const { name, search_query, category = 'other', alert_price, consider_price, notes, profile_id } = req.body;
     if (!name || !search_query) {
       res.status(400).json({ error: 'name and search_query are required' });
       return;
@@ -127,6 +128,7 @@ export function startWebServer(port: number): void {
     const component = db.addTrackedComponent(name, category, search_query,
       alert_price ? Number(alert_price) : undefined, notes);
     if (profile_id) { db.setComponentProfile(component.id, profile_id); component.profile_id = profile_id; }
+    if (consider_price != null) { db.updateConsiderPrice(component.id, Number(consider_price)); component.consider_price = Number(consider_price); }
     res.json(component);
   }));
 
@@ -138,8 +140,9 @@ export function startWebServer(port: number): void {
 
   app.patch('/api/components/:id/alert', h(async (req, res) => {
     const id = parseInt(param(req.params.id));
-    const { alert_price } = req.body;
-    db.updateAlertPrice(id, alert_price != null ? Number(alert_price) : null);
+    const { alert_price, consider_price } = req.body;
+    if (alert_price !== undefined) db.updateAlertPrice(id, alert_price != null ? Number(alert_price) : null);
+    if (consider_price !== undefined) db.updateConsiderPrice(id, consider_price != null ? Number(consider_price) : null);
     res.json({ ok: true });
   }));
 
@@ -338,6 +341,11 @@ export function startWebServer(port: number): void {
   }));
 
   // ── Notifications ─────────────────────────────────────────────────────────
+
+  /** Send the daily summary now (ignores the once-a-day guard); returns whether any channel delivered it. */
+  app.post('/api/daily-summary/send', h(async (_req, res) => {
+    res.json({ sent: await sendDailySummary(notifyAll) });
+  }));
 
   app.post('/api/notifications/test', h(async (_req, res) => {
     const result = await notifyAll({

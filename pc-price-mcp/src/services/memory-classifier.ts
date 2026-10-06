@@ -130,7 +130,18 @@ export const N5_AIR_RAM: MemoryProfile = {
   ],
 };
 
-export const PROFILES: Record<string, MemoryProfile> = { [N5_AIR_RAM.id]: N5_AIR_RAM };
+/**
+ * The 48GB (2x24GB) fallback the owner accepted (2026-10-06): a separate profile so the 48GB component only
+ * ever reports 48GB kits and the 64GB one is not duplicated. Compatibility of 24GB modules is still Unverified.
+ */
+export const N5_AIR_RAM_48: MemoryProfile = {
+  ...N5_AIR_RAM,
+  id: 'n5-air-ram-48',
+  label: 'Minisforum N5 Air, 48GB fallback (2x24GB DDR5 SO-DIMM, non-ECC)',
+  acceptedTotalsGb: [{ gb: 48, flag: 'non_binary_unverified' }],
+};
+
+export const PROFILES: Record<string, MemoryProfile> = { [N5_AIR_RAM.id]: N5_AIR_RAM, [N5_AIR_RAM_48.id]: N5_AIR_RAM_48 };
 
 export interface ProfileMatch { match: boolean; reasons: string[]; flags: string[]; }
 

@@ -4,7 +4,7 @@
  */
 import * as db from './db.js';
 
-export type NotificationType = 'price_alert' | 'price_drop' | 'restock' | 'test' | 'saved_search' | 'scrape_failure';
+export type NotificationType = 'price_alert' | 'price_drop' | 'restock' | 'test' | 'saved_search' | 'scrape_failure' | 'options' | 'daily_summary';
 
 export interface NotificationPayload {
   type: NotificationType;
@@ -26,6 +26,8 @@ const DISCORD_COLORS: Record<NotificationType, number> = {
   test:          0x9B59B6,
   saved_search:  0xF59E0B,
   scrape_failure: 0xE74C3C,
+  options:       0xF1C40F,
+  daily_summary: 0x3498DB,
 };
 
 const DISCORD_TITLES: Record<NotificationType, string> = {
@@ -35,6 +37,8 @@ const DISCORD_TITLES: Record<NotificationType, string> = {
   test:          '🧪 Test Notification',
   saved_search:  '🔍 Saved Search Match!',
   scrape_failure: '⚠️ Price Scraper Failing',
+  options:       '👀 Options worth a look',
+  daily_summary: '🗞️ Daily price summary',
 };
 
 function fmtPrice(amount: number, currency = 'GBP'): string {
@@ -92,6 +96,12 @@ export async function sendSlack(webhookUrl: string, payload: NotificationPayload
       break;
     case 'scrape_failure':
       text = `⚠️ *Scraper failing:* ${payload.componentName}`;
+      break;
+    case 'options':
+      text = `👀 *Options worth a look:* ${payload.componentName}`;
+      break;
+    case 'daily_summary':
+      text = `🗞️ *Daily price summary*`;
       break;
     case 'test':
       text = `🧪 *Test notification* from UK PC Price MCP — webhooks are working!`;

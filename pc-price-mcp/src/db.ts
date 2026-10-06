@@ -22,6 +22,8 @@ export interface TrackedComponent {
   unit_type: string | null;
   /** Hardware profile id (services/memory-classifier PROFILES); listings that do not fit are excluded from alerts. */
   profile_id: string | null;
+  /** "Worth a look" ceiling above alert_price: offers up to this price are sent as a list of options (not a price alert). */
+  consider_price: number | null;
 }
 
 export interface ComponentUrl {
@@ -329,6 +331,7 @@ function runMigrations(db: Database.Database): void {
   if (!tcCols.includes('unit_quantity'))            db.exec('ALTER TABLE tracked_components ADD COLUMN unit_quantity REAL');
   if (!tcCols.includes('unit_type'))               db.exec('ALTER TABLE tracked_components ADD COLUMN unit_type TEXT');
   if (!tcCols.includes('profile_id'))              db.exec('ALTER TABLE tracked_components ADD COLUMN profile_id TEXT');
+  if (!tcCols.includes('consider_price'))          db.exec('ALTER TABLE tracked_components ADD COLUMN consider_price REAL');
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -380,6 +383,23 @@ export function removeTrackedComponent(id: number): boolean {
 
 export function updateAlertPrice(id: number, alertPrice: number | null): boolean {
   return getDb().prepare('UPDATE tracked_components SET alert_price = ? WHERE id = ?').run(alertPrice, id).changes > 0;
+}
+
+export function updateConsiderPrice(id: number, price: number | null): boolean {
+  return getDb().prepare('UPDATE tracked_components SET consider_price = ? WHERE id = ?').run(price, id).changes > 0;
+}
+
+/** Purchasable prices seen in the last `days`: low, median and how many observations (for context in summaries). */
+export function getPurchasablePriceSummary(componentId: number, days = 7): { low: number | null; median: number | null; count: number } {
+  const rows = getDb().prepare(`
+    SELECT price FROM price_records
+    WHERE component_id = ? AND is_outlier = 0 AND ${purchasable()} AND recorded_at >= datetime('now', ? || ' days')
+    ORDER BY price ASC
+  `).all(componentId, `-${days}`) as { price: number }[];
+  if (rows.length === 0) return { low: null, median: null, count: 0 };
+  const mid = Math.floor(rows.length / 2);
+  const median = rows.length % 2 ? rows[mid].price : (rows[mid - 1].price + rows[mid].price) / 2;
+  return { low: rows[0].price, median: Math.round(median * 100) / 100, count: rows.length };
 }
 
 export interface BulkImportRow {
