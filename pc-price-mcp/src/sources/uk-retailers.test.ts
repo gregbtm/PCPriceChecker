@@ -133,3 +133,17 @@ describe('default retailer list', () => {
     expect(DEFAULT_SEARCH_RETAILERS).toContain('awdit');
   });
 });
+
+describe('search addresses confirmed from the owner\'s browser, 2026-10-06 (the old ones were HTTP 404 from the NAS)', () => {
+  it.each([
+    ['ebuyerSearch', 'https://www.ebuyer.com/searchresults?descriptionfilter=ddr5%20so-dimm%2064gb'],
+    ['cclSearch', 'https://www.cclonline.com/search?query=ddr5%20so-dimm%2064gb'],
+    ['novatechSearch', 'https://www.novatech.co.uk/search.html?search=ddr5%20so-dimm%2064gb'],
+  ] as const)('%s requests %s', async (fn, expected) => {
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '<html></html>' });
+    vi.stubGlobal('fetch', f);
+    const mod = await import('./uk-retailers.js');
+    await mod[fn]('ddr5 so-dimm 64gb');
+    expect(String(f.mock.calls[0][0])).toBe(expected);
+  });
+});
