@@ -94,9 +94,9 @@ Phase 3 changedetection.io
 - [ ] P3-5 Document community MCP
 
 Phase 4 alerting
-- [ ] P4-1 Alert rules (in-stock based)
+- [x] P4-1 Alert rules (in-stock based; two tiers, options list, PR-J)
 - [ ] P4-2 Configurable cooldowns, quiet hours, dedupe
-- [ ] P4-3 Richer alert text
+- [x] P4-3 Richer alert text (listing, GBP/GB, caveats, other options; PR-J)
 - [~] P4-4 Self-hosted ntfy (PR-D: `ntfy_token` Bearer support + test; docs not done)
 - [~] P4-5 Optional n8n workflow (generic `webhook_url` channel + `docs/N8N.md` + example workflow JSON; the JSON is Unverified, never imported into n8n)
 
@@ -254,6 +254,16 @@ These close the questions in `docs/IMPROVEMENT_PLAN.md` section 7. They are the 
 - `GET /api/debug/retailer-page?retailer=<id>&q=<query>` fetches one retailer's search page as the scraper does and returns status, size, title, signals (JSON-LD blocks and products, `__NEXT_DATA__`, `window.__*__` state variables, count of GBP prices), up to 3 raw-HTML snippets around the first prices, and the first 400 characters of visible text. Read-only; only the built-in addresses in `SEARCH_URLS` can be fetched (ids: scan, overclockers, ebuyer, ccl, box, novatech, aria, awdit). It is how an extractor gets written for a site the sandbox cannot reach: no prices in the raw HTML means the page needs JS rendering, prices in snippets show the markup to target.
 - **First real diagnostics, owner's NAS 2026-10-06:** Novatech `search.html?search=...`: status 200, 246 KB, one JSON-LD block with 0 products, **0 GBP prices** in the raw HTML. Ebuyer `searchresults?descriptionfilter=...`: status 200, 496 KB, two JSON-LD blocks with 0 products, **1 GBP price** (a "from £9.99" delivery banner). Neither server response contains product prices, so the product lists are loaded afterwards by JavaScript (or sit in markup without a pound sign; the `priceAttributes`, `jsonPricePairs`, `dataScripts` and `scriptHints` signals and `&needle=<word>` were added to tell these apart). No extractor can be written for these two from the raw page alone.
 - Search results per retailer page are now kept up to 40 (were 8, which cut off the wanted listing on AWD-IT); `searchAllUkRetailers` still trims to 8 per retailer for display unless a larger limit is passed.
+
+## 9h. Two-tier alerts, options list, 48GB fallback and daily summary (owner request 2026-10-06)
+
+Owner decisions: keep **GBP 350** as the alert price; willing to go up to **GBP 500** but wants the cheapest and a list of options; 48GB (2x24GB) fallback accepted; daily summary wanted.
+
+- **`consider_price`** (new column on `tracked_components`): offers above `alert_price` and up to `consider_price` send an `options` notice listing the cheapest (up to 5, cheapest first). Sent only when something new appears (an offer not in the previous list, or a cheaper best price) and at most once every 6 hours. If the best offer is at or below `alert_price`, the normal `price_alert` is sent instead, now with the other options listed under it.
+- **Only purchasable offers are ever listed** (in stock, fits the profile, seen within `max_offer_age_hours`), with price per GB and short caveats (`used`, `+delivery`, `kit?`, `CHECK SELLER`, `24GB UNVERIFIED`).
+- **Profile `n5-air-ram-48`**: accepts only 48GB (2x24GB), flagged `non_binary_unverified`. `n5-air-ram` is unchanged (64GB, and 48GB flagged). Use the 48 profile on the fallback component so a 64GB listing is not reported twice.
+- **Daily summary**: one notification per local day after `daily_summary_hour` (config key or `DAILY_SUMMARY_HOUR`, default 8, `off` disables), sent at the end of a refresh pass so it uses fresh data. It covers every unpaused component that has a profile or a `consider_price`: cheapest now, distance from the alert price, up to 5 options, and 7-day low and median. If no channel delivers it, it is retried on the next pass. Time zone is the container's `TZ` (compose default `Europe/London`). `POST /api/daily-summary/send` sends one now.
+- Set the prices with `PATCH /api/components/:id/alert` and `{"alert_price": 350, "consider_price": 500}`; `POST /api/components` also accepts `consider_price`.
 
 ## 10. Glossary
 

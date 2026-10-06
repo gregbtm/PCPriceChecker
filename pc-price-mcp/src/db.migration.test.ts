@@ -30,7 +30,7 @@ describe('runMigrations: stock_state on a pre-existing (legacy) database', () =>
       const cols = (db.getDb().prepare('PRAGMA table_info(price_records)').all() as { name: string }[]).map(c => c.name);
       expect(cols).toEqual(expect.arrayContaining(['stock_state', 'listing_name', 'kit_total_gb', 'modules', 'price_per_gb', 'profile_match', 'profile_flags']));
       const tcols = (db.getDb().prepare('PRAGMA table_info(tracked_components)').all() as { name: string }[]).map(c => c.name);
-      expect(tcols).toContain('profile_id');
+      expect(tcols).toEqual(expect.arrayContaining(['profile_id', 'consider_price']));
       const by = Object.fromEntries(db.getLatestPricePerRetailer(1).map(r => [r.retailer, [r.price, r.stock_state]]));
       expect(by).toEqual({ scan: [893.99, 'in_stock'], oos: [199.99, 'out_of_stock'] });
       expect(db.getBestInStockOffer(1)).toMatchObject({ retailer: 'scan' });
