@@ -52,3 +52,5 @@ Suggested polling workflows: (a) every morning, `GET /api/alerts` and `GET /api/
 
 ## 3. Wiring it from the dashboard (added 2026-10-06)
 Integrations tab > **n8n (webhook)**: enter the Webhook node URL and optional header token, **Save**, then **Send a test to n8n** (a `test` event reaches the workflow). The same card downloads three importable workflows generated for this app's address and your ntfy topic: `webhook-to-ntfy` (push), `health-digest` (daily 07:15, messages only when a source is failing) and `deals-digest` (daily 07:30, one message per component at or below its alert price). Import them in n8n via Workflows > Import from file, set the Header Auth credential on the webhook workflow, and activate them. **Unverified**: none has been imported into a running n8n. The owner's n8n answers on its public address, but importing needs an n8n API key or a manual import.
+
+A ready-made prompt for a Claude chat that has the n8n connector (creates, tests and activates these workflows, and handles later n8n questions) is in `docs/N8N_CLAUDE_PROMPT.md`.
