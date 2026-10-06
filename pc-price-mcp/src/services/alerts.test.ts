@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as db from '../db.js';
-import { evaluateAlerts } from './alerts.js';
+import { evaluateAlerts, cooldownMinutes } from './alerts.js';
 
 // Listing titles are real Scan.co.uk fixtures from docs/RESEARCH_AND_VERIFICATION.md section 2.
 const KIT_NAME = '64GB (2x32GB) CORSAIR DDR5 Vengeance SODIMM, PC5-41600 (5200), Non-ECC Unbuffered, CAS 44, 1.1V';
@@ -46,5 +46,29 @@ describe('A-01: alerts must be based on in-stock offers only', () => {
     await evaluateAlerts({ component, prevBestPrice: null, dropThresholdPct: 5, notify });
     expect(notify).toHaveBeenCalledTimes(1);
     expect(notify.mock.calls[0][0]).toMatchObject({ type: 'price_alert', retailer: 'scan.co.uk', price: 893.99 });
+  });
+});
+
+describe('P4-2: configurable cooldowns', () => {
+  beforeEach(() => { db.getDb().exec('DELETE FROM config;'); });
+  it('defaults to the previous 1440 / 360 minutes and ignores junk values', () => {
+    expect(cooldownMinutes('alert_cooldown_minutes')).toBe(1440);
+    expect(cooldownMinutes('drop_cooldown_minutes')).toBe(360);
+    db.setConfig('alert_cooldown_minutes', 'soon'); db.setConfig('drop_cooldown_minutes', '-5');
+    expect(cooldownMinutes('alert_cooldown_minutes')).toBe(1440);
+    expect(cooldownMinutes('drop_cooldown_minutes')).toBe(360);
+  });
+  it('a short cooldown lets a second target alert through where the default would suppress it', async () => {
+    const component = seed();
+    db.savePriceSnapshots(component.id, [snap('scan.co.uk', 800, true)]);
+    const notify = vi.fn().mockResolvedValue({});
+    db.setConfig('alert_cooldown_minutes', '0');
+    await evaluateAlerts({ component, prevBestPrice: null, dropThresholdPct: 5, notify });
+    await evaluateAlerts({ component, prevBestPrice: null, dropThresholdPct: 5, notify });
+    expect(notify.mock.calls.filter(c => c[0].type === 'price_alert')).toHaveLength(2);
+    db.deleteConfig('alert_cooldown_minutes');
+    notify.mockClear();
+    await evaluateAlerts({ component, prevBestPrice: null, dropThresholdPct: 5, notify });
+    expect(notify.mock.calls.filter(c => c[0].type === 'price_alert')).toHaveLength(0);   // 24h default applies
   });
 });

@@ -150,3 +150,29 @@ describe('stale observations are not purchasable offers', () => {
     expect(notify).not.toHaveBeenCalled();
   });
 });
+
+describe('P5-2 retention', () => {
+  const old = (c: number, retailer: string, price: number, at: string) => db.getDb().prepare(
+    `INSERT INTO price_records (component_id, source, price, currency, retailer, url, in_stock, recorded_at) VALUES (?, 't', ?, 'GBP', ?, 'u', 1, ?)`)
+    .run(c, price, retailer, at);
+  it('keeps the cheapest row per component, retailer and day beyond the window, and all recent rows', () => {
+    const c = fresh();
+    old(c.id, 'a', 500, "2020-01-01 08:00:00"); old(c.id, 'a', 450, "2020-01-01 12:00:00"); old(c.id, 'a', 480, "2020-01-01 18:00:00");
+    old(c.id, 'b', 700, "2020-01-01 09:00:00");
+    old(c.id, 'a', 520, "2020-01-02 09:00:00");
+    db.savePriceSnapshots(c.id, [snap('a', 400, 'in_stock'), snap('a', 410, 'in_stock')]);   // now
+    const removed = db.pruneOldPriceRecords(30);
+    const left = db.getDb().prepare('SELECT retailer, price FROM price_records WHERE component_id = ? ORDER BY recorded_at, price').all(c.id);
+    expect(removed).toBe(2);
+    expect(left).toEqual([{ retailer: 'b', price: 700 }, { retailer: 'a', price: 450 }, { retailer: 'a', price: 520 },
+      { retailer: 'a', price: 400 }, { retailer: 'a', price: 410 }]);
+  });
+  it('is off at 0 and defaults to 365 days', () => {
+    db.getDb().exec('DELETE FROM config;');
+    expect(db.priceRetentionDays()).toBe(365);
+    db.setConfig('price_retention_days', '0');
+    expect(db.pruneOldPriceRecords(db.priceRetentionDays())).toBe(0);
+    db.setConfig('price_retention_days', 'junk');
+    expect(db.priceRetentionDays()).toBe(365);
+  });
+});

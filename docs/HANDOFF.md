@@ -66,7 +66,7 @@ Phase 0 correctness
 - [ ] P0-7 Safe selector self-healing
 - [x] P0-8 Scheduler failure visibility (`scrape_runs`, PR-D)
 - [x] P0-9 No-paid-key scheduler path (PR-D; interim `matchesQuery` filter until P1-5)
-- [ ] P0-10 Outlier policy
+- [x] P0-10 Outlier policy: flag, never hide (HANDOFF 9j; owner may overrule)
 - [x] P0-11 Apify abort and logging (PR-D)
 - [x] P0-12 Currency handling (PR-B; JSON-LD, meta, rules, DOM and Playwright reject non-GBP. Camofox and AI paths still report whatever they return, see audit A-19)
 
@@ -95,16 +95,16 @@ Phase 3 changedetection.io
 
 Phase 4 alerting
 - [x] P4-1 Alert rules (in-stock based; two tiers, options list, PR-J)
-- [ ] P4-2 Configurable cooldowns, quiet hours, dedupe
+- [~] P4-2 Configurable cooldowns done (`alert_cooldown_minutes`, `drop_cooldown_minutes`); quiet hours not built; dedupe by price not built
 - [x] P4-3 Richer alert text (listing, GBP/GB, caveats, other options; PR-J)
 - [~] P4-4 Self-hosted ntfy (PR-D: `ntfy_token` Bearer support + test; docs not done)
 - [~] P4-5 Optional n8n workflow (generic `webhook_url` channel + `docs/N8N.md` + example workflow JSON; the JSON is Unverified, never imported into n8n)
 
 Phase 5 observability and data
 - [~] P5-1 Health per source (PR-D: `scrape_runs`, `/api/health` `scrapers`, `/api/scrape-runs`; dashboard "needs attention" UI not done)
-- [ ] P5-2 Retention/rollup
+- [x] P5-2 Retention/rollup (`price_retention_days`, default 365)
 - [ ] P5-3 Delivered cost and VAT flag
-- [ ] P5-4 Outlier policy implementation
+- [x] P5-4 Outlier policy implementation (nothing to hide: scheduled path never excludes by outlier score)
 
 Phase 6 deployment
 - [ ] P6-1 Compose services (pinned, LAN-only, limited)
@@ -301,3 +301,11 @@ Owner's instance: `https://changedetection.nasmatrix.app` (v0.55.8). Enable the 
 How it works: add a product URL to a component (component URLs) and create a `restock_diff` watch on the **same URL** in changedetection.io. On each refresh the app reads that watch's latest snapshot (`In Stock: True|False - Price: N`) instead of scraping the page; with no watch, or no usable reading, it falls back to direct scraping and records no failure. Currency is assumed GBP and only for `.uk` hosts (Unverified for others). `GET /api/changedetection/spike` shows what the instance returns, for checking.
 
 Not done: creating watches from the app and webhook mode. Ebuyer product pages could not be fetched (HTTP/2 protocol error, row 30). The API key was shared in chat by the owner; rotate it in changedetection.io Settings if it should not stay in that transcript.
+
+## 9j. Outlier policy, cooldowns, retention (2026-10-06)
+
+**Outlier policy (P0-10, default chosen by me, owner has not been asked to rule on it):** a low price is flagged, never hidden. The scheduled refresh path does not call `validatePrices` at all, so the MAD z-score cannot exclude a genuine bargain from alerts or best price. Listings far below the per-GB floor (`suspicious_price_per_gb`, default 2) get the `suspiciously_cheap` flag and the alert says so. `validatePrices` is still used by the manual MCP tools only. If the owner prefers a held-for-review state, that is a new stock-like state and a separate PR.
+
+**Cooldowns (P4-2):** config `alert_cooldown_minutes` (default 1440) and `drop_cooldown_minutes` (default 360). A missing, non-numeric or negative value falls back to the default. `0` removes the cooldown.
+
+**Retention (P5-2):** config `price_retention_days` (default 365, `0` = keep everything). After a scheduled pass, rows older than that keep only the cheapest row per component, retailer and day; recent rows are untouched.

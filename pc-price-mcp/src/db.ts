@@ -1272,3 +1272,29 @@ export function getSourceHealth(): SourceHealth[] {
 export function pruneScrapeRuns(days = 30): void {
   getDb().prepare(`DELETE FROM scrape_runs WHERE started_at < datetime('now', ? || ' days')`).run(`-${days}`);
 }
+
+/**
+ * Retention (P5-2): rows older than `days` collapse to the cheapest row per component, retailer and day, so
+ * history charts and all-time lows keep working while the table stops growing without bound. Recent rows are untouched.
+ * Returns the number of rows removed. days <= 0 disables it.
+ */
+export function pruneOldPriceRecords(days: number): number {
+  if (!(days > 0)) return 0;
+  return getDb().prepare(`
+    DELETE FROM price_records
+    WHERE recorded_at < datetime('now', ? || ' days')
+      AND id NOT IN (
+        SELECT (SELECT q.id FROM price_records q
+                WHERE q.component_id = p.component_id AND q.retailer = p.retailer
+                  AND date(q.recorded_at) = date(p.recorded_at)
+                ORDER BY q.price ASC, q.id ASC LIMIT 1)
+        FROM price_records p WHERE p.recorded_at < datetime('now', ? || ' days')
+      )
+  `).run(`-${days}`, `-${days}`).changes;
+}
+
+export function priceRetentionDays(): number {
+  const raw = getConfig('price_retention_days');
+  const n = raw == null ? 365 : Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 365;
+}
