@@ -3,6 +3,7 @@
  * against a seeded database without any network access.
  */
 import * as db from '../db.js';
+import { inQuietHours } from './quiet-hours.js';
 import { notifyAll } from '../notifications.js';
 import { topOffers, offerKey, formatOffer, formatOfferList } from './offers.js';
 
@@ -78,17 +79,26 @@ export async function evaluateAlerts(ctx: AlertContext): Promise<void> {
   const notify = ctx.notify ?? notifyAll;
   const now = ctx.now ?? Date.now();
 
+  if (inQuietHours(now)) return;   // nothing is recorded, so it is sent on the first pass after quiet hours
+
   const newBest = db.getBestInStockOffer(component.id);
   if (!newBest) return;
 
+  // The cooldown stops repeats of the same deal; a different offer or a lower price is news and bypasses it (P4-2).
+  const sigKey = `alert_sig:${component.id}`;
+  const lastSig = (() => { try { return JSON.parse(db.getConfig(sigKey) ?? 'null') as { key: string; price: number } | null; } catch { return null; } })();
+  const newKey = offerKey(newBest.url);
+  const isNews = !lastSig || lastSig.key !== newKey || newBest.price < lastSig.price * 0.99;   // at least 1% cheaper, so pennies of noise are not news
+
   if (component.alert_price != null && newBest.price <= component.alert_price
-      && db.shouldSendAlert(component.id, cooldownMinutes('alert_cooldown_minutes'))) {
+      && (isNews || db.shouldSendAlert(component.id, cooldownMinutes('alert_cooldown_minutes')))) {
     const others = topOffers(component.id, 6).filter(o => offerKey(o.url) !== offerKey(newBest.url)).slice(0, 5);
     await notify({ type: 'price_alert', componentName: component.name,
       price: newBest.price, currency: newBest.currency, retailer: newBest.retailer,
       alertThreshold: component.alert_price, url: newBest.url,
       message: [describeOffer(newBest), others.length > 0 ? `Other options:\n${formatOfferList(others)}` : null].filter(Boolean).join('\n\n') });
     db.markLastAlerted(component.id);
+    db.setConfig(sigKey, JSON.stringify({ key: newKey, price: newBest.price }));
   }
 
   await evaluateOptions(component, notify, now);
