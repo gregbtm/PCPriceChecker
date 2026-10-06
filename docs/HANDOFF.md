@@ -248,6 +248,11 @@ These close the questions in `docs/IMPROVEMENT_PLAN.md` section 7. They are the 
 - **Stale `PRICES_API_KEY`:** `PricesAPI authentication failed` shows a key is set but invalid; remove it (or fix it) to stop that failing row.
 - Failure notices are now deduplicated per source across components (a blocked retailer used to mean one notice per tracked component).
 
+## 9g. Page diagnostic and result cap
+
+- `GET /api/debug/retailer-page?retailer=<id>&q=<query>` fetches one retailer's search page as the scraper does and returns status, size, title, signals (JSON-LD blocks and products, `__NEXT_DATA__`, `window.__*__` state variables, count of GBP prices), up to 3 raw-HTML snippets around the first prices, and the first 400 characters of visible text. Read-only; only the built-in addresses in `SEARCH_URLS` can be fetched (ids: scan, overclockers, ebuyer, ccl, box, novatech, aria, awdit). It is how an extractor gets written for a site the sandbox cannot reach: no prices in the raw HTML means the page needs JS rendering, prices in snippets show the markup to target.
+- Search results per retailer page are now kept up to 40 (were 8, which cut off the wanted listing on AWD-IT); `searchAllUkRetailers` still trims to 8 per retailer for display unless a larger limit is passed.
+
 ## 10. Glossary
 
 - **SO-DIMM:** small-outline memory module used in laptops and mini PCs; not interchangeable with desktop DIMMs.
