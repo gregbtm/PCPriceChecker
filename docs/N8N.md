@@ -49,3 +49,6 @@ Suggested polling workflows: (a) every morning, `GET /api/alerts` and `GET /api/
 
 - The REST API and dashboard have **no authentication** (**Verified**: no auth code in `web.ts`). Keep the app on the LAN. `GET /api/config` returns every stored setting, secrets included, so do not expose the port beyond your network or to untrusted containers.
 - The webhook goes out to whatever URL is configured; the app does not restrict it, so only set it to a host you control.
+
+## 3. Wiring it from the dashboard (added 2026-10-06)
+Integrations tab > **n8n (webhook)**: enter the Webhook node URL and optional header token, **Save**, then **Send a test to n8n** (a `test` event reaches the workflow). The same card downloads three importable workflows generated for this app's address and your ntfy topic: `webhook-to-ntfy` (push), `health-digest` (daily 07:15, messages only when a source is failing) and `deals-digest` (daily 07:30, one message per component at or below its alert price). Import them in n8n via Workflows > Import from file, set the Header Auth credential on the webhook workflow, and activate them. **Unverified**: none has been imported into a running n8n. The owner's n8n answers on its public address, but importing needs an n8n API key or a manual import.

@@ -147,3 +147,13 @@ export async function readWatchForUrl(url: string): Promise<WatchReading | null>
   const parsed = parseRestockSnapshot(await getLatestSnapshot(w.uuid).catch(() => ''));
   return parsed ? { ...parsed, checkedAt: typeof w.last_checked === 'number' ? w.last_checked : null } : null;
 }
+
+/** Title prefix of watches this app creates; the dashboard only deletes watches that carry it. */
+export const PCPC_TITLE_PREFIX = 'PCPC';
+
+export async function deleteWatch(uuid: string): Promise<void> {
+  const w = await getWatch(uuid);
+  const title = String(w.title ?? w.page_title ?? '');
+  if (!title.startsWith(PCPC_TITLE_PREFIX)) throw new Error('refusing to delete a watch this app did not create');
+  await request(`/watch/${encodeURIComponent(uuid)}`, { method: 'DELETE' });
+}

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>PC Price Checker – UK Component Monitor</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96' fill='none'%3E%3Crect width='96' height='96' rx='18' fill='%231e293b'/%3E%3Cg stroke='%233B82F6' stroke-width='4.5' stroke-linecap='round'%3E%3Cline x1='22' y1='8' x2='22' y2='17'/%3E%3Cline x1='34' y1='8' x2='34' y2='17'/%3E%3Cline x1='46' y1='8' x2='46' y2='17'/%3E%3Cline x1='22' y1='63' x2='22' y2='72'/%3E%3Cline x1='34' y1='63' x2='34' y2='72'/%3E%3Cline x1='8' y1='26' x2='17' y2='26'/%3E%3Cline x1='8' y1='38' x2='17' y2='38'/%3E%3Cline x1='8' y1='50' x2='17' y2='50'/%3E%3C/g%3E%3Crect x='17' y='17' width='39' height='39' rx='5' stroke='%233B82F6' stroke-width='4.5'/%3E%3Cpath d='M56 36 L76 36 L82 43 L82 70 L56 70 Z' stroke='%2310B981' stroke-width='4.5' stroke-linejoin='round'/%3E%3Ccircle cx='72' cy='46' r='3' fill='%2310B981'/%3E%3Cpath d='M63 57 L70 64 L79 51' stroke='%2310B981' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
-  <script type="module" crossorigin src="/assets/index-BnhOdAdm.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CSFpdDp6.css">
+  <script type="module" crossorigin src="/assets/index-DWTwWm-1.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-B6RMSO2W.css">
 </head>
 <body class="h-[100dvh] overflow-hidden" x-data="app">
 
@@ -804,6 +804,9 @@
                       <button @click="openHistory(c)"
                               class="btn btn-ghost btn-xs"
                               title="Price history">📈</button>
+                      <button @click="openOffers(c)"
+                              class="btn btn-ghost btn-xs"
+                              title="Current offers">🛒</button>
                       <button @click="openEditAlert(c)"
                               class="btn btn-ghost btn-xs"
                               title="Set alert">🔔</button>
@@ -1322,6 +1325,146 @@
     <!-- ══ SETTINGS TAB ═════════════════════════════════════════════════════ -->
     <div x-show="activeTab === 'settings'" class="p-6 space-y-5 max-w-xl">
       <div id="settings-react-root"></div>
+    </div>
+
+    <!-- ══ INTEGRATIONS TAB ═════════════════════════════════════════════════ -->
+    <div x-show="activeTab === 'integrations'" x-cloak class="p-6 space-y-5 max-w-5xl">
+      <div class="bg-base-200 rounded-xl border border-base-300 p-5">
+        <div class="flex flex-wrap items-center gap-2 justify-between mb-3">
+          <h2 class="font-semibold">Integrations &amp; operations</h2>
+          <div class="flex flex-wrap gap-2">
+            <button @click="runNow()" class="btn btn-primary btn-sm" :disabled="schedulerStatus?.currentlyRunning">⟳ Run a refresh pass now</button>
+            <button @click="testNotifications()" class="btn btn-ghost btn-sm border border-base-300">Test notifications</button>
+            <button @click="sendSummaryNow()" class="btn btn-ghost btn-sm border border-base-300">Send daily summary now</button>
+          </div>
+        </div>
+        <template x-if="!integrations"><p class="text-sm text-base-content/50">Loading…</p></template>
+        <template x-if="integrations">
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="badge" :class="integrations.ntfy.configured ? 'badge-success' : 'badge-ghost'" x-text="'ntfy: ' + (integrations.ntfy.configured ? 'set' : 'not set')"></span>
+            <span class="badge" :class="integrations.webhook.configured ? 'badge-success' : 'badge-ghost'" x-text="'n8n webhook: ' + (integrations.webhook.configured ? 'set' : 'not set')"></span>
+            <span class="badge" :class="integrations.ebay.configured ? 'badge-success' : 'badge-ghost'" x-text="'eBay: ' + (integrations.ebay.configured ? 'keys set' : 'no keys')"></span>
+            <span class="badge" :class="integrations.changedetection.configured ? 'badge-success' : 'badge-ghost'" x-text="'changedetection.io: ' + (integrations.changedetection.configured ? 'connected' : 'not set')"></span>
+            <span class="badge" :class="integrations.firecrawl.configured ? 'badge-success' : 'badge-ghost'" x-text="'Firecrawl: ' + (integrations.firecrawl.configured ? 'set' : 'off')"></span>
+            <span class="badge" :class="integrations.searxng.configured ? 'badge-success' : 'badge-ghost'" x-text="'SearXNG: ' + (integrations.searxng.configured ? 'set' : 'off')"></span>
+            <span class="badge" :class="integrations.llm.configured ? 'badge-success' : 'badge-ghost'" x-text="'Local LLM: ' + (integrations.llm.configured ? 'set' : 'off')"></span>
+          </div>
+        </template>
+        <p class="text-xs text-base-content/50 mt-3">These settings are stored in the app's database and apply immediately. There is no login on this dashboard, so keep it on your LAN.</p>
+      </div>
+
+      <!-- Scraper health and recent runs -->
+      <div class="bg-base-200 rounded-xl border border-base-300 p-5 space-y-3">
+        <div class="flex items-center justify-between">
+          <h3 class="font-semibold text-sm">Scraper health</h3>
+          <button @click="loadScrapeRuns(); loadScraperHealth()" class="btn btn-ghost btn-xs">Refresh</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="table table-xs">
+            <thead><tr><th>Source</th><th>Last run</th><th>Last success</th><th>Failures (24h)</th><th>In a row</th><th>Last error</th></tr></thead>
+            <tbody>
+              <template x-for="s in scraperHealth.sources" :key="s.source">
+                <tr :class="s.consecutive_failures >= 3 ? 'text-error' : ''">
+                  <td class="font-mono" x-text="s.source"></td><td x-text="s.last_run_at"></td>
+                  <td x-text="s.last_success_at || 'never'"></td>
+                  <td x-text="s.failures_24h + ' / ' + s.runs_24h"></td><td x-text="s.consecutive_failures"></td>
+                  <td class="max-w-xs truncate" :title="s.last_error" x-text="s.last_error || ''"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <details>
+          <summary class="text-xs cursor-pointer text-base-content/60">Recent runs (<span x-text="scrapeRuns.length"></span>)</summary>
+          <ul class="text-xs font-mono space-y-0.5 mt-2 max-h-72 overflow-y-auto">
+            <template x-for="r in scrapeRuns" :key="r.id"><li :class="r.ok ? '' : 'text-error'" x-text="fmtRun(r)"></li></template>
+          </ul>
+        </details>
+      </div>
+
+      <!-- Settings groups (ntfy, alert behaviour, n8n, changedetection, optional tiers) -->
+      <template x-for="g in intGroups" :key="g.id">
+        <div class="bg-base-200 rounded-xl border border-base-300 p-5 space-y-3">
+          <div>
+            <h3 class="font-semibold text-sm" x-text="g.title"></h3>
+            <p class="text-xs text-base-content/60" x-text="g.help"></p>
+          </div>
+          <div class="grid sm:grid-cols-2 gap-3">
+            <template x-for="f in g.fields" :key="f.key">
+              <label class="block">
+                <span class="text-xs text-base-content/60" x-text="f.label"></span>
+                <div class="flex gap-1">
+                  <input :type="f.secret ? 'password' : 'text'" x-model="intForm[f.key]" autocomplete="off"
+                         :placeholder="f.secret && secretIsSet(f.key) ? '(set — type to replace)' : f.placeholder"
+                         class="input input-bordered input-sm w-full">
+                  <button x-show="f.secret && secretIsSet(f.key)" @click.prevent="clearSecret(f.key)" class="btn btn-ghost btn-sm" title="Remove">✕</button>
+                </div>
+              </label>
+            </template>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button @click="saveGroup(g)" class="btn btn-primary btn-sm" :disabled="intSaving === g.id">Save</button>
+            <template x-if="g.id === 'n8n'">
+              <div class="flex flex-wrap gap-2">
+                <button @click="testNotifications()" class="btn btn-ghost btn-sm border border-base-300">Send a test to n8n</button>
+              </div>
+            </template>
+            <template x-if="g.id === 'cd'">
+              <div class="flex flex-wrap gap-2">
+                <button @click="runCdSpike()" class="btn btn-ghost btn-sm border border-base-300">Check connection</button>
+                <label class="flex items-center gap-2 text-xs">
+                  <input type="checkbox" class="toggle toggle-xs" :checked="integrations?.changedetection.autocreate"
+                         @change="fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'changedetection_autocreate', value: $event.target.checked ? 'true' : 'false' }) }).then(loadIntegrations)">
+                  Create Novatech watches automatically
+                </label>
+              </div>
+            </template>
+          </div>
+          <template x-if="g.id === 'n8n' && integrations">
+            <div class="border-t border-base-300 pt-3 space-y-2">
+              <p class="text-xs text-base-content/60">Workflows to import in n8n (Workflows &rarr; Import from file). They are generated for this app's address and your ntfy topic. Unverified: never imported into a running n8n.</p>
+              <template x-for="w in integrations.n8n" :key="w.id">
+                <div class="flex items-center justify-between gap-3 text-sm">
+                  <div><div class="font-medium" x-text="w.title"></div><div class="text-xs text-base-content/50" x-text="w.description"></div></div>
+                  <a :href="'/api/n8n/workflows/' + w.id" class="btn btn-ghost btn-xs border border-base-300">Download</a>
+                </div>
+              </template>
+            </div>
+          </template>
+          <template x-if="g.id === 'cd'">
+            <div class="border-t border-base-300 pt-3 space-y-3">
+              <template x-if="cdSpikeResult"><pre class="text-xs bg-base-100 rounded p-2 overflow-x-auto max-h-48" x-text="JSON.stringify(cdSpikeResult, null, 1)"></pre></template>
+              <div class="flex items-center justify-between"><h4 class="text-sm font-medium">Watches</h4><button @click="loadCdWatches()" class="btn btn-ghost btn-xs">Reload</button></div>
+              <p x-show="cdWatchesError" class="text-xs text-warning" x-text="cdWatchesError"></p>
+              <ul class="text-xs space-y-1">
+                <template x-for="w in cdWatches" :key="w.uuid">
+                  <li class="flex items-center justify-between gap-2">
+                    <span class="truncate" :title="w.url"><span x-text="w.title"></span> <span x-show="w.last_error" class="text-error" x-text="'· ' + w.last_error"></span></span>
+                    <button x-show="w.ours" @click="deleteCdWatch(w)" class="btn btn-ghost btn-xs">Delete</button>
+                  </li>
+                </template>
+              </ul>
+              <div class="grid sm:grid-cols-5 gap-2 items-end">
+                <input x-model="cdNew.url" placeholder="Product page URL" class="input input-bordered input-sm sm:col-span-2">
+                <input x-model="cdNew.title" placeholder="Name (optional)" class="input input-bordered input-sm">
+                <select x-model="cdNew.component_id" class="select select-bordered select-sm">
+                  <option value="">Attach to component…</option>
+                  <template x-for="c in components" :key="c.id"><option :value="c.id" x-text="c.name"></option></template>
+                </select>
+                <button @click="createCdWatch()" class="btn btn-primary btn-sm" :disabled="!cdNew.url">Add watch</button>
+              </div>
+              <label class="flex items-center gap-2 text-xs"><input type="checkbox" class="checkbox checkbox-xs" x-model="cdNew.browser"> Use the browser (for pages that need JavaScript)</label>
+              <p class="text-xs text-base-content/50">A watch on a product page gives price and stock; attaching it to a component makes the app read it on every pass. Watches this app created carry the "PCPC" prefix; only those can be deleted here.</p>
+            </div>
+          </template>
+          <template x-if="g.id === 'other'">
+            <div class="border-t border-base-300 pt-3 flex flex-wrap items-center gap-2">
+              <button @click="checkEbay()" class="btn btn-ghost btn-sm border border-base-300">Check eBay keys</button>
+              <template x-if="ebayStatus"><pre class="text-xs bg-base-100 rounded p-2 overflow-x-auto" x-text="JSON.stringify(ebayStatus)"></pre></template>
+            </div>
+          </template>
+        </div>
+      </template>
     </div>
 
     <!-- ══ PARTS DB TAB ══════════════════════════════════════════════════════ -->
@@ -2449,6 +2592,14 @@
             </button>
           </li>
           <li>
+            <button @click="activeTab = 'integrations'; closeMobileDrawer()"
+                    :class="activeTab === 'integrations' ? 'menu-active' : ''"
+                    class="w-full flex items-center gap-3 text-sm font-medium">
+              <svg class="h-5 w-5 shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><use href="#hi-cog-6-tooth"/></svg>
+              Integrations
+            </button>
+          </li>
+          <li>
             <button @click="activeTab = 'prebuilts'; closeMobileDrawer()"
                     :class="activeTab === 'prebuilts' ? 'menu-active' : ''"
                     class="w-full flex items-center gap-3 text-sm font-medium">
@@ -2554,14 +2705,54 @@
              placeholder="e.g. 649.99"
              class="w-full input input-bordered">
     </div>
+    <div class="mt-3">
+      <label class="text-xs text-base-content/60 block mb-1">"Worth a look" list up to (GBP, optional)</label>
+      <input x-model="alertConsider" type="number" step="0.01" min="0" placeholder="e.g. 500" class="w-full input input-bordered">
+      <p class="text-xs text-base-content/50 mt-1">Above the alert price but up to this, you get a list of the cheapest options instead of a price alert.</p>
+    </div>
+    <div class="mt-3">
+      <label class="text-xs text-base-content/60 block mb-1">Hardware profile (so only compatible kits count)</label>
+      <select x-model="alertProfile" class="select select-bordered w-full">
+        <option value="">None (any listing)</option>
+        <template x-for="p in (integrations?.profiles || [])" :key="p.id"><option :value="p.id" x-text="p.label"></option></template>
+      </select>
+    </div>
     <div class="flex gap-2 mt-4">
       <button @click="saveAlert()"
-              class="btn btn-primary flex-1">Set Alert</button>
+              class="btn btn-primary flex-1">Save</button>
       <button @click="clearAlert()"
               class="btn btn-error btn-sm">Remove</button>
       <button @click="showAlertModal = false"
               class="btn btn-ghost">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- Current offers (what an alert would use) -->
+<div x-show="showOffersModal" x-cloak
+     class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+     @click.self="showOffersModal = false">
+  <div class="bg-base-200 rounded-xl border border-base-300 w-full max-w-2xl p-5">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="font-semibold" x-text="offersData ? offersData.component.name : 'Offers'"></h3>
+      <button @click="showOffersModal = false" class="text-2xl leading-none text-base-content/60">×</button>
+    </div>
+    <template x-if="!offersData"><p class="text-sm text-base-content/50">Loading…</p></template>
+    <template x-if="offersData">
+      <div>
+        <p class="text-xs text-base-content/60 mb-2">In stock, fits the profile, seen in the last 48 hours, cheapest first. Alert at <span x-text="offersData.component.alert_price ?? '—'"></span>, options up to <span x-text="offersData.component.consider_price ?? '—'"></span>.</p>
+        <p x-show="offersData.offers.length === 0" class="text-sm text-base-content/50">No qualifying offer right now.</p>
+        <ul class="space-y-2 max-h-96 overflow-y-auto">
+          <template x-for="o in offersData.offers" :key="o.id">
+            <li class="text-sm bg-base-100 rounded p-2">
+              <div class="flex justify-between gap-2"><span class="font-semibold" x-text="'£' + o.price.toFixed(2)"></span>
+                <a :href="o.url" target="_blank" rel="noopener" class="link link-info text-xs">Open →</a></div>
+              <div class="text-xs text-base-content/70" x-text="o.line"></div>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </template>
   </div>
 </div>
 
