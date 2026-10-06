@@ -227,7 +227,8 @@ export async function overclockerSearch(query: string): Promise<RetailerSearchRe
 }
 
 export async function ebuyerSearch(query: string): Promise<RetailerSearchResult> {
-  return scrapeRetailer('Ebuyer', `https://www.ebuyer.com/search?q=${encodeURIComponent(query)}`, 'ebuyer.com',
+  return scrapeRetailer('Ebuyer', // Search address as used by the site itself, supplied by the owner from a browser 2026-10-06 (old /search?q= was HTTP 404).
+    `https://www.ebuyer.com/searchresults?descriptionfilter=${encodeURIComponent(query)}`, 'ebuyer.com',
     (html, url) => {
       const results: RetailerResult[] = [];
       // Ebuyer embeds window.__PRELOADED_STATE__ or similar
@@ -255,8 +256,9 @@ export async function ebuyerSearch(query: string): Promise<RetailerSearchResult>
 }
 
 export async function cclSearch(query: string): Promise<RetailerSearchResult> {
-  // CCL Online — Barnsley-based, competitive pricing on components
-  return scrapeRetailer('CCL Online', `https://www.ccl.co.uk/search?q=${encodeURIComponent(query)}`, 'ccl.co.uk');
+  // CCL Online. The shop is cclonline.com (ccl.co.uk is a corporate WordPress site whose /search is a 404).
+  // Search address supplied by the owner from a browser, 2026-10-06.
+  return scrapeRetailer('CCL Online', `https://www.cclonline.com/search?query=${encodeURIComponent(query)}`, 'cclonline.com');
 }
 
 export async function boxSearch(query: string): Promise<RetailerSearchResult> {
@@ -271,7 +273,7 @@ export async function boxSearch(query: string): Promise<RetailerSearchResult> {
 
 export async function novatechSearch(query: string): Promise<RetailerSearchResult> {
   // Novatech — Portsmouth-based, strong on custom build components
-  return scrapeRetailer('Novatech', `https://www.novatech.co.uk/search/?q=${encodeURIComponent(query)}`, 'novatech.co.uk');
+  return scrapeRetailer('Novatech', `https://www.novatech.co.uk/search.html?search=${encodeURIComponent(query)}`, 'novatech.co.uk');
 }
 
 export async function ariaSearch(query: string): Promise<RetailerSearchResult> {
