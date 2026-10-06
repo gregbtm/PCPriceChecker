@@ -79,13 +79,13 @@ Track GPU, CPU, RAM, storage, and pre-built PC prices across 40+ UK retailers. G
 
 ```bash
 docker run -d \
-  -p 3000:3000 \
-  -v ./data:/app/data \
-  -e PRICES_API_KEY=your_key_here \
-  ghcr.io/gregbtm/pc-price-checker:latest
+  -p 38574:3000 \
+  -v pc_price_data:/data \
+  -e DB_PATH=/data/pc-prices.db \
+  ghcr.io/gregbtm/pc-price-mcp:latest
 ```
 
-Open `http://localhost:3000` — add a component, prices load immediately.
+Open `http://localhost:38574` and add a component. No paid API key is needed: the scheduler searches UK retailers and eBay directly (eBay needs free developer keys, see `docs/EBAY_SETUP.md`). The container listens on 3000; the compose file maps it to host port 38574 (`HOST_PORT`). There is no login, so keep it on your LAN. Operations notes: `docs/OPERATIONS.md`.
 
 ### From source
 

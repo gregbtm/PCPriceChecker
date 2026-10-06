@@ -207,7 +207,7 @@ pm2 startup                # auto-start on boot (follow the printed command)
 
 3. Click **Deploy the stack**
 
-4. Open `http://your-nas-ip:3000`
+4. Open `http://your-nas-ip:38574` (the `HOST_PORT` you set)
 
 The included Watchtower service automatically pulls new images from GHCR whenever a push triggers a new build — so updates are hands-free.
 
@@ -234,7 +234,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Open http://localhost:3000
+Open http://localhost:38574 (`HOST_PORT`)
 
 **To build the image locally** instead of pulling from GHCR, edit `docker-compose.yml`:
 ```yaml
