@@ -90,7 +90,7 @@ Phase 3 changedetection.io
 - [x] P3-1 REST client (`sources/changedetection.ts`)
 - [x] P3-2 Spike: price and stock are in the latest snapshot text (research row 28)
 - [x] P3-3 Integration mode: poll the snapshot for component URLs that have a watch (`refresh.ts`)
-- [~] P3-4 JS-rendering watches: `html_webdriver` runs on the owner's instance (row 29); not yet tried on Ebuyer/Novatech
+- [x] P3-4 JS-rendering watches: `html_webdriver` runs (row 29); Novatech readable even without it, Ebuyer refused on both fetchers (row 30)
 - [ ] P3-5 Document community MCP
 
 Phase 4 alerting
@@ -300,4 +300,4 @@ Owner's instance: `https://changedetection.nasmatrix.app` (v0.55.8). Enable the 
 
 How it works: add a product URL to a component (component URLs) and create a `restock_diff` watch on the **same URL** in changedetection.io. On each refresh the app reads that watch's latest snapshot (`In Stock: True|False - Price: N`) instead of scraping the page; with no watch, or no usable reading, it falls back to direct scraping and records no failure. Currency is assumed GBP and only for `.uk` hosts (Unverified for others). `GET /api/changedetection/spike` shows what the instance returns, for checking.
 
-Not done: creating watches from the app, webhook mode, and a test on Ebuyer/Novatech. The API key was shared in chat by the owner; rotate it in changedetection.io Settings if it should not stay in that transcript.
+Not done: creating watches from the app and webhook mode. Ebuyer product pages could not be fetched (HTTP/2 protocol error, row 30). The API key was shared in chat by the owner; rotate it in changedetection.io Settings if it should not stay in that transcript.
