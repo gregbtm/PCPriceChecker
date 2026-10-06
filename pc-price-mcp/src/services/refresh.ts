@@ -27,6 +27,9 @@ export interface RefreshDeps {
   /** Optional eBay tier (official Browse API, needs free developer keys). Absent/unconfigured = skipped. */
   searchEbay?: (query: string) => Promise<EbayBrowseResult>;
   ebayConfigured?: () => boolean;
+  /** Optional changedetection.io tier: the latest reading of a watch on this URL, or null. Absent = skipped. */
+  readWatch?: (url: string) => Promise<{ price: number; inStock: boolean; checkedAt: number | null } | null>;
+  changedetectionConfigured?: () => boolean;
   notify: typeof notifyAll;
   sleep: (ms: number) => Promise<void>;
 }
@@ -119,6 +122,18 @@ export async function refreshComponent(
   if (urls.length > 0) {
     for (const { url, retailer } of urls) {
       const domain = retailer ?? (() => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'url'; } })();
+      // A changedetection.io watch on this exact URL (it can render JS pages) is read first when configured.
+      if (deps.readWatch && deps.changedetectionConfigured?.() && /\.uk$/i.test(domain.split('/')[0])) {
+        let reading: Awaited<ReturnType<NonNullable<typeof deps.readWatch>>> = null;
+        await attempt(`changedetection:${domain}`, async () => {
+          reading = await deps.readWatch!(url);
+          if (!reading) return { offers: [] };   // no watch on this URL (yet): not a failure, fall through to direct scraping
+          const state = reading.inStock ? 'in_stock' as const : 'out_of_stock' as const;
+          return { offers: [{ source: 'changedetection', price: reading.price, currency: 'GBP',
+            retailer: domain, url, inStock: reading.inStock, stockState: state }] };
+        });
+        if (reading) continue;
+      }
       await attempt(`url:${domain}`, async () => {
         const scraped = await deps.scrapeUrl(url);
         if (scraped.price == null) return { offers: [], error: 'no price extracted from page' };

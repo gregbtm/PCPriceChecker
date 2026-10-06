@@ -343,3 +343,39 @@ describe('failure notices are deduplicated per source across components', () => 
     expect(notices[0].message).toContain('search:scan');
   });
 });
+
+describe('changedetection.io tier (P3-3)', () => {
+  const URL_ = 'https://www.shop.co.uk/kit';
+  function withUrl() {
+    const c = fresh(350);
+    db.addComponentUrl(c.id, URL_, null, null);
+    return c;
+  }
+  it('uses a watch reading instead of scraping, and an out-of-stock reading never alerts', async () => {
+    const c = withUrl();
+    const scrapeUrl = vi.fn();
+    const { deps, notify } = makeDeps({}, { scrapeUrl, changedetectionConfigured: () => true,
+      readWatch: async () => ({ price: 300, inStock: false, checkedAt: 1 }) });
+    await refreshComponent(c, ctx([]), deps);
+    expect(scrapeUrl).not.toHaveBeenCalled();
+    expect(db.getBestInStockOffer(c.id) ?? null).toBeNull();
+    expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'price_alert' }));
+    expect(db.getRecentScrapeRuns(5)[0]).toMatchObject({ source: 'changedetection:shop.co.uk', ok: 1 });
+  });
+  it('falls back to direct scraping, without recording a failure, when no watch exists', async () => {
+    const c = withUrl();
+    const scrapeUrl = vi.fn().mockResolvedValue({ price: 400, currency: 'GBP', inStock: true, stockState: 'in_stock', method: 'json-ld' });
+    const { deps } = makeDeps({}, { scrapeUrl, changedetectionConfigured: () => true, readWatch: async () => null });
+    await refreshComponent(c, ctx([]), deps);
+    expect(scrapeUrl).toHaveBeenCalledOnce();
+    expect(db.getRecentScrapeRuns(10).filter(r => r.source.startsWith('changedetection')).every(r => r.ok === 1)).toBe(true);
+  });
+  it('is skipped entirely when not configured', async () => {
+    const c = withUrl();
+    const readWatch = vi.fn();
+    const scrapeUrl = vi.fn().mockResolvedValue({ price: 400, currency: 'GBP', inStock: true, stockState: 'in_stock', method: 'json-ld' });
+    const { deps } = makeDeps({}, { scrapeUrl, readWatch, changedetectionConfigured: () => false });
+    await refreshComponent(c, ctx([]), deps);
+    expect(readWatch).not.toHaveBeenCalled();
+  });
+});

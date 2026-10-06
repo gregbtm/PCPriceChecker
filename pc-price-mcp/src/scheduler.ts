@@ -4,6 +4,7 @@
  * Configuration stored in the DB config table (auto_refresh_interval_minutes).
  * Sends notifications for alerts, price drops (≥5%), and restock events.
  */
+import { readWatchForUrl, changedetectionConfigured } from './sources/changedetection.js';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
 import { ebayBrowseSearch, ebayConfigured } from './sources/ebay-browse.js';
@@ -127,6 +128,8 @@ const realDeps: RefreshDeps = {
   pricesApiConfigured: () => !!process.env.PRICES_API_KEY?.trim(),
   ebayConfigured,
   // Condition 'any' unless ebay_allow_used is "false". Fixed-price listings only.
+  readWatch: readWatchForUrl,
+  changedetectionConfigured,
   searchEbay: (query) => ebayBrowseSearch(query, db.getConfig('ebay_allow_used') === 'false' ? 'new' : 'any', 100, { buyItNowOnly: true }),
   notify: notifyAll,
   sleep,
