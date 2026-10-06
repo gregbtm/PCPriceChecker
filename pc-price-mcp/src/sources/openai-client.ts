@@ -8,23 +8,39 @@
  * Falls back gracefully if not configured.
  */
 
-const OPENAI_API_BASE = 'https://api.openai.com/v1';
+/**
+ * Local LLM option (P2-4): OPENAI_BASE_URL points this at any OpenAI-compatible server, for example Ollama at
+ * `http://host:11434/v1`, and OPENAI_MODEL names the model there (default `gpt-4o-mini`). A server on a custom base URL
+ * needs no key. With neither a key nor a base URL, nothing is called (the default, off).
+ */
+const DEFAULT_BASE = 'https://api.openai.com/v1';
+const DEFAULT_MODEL = 'gpt-4o-mini';
+
+export function openaiBase(): string {
+  return (process.env.OPENAI_BASE_URL?.trim() || DEFAULT_BASE).replace(/\/+$/, '');
+}
+export function openaiModel(): string {
+  return process.env.OPENAI_MODEL?.trim() || DEFAULT_MODEL;
+}
+export function llmConfigured(): boolean {
+  return !!process.env.OPENAI_API_KEY || !!process.env.OPENAI_BASE_URL?.trim();
+}
 
 function getApiKey(): string | null {
   return process.env.OPENAI_API_KEY ?? null;
 }
 
-async function chatComplete(model: string, messages: { role: string; content: string }[], maxTokens = 300): Promise<string | null> {
+async function chatComplete(_model: string, messages: { role: string; content: string }[], maxTokens = 300): Promise<string | null> {
+  if (!llmConfigured()) return null;
   const apiKey = getApiKey();
-  if (!apiKey) return null;
   try {
-    const res = await fetch(`${OPENAI_API_BASE}/chat/completions`, {
+    const res = await fetch(`${openaiBase()}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
+        ...(apiKey ? { 'Authorization': `Bearer ${apiKey}` } : {}),
       },
-      body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0 }),
+      body: JSON.stringify({ model: openaiModel(), messages, max_tokens: maxTokens, temperature: 0 }),
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) return null;

@@ -1,0 +1,36 @@
+# OPTIONAL, self-hosted Firecrawl overlay (plan P6-1..P6-3). NOT USED BY DEFAULT and NOT TESTED by the author:
+# the owner has not enabled Firecrawl (nothing currently needs it, see docs/OPERATIONS.md "Known limits").
+#
+# How to use it with the upstream compose (https://github.com/firecrawl/firecrawl, docker-compose.yaml):
+#   git clone https://github.com/firecrawl/firecrawl && cd firecrawl
+#   docker compose -f docker-compose.yaml -f /path/to/PCPriceChecker/pc-price-mcp/deploy/firecrawl.override.yml up -d
+# Then, in this app: POST /api/config {"key":"firecrawl_url","value":"http://<nas-ip>:3002"}
+#
+# Needs Docker Compose v2.24+ (the `!reset` and `!override` tags). Services api, playwright-service and nuq-postgres
+# exist in upstream main; redis, rabbitmq and foundationdb are left as upstream defines them.
+#
+# What it changes (checked 2026-10-06 against upstream main):
+#  - uses prebuilt GHCR images instead of building from source. The tags exist: firecrawl/firecrawl (latest, 2.10.1),
+#    firecrawl/playwright-service (latest), firecrawl/nuq-postgres (latest). Upstream builds from source by default.
+#  - pins the API image to 2.10.1 (the playwright-service and nuq-postgres images only publish `latest`).
+#  - binds the API port to the LAN address only, and lowers concurrency. Firecrawl has no authentication by default.
+# Upstream's own caps are API 4 CPU / 8G and Playwright 2 CPU / 4G (caps, not measured needs). Measure on the NAS
+# (`docker stats`, DSM Resource Monitor) before leaving it running; the NAS already runs ~130 containers.
+services:
+  api:
+    image: ghcr.io/firecrawl/firecrawl:2.10.1
+    build: !reset null
+    ports: !override
+      - "${LAN_BIND_IP:-127.0.0.1}:${PORT:-3002}:${INTERNAL_PORT:-3002}"
+    environment:
+      NUM_WORKERS_PER_QUEUE: "2"
+      MAX_CONCURRENT_JOBS: "2"
+      BROWSER_POOL_SIZE: "2"
+    mem_limit: 3G
+  playwright-service:
+    image: ghcr.io/firecrawl/playwright-service:latest
+    build: !reset null
+    mem_limit: 2G
+  nuq-postgres:
+    image: ghcr.io/firecrawl/nuq-postgres:latest
+    build: !reset null

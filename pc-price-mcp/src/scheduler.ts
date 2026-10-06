@@ -4,13 +4,13 @@
  * Configuration stored in the DB config table (auto_refresh_interval_minutes).
  * Sends notifications for alerts, price drops (≥5%), and restock events.
  */
+import { scrapeViaChain } from './sources/providers.js';
 import { searchViaWatch } from './sources/search-watch.js';
 import { readWatchForUrl, changedetectionConfigured } from './sources/changedetection.js';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
 import { ebayBrowseSearch, ebayConfigured } from './sources/ebay-browse.js';
 import { searchUkRetailer, ALL_RETAILER_IDS, type RetailerId } from './sources/uk-retailers.js';
-import { scrapeProductUrl } from './sources/url-scraper.js';
 import { notifyAll } from './notifications.js';
 import { stockStateFromBoolean } from './services/stock-state.js';
 import { refreshComponent, DEFAULT_SEARCH_RETAILERS, type RefreshDeps } from './services/refresh.js';
@@ -114,7 +114,7 @@ export function restartScheduler(): boolean {
 // ── Core refresh loop ──────────────────────────────────────────────────────
 
 const realDeps: RefreshDeps = {
-  scrapeUrl: scrapeProductUrl,
+  scrapeUrl: scrapeViaChain,
   searchRetailer: (id, query) => searchUkRetailer(id, query),
   searchPricesApi: async (query, country) => {
     const { products } = await searchWithRetry(query, country, 3, 15);

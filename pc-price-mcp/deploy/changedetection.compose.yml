@@ -1,0 +1,24 @@
+# OPTIONAL changedetection.io with a browser for JavaScript pages. The owner already runs changedetection.io
+# (https://changedetection.nasmatrix.app, v0.55.8, browser fetcher working, research rows 28-31), so this file is
+# reference only and was NOT deployed or tested by the author. Based on the upstream README
+# (github.com/dgtlmoon/changedetection.io): the app container plus a Chrome sidecar reached over CDP.
+services:
+  changedetection:
+    image: ghcr.io/dgtlmoon/changedetection.io:latest
+    container_name: changedetection
+    restart: unless-stopped
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:5000:5000"     # LAN only: the UI and API are protected by an API key, not by a login
+    volumes:
+      - changedetection-data:/datastore           # back this volume up (docs/OPERATIONS.md)
+    environment:
+      PLAYWRIGHT_DRIVER_URL: ws://browser-chrome:3000
+    depends_on:
+      - browser-chrome
+    mem_limit: 1G
+  browser-chrome:
+    image: browserless/chrome:latest                # upstream's documented sidecar; pin a tag before relying on it
+    restart: unless-stopped
+    mem_limit: 2G
+volumes:
+  changedetection-data:

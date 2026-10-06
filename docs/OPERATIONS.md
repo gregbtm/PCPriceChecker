@@ -39,3 +39,16 @@ Claude can manage changedetection.io watches through the community MCP `changede
 
 ## Notifications
 Self-hosted ntfy setup and the 403 fix: `docs/NTFY.md`.
+
+## Optional tiers and where they stand
+| Tier | Enable with | Status |
+|---|---|---|
+| changedetection.io (Novatech search, watched product URLs) | `changedetection_url`, `changedetection_api_key` | Working on the owner's instance (research rows 28-31) |
+| Firecrawl (JavaScript rendering for a product URL) | `firecrawl_url` (+ `firecrawl_api_key` if set up) | Built and unit-tested, **never run against a real Firecrawl**. Nothing needs it today: Novatech works through changedetection.io, AWD-IT and eBay directly, and the other retailers refuse every fetch. See `pc-price-mcp/deploy/firecrawl.override.yml` |
+| Local LLM (Ollama or any OpenAI-compatible server) | `openai_base_url` (e.g. `http://host:11434/v1`), `openai_model`; a key is optional | Off by default; used for AI price extraction and selector self-healing. Unit-tested with a stub, not with a real model |
+| SearXNG discovery | `searxng_url` | `GET /api/discover?q=...&domains=a.co.uk,b.co.uk` suggests product pages; adds nothing by itself. Needs the `json` format enabled in SearXNG. Unit-tested only |
+| PricesAPI, Keepa, Apify | their keys | Optional and off without a key; nothing depends on them. A stale `PRICES_API_KEY` only produces a failing `pricesapi` row |
+
+**Per-domain strategy memory:** for a product URL the app remembers which provider (`direct` or `firecrawl`) last worked for the domain and tries it first; three failures in a row demote it. Stored in config rows `provider_strategy:<domain>`.
+
+**Host decision (P6-2):** the owner chose the existing NAS (32GB RAM, ~130 containers). Nothing heavy is deployed by default. If Firecrawl is ever enabled, measure first (`docker stats`, DSM Resource Monitor) and lower `NUM_WORKERS_PER_QUEUE`, `BROWSER_POOL_SIZE` and `MAX_CONCURRENT_JOBS`, as the overlay does. Prebuilt Firecrawl images exist on GHCR (verified 2026-10-06: `firecrawl/firecrawl` latest and 2.10.1, `firecrawl/playwright-service` latest, `firecrawl/nuq-postgres` latest), so no source build is needed.
