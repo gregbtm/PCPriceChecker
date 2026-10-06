@@ -30,6 +30,8 @@ export interface RefreshDeps {
   /** Optional changedetection.io tier: the latest reading of a watch on this URL, or null. Absent = skipped. */
   readWatch?: (url: string) => Promise<{ price: number; inStock: boolean; checkedAt: number | null } | null>;
   changedetectionConfigured?: () => boolean;
+  /** Search pages read through a changedetection.io watch; null = not handled, use searchRetailer. */
+  searchViaWatch?: (id: RetailerId, query: string) => Promise<RetailerSearchResult | null>;
   notify: typeof notifyAll;
   sleep: (ms: number) => Promise<void>;
 }
@@ -145,7 +147,8 @@ export async function refreshComponent(
   } else {
     for (const id of ctx.retailers) {
       await attempt(`search:${id}`, async () => {
-        const r = await deps.searchRetailer(id, component.search_query);
+        const viaWatch = deps.searchViaWatch && deps.changedetectionConfigured?.() ? await deps.searchViaWatch(id, component.search_query) : null;
+        const r = viaWatch ?? await deps.searchRetailer(id, component.search_query);
         // Nothing parsed = the scraper (or the site) is broken. Parsed but nothing relevant = healthy.
         if (r.results.length === 0) return { offers: [], error: r.error ?? 'no products parsed' };
         const hasProfile = !!(component.profile_id && PROFILES[component.profile_id]);
