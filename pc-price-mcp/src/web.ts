@@ -31,6 +31,7 @@ import {
 import { budgetBuilder, buildVsBuy, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
 import { checkCompatibility } from './services/compatibility.js';
 import { PROFILES } from './services/memory-classifier.js';
+import { bestFields } from './services/component-summary.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
 import { getDealScoresForAll } from './services/deal-scorer.js';
 
@@ -101,16 +102,10 @@ export function startWebServer(port: number): void {
     const ids = components.map(c => c.id);
     const dealRatios = db.getBatchDealRatios(ids);
     const result = components.map(c => {
-      const latest = db.getLatestPricePerRetailer(c.id);
-      const best = latest[0] ?? null;
       const dr = dealRatios.get(c.id);
       return {
         ...c,
-        best_price: best?.price ?? null,
-        best_retailer: best?.retailer ?? null,
-        best_in_stock: best?.in_stock ?? null,
-        best_currency: best?.currency ?? 'GBP',
-        best_url: best?.url ?? null,
+        ...bestFields(c),
         deal_ratio: dr?.deal_ratio ?? null,
         all_time_low: dr?.all_time_low ?? null,
         avg_30d: dr?.avg_30d ?? null,
