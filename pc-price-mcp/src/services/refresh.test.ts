@@ -327,3 +327,19 @@ describe('eBay tier (official Browse API; optional)', () => {
     expect(db.getRecentScrapeRuns(5).find(r => r.source === 'ebay')).toMatchObject({ ok: 1, offers_found: 0 });
   });
 });
+
+describe('failure notices are deduplicated per source across components', () => {
+  it('a retailer that fails for every component produces one notice, not one per component', async () => {
+    fresh(null);
+    const a = db.getTrackedComponents()[0];
+    const b = db.addTrackedComponent('Second part', 'cpu', 'ryzen 9 9950x3d', null);
+    const { deps, notify } = makeDeps({ scan: () => { throw new Error('HTTP 403'); } });
+    for (let i = 0; i < 3; i++) {
+      await refreshComponent(a, ctx(['scan']), deps);
+      await refreshComponent(b, ctx(['scan']), deps);
+    }
+    const notices = notify.mock.calls.map(x => x[0]).filter(p => p.type === 'scrape_failure');
+    expect(notices).toHaveLength(1);
+    expect(notices[0].message).toContain('search:scan');
+  });
+});

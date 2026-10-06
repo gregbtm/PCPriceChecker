@@ -279,9 +279,47 @@ export async function ariaSearch(query: string): Promise<RetailerSearchResult> {
   return scrapeRetailer('Aria PC', `https://www.aria.co.uk/SuperSpecials/?search=${encodeURIComponent(query)}`, 'aria.co.uk');
 }
 
+/** Value of `attr` inside the first tag of `html` that contains `marker`. */
+function attrOfTagWith(html: string, marker: string, attr: string): string | null {
+  for (const [tag] of html.matchAll(/<[a-z][^>]*>/gi)) {
+    if (!tag.includes(marker)) continue;
+    const m = tag.match(new RegExp(`${attr}="([^"]*)"`));
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/**
+ * Magento 2 category/search grid (AWD-IT). Written against the real page captured 2026-10-06
+ * (src/test/fixtures/awd-it-kingston-fury-64gb.html): name and URL from `a.product-item-link`,
+ * the VAT-inclusive price from the `price-including-tax` span (the ex-VAT amount sits beside it and
+ * must not be used), and stock from the `stock-status` element. Only the out-of-stock markup has
+ * been seen; an add-to-cart (`tocart`) button is taken as in stock, otherwise the state is unknown.
+ */
+export function extractMagentoProducts(html: string, retailer: string, baseUrl: string): RetailerResult[] {
+  const results: RetailerResult[] = [];
+  const blocks = html.split(/<li[^>]*class="[^"]*\bproduct-item\b[^"]*"[^>]*>/i).slice(1);
+  for (const block of blocks) {
+    const link = block.match(/<a[^>]*class="[^"]*product-item-link[^"]*"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i)
+      ?? block.match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*product-item-link[^"]*"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!link) continue;
+    const name = stripHtml(link[2]).replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#0?39;/g, "'");
+    const amount = attrOfTagWith(block, 'price-including-tax', 'data-price-amount');
+    const price = amount != null ? parseFloat(amount) : NaN;
+    if (!name || !(price > 0)) continue;
+    const stockText = block.match(/class="stock-status[^"]*"[^>]*>([\s\S]*?)<\/div>/i)?.[1];
+    const state: StockState = stockText ? parseStockText(stripHtml(stockText))
+      : /\btocart\b/i.test(block) ? 'in_stock' : 'unknown';
+    results.push({ retailer, name, price: Math.round(price * 100) / 100, currency: 'GBP', ...stk(state),
+      url: link[1].startsWith('http') ? link[1] : new URL(link[1], baseUrl).toString() });
+  }
+  return results;
+}
+
 export async function awditSearch(query: string): Promise<RetailerSearchResult> {
-  // AWD-IT — known for competitive GPU and system builder pricing
-  return scrapeRetailer('AWD-IT', `https://www.awd-it.co.uk/search?q=${encodeURIComponent(query)}`, 'awd-it.co.uk');
+  // Magento search path confirmed from the site's own search form (2026-10-06); the old /search?q= was a 404.
+  return scrapeRetailer('AWD-IT', `https://www.awd-it.co.uk/catalogsearch/result/?q=${encodeURIComponent(query)}`, 'awd-it.co.uk',
+    (html, url) => extractMagentoProducts(html, 'AWD-IT', url));
 }
 
 // ── Case manufacturer UK direct stores ────────────────────────────────────
