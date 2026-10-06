@@ -241,6 +241,13 @@ These close the questions in `docs/IMPROVEMENT_PLAN.md` section 7. They are the 
 - **Decision:** add the official eBay Browse API tier (`docs/EBAY_SETUP.md`) and keep manual alerts (`docs/MANUAL_ALERTS.md`) as the reliable fallback. Retailer scrapers stay in place; their failures are visible in `/api/scrape-runs`.
 - eBay needs the owner's free developer keys; until they are set the tier is skipped silently (no failure records).
 
+## 9f. First live scheduler pass (2026-10-06)
+
+- Result table and what it means are in the verification log rows 19 to 21. In short: no retailer returned products from the NAS; AWD-IT (URL now fixed, real page parses) and Aria (closed 2022, removed) were explained; Scan/Overclockers/Box/Currys answer 403; Ebuyer, CCL and Novatech answer 404 and need their real search URLs, which can only be read from a browser on the owner's side (their sites block the sandbox).
+- **eBay 401 `invalid_client`:** Basic auth with the App ID and Cert ID was rejected. Possible causes, none confirmed: the production keyset not yet enabled (eBay's account-deletion compliance step), App ID and Cert ID entered the wrong way round or with stray characters, or sandbox keys used against production. Test outside the app: `curl -s -u 'APP_ID:CERT_ID' -d 'grant_type=client_credentials&scope=https://api.ebay.com/oauth/api_scope' https://api.ebay.com/identity/v1/oauth2/token` from the NAS terminal. A token back means the app's setup is wrong; `invalid_client` again means the keyset.
+- **Stale `PRICES_API_KEY`:** `PricesAPI authentication failed` shows a key is set but invalid; remove it (or fix it) to stop that failing row.
+- Failure notices are now deduplicated per source across components (a blocked retailer used to mean one notice per tracked component).
+
 ## 10. Glossary
 
 - **SO-DIMM:** small-outline memory module used in laptops and mini PCs; not interchangeable with desktop DIMMs.

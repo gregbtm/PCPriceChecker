@@ -37,9 +37,12 @@ export interface RefreshContext {
   retailers: RetailerId[];
 }
 
-/** Mainstream general-PC retailers searched by default; brand-only shops are opt-in via config. */
+/**
+ * Mainstream general-PC retailers searched by default; brand-only shops are opt-in via config.
+ * Aria is not here: it closed its online shop in August 2022 (its homepage says so, checked 2026-10-06).
+ */
 export const DEFAULT_SEARCH_RETAILERS: RetailerId[] = [
-  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'currys',
+  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'awdit', 'currys',
 ];
 const RETAILER_GAP_MS = 2_000;
 

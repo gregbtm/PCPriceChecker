@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { johnLewisPrice, johnLewisSearch, scanSearch } from './uk-retailers.js';
 import { SCAN, ldJson } from '../test/fixtures.js';
@@ -76,5 +77,59 @@ describe('unknown retailer ids give a clear error, not "RETAILER_FNS[r] is not a
     vi.stubGlobal('fetch', f);
     await expect(searchAllUkRetailers('x', ['scan', 'cc'] as never)).rejects.toThrow(/Unknown retailer id\(s\): cc\. Valid ids: scan/);
     expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe('AWD-IT (Magento) against the REAL page block captured 2026-10-06', () => {
+  const fixture = readFileSync(new URL('../test/fixtures/awd-it-kingston-fury-64gb.html', import.meta.url), 'utf8');
+
+  it('requests the real search path (the old /search?q= was a 404 on the owner\'s NAS)', async () => {
+    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => fixture });
+    vi.stubGlobal('fetch', f);
+    const { awditSearch } = await import('./uk-retailers.js');
+    await awditSearch('ddr5 so-dimm 64gb');
+    expect(String(f.mock.calls[0][0])).toBe('https://www.awd-it.co.uk/catalogsearch/result/?q=ddr5%20so-dimm%2064gb');
+  });
+
+  it('extracts name, the VAT-inclusive price (not the ex-VAT 766.66) and the out-of-stock state', async () => {
+    const { extractMagentoProducts } = await import('./uk-retailers.js');
+    const r = extractMagentoProducts(fixture, 'AWD-IT', 'https://www.awd-it.co.uk/catalogsearch/result/?q=x');
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({
+      name: 'Kingston Fury 64GB (2x32GB) DDR5 5600MT/s CL40 SODIMM Memory - Black',
+      price: 919.99, currency: 'GBP', stockState: 'out_of_stock', inStock: false,
+      url: 'https://www.awd-it.co.uk/kingston-fury-64gb-2x32gb-ddr5-5600mt-s-cl40-sodimm-memory-black.html',
+    });
+  });
+
+  it('the real title fits the n5-air-ram profile (accepted, price per GB 14.37)', async () => {
+    const { extractMagentoProducts } = await import('./uk-retailers.js');
+    const { classifyMemory, matchesProfile, N5_AIR_RAM } = await import('../services/memory-classifier.js');
+    const [p] = extractMagentoProducts(fixture, 'AWD-IT', 'https://www.awd-it.co.uk/');
+    const listing = classifyMemory(p.name);
+    expect(listing).toMatchObject({ ddr: 5, formFactor: 'SODIMM', modules: 2, totalGb: 64, speedMts: 5600, cl: 40 });
+    expect(matchesProfile(listing, N5_AIR_RAM).match).toBe(true);
+    expect(Math.round((p.price as number / 64) * 100) / 100).toBe(14.37);
+  });
+
+  it('in-stock markup is SYNTHETIC (only the out-of-stock variant has been seen): an add-to-cart button means in stock', async () => {
+    const { extractMagentoProducts } = await import('./uk-retailers.js');
+    const synthetic = fixture.replace(/<div[^>]*class="stock-status[^"]*"[^>]*>[\s\S]*?<\/div>/i, '<button class="action tocart primary" type="button">Add to Basket</button>');
+    expect(synthetic).not.toBe(fixture);
+    expect(extractMagentoProducts(synthetic, 'AWD-IT', 'https://x/')[0]).toMatchObject({ stockState: 'in_stock', price: 919.99 });
+  });
+
+  it('skips a product that shows no VAT-inclusive price rather than guessing from the ex-VAT one', async () => {
+    const { extractMagentoProducts } = await import('./uk-retailers.js');
+    const noIncl = fixture.replace(/price-including-tax/g, 'price-something-else');
+    expect(extractMagentoProducts(noIncl, 'AWD-IT', 'https://x/')).toEqual([]);
+  });
+});
+
+describe('default retailer list', () => {
+  it('no longer includes Aria, which closed its online shop in August 2022', async () => {
+    const { DEFAULT_SEARCH_RETAILERS } = await import('../services/refresh.js');
+    expect(DEFAULT_SEARCH_RETAILERS).not.toContain('aria');
+    expect(DEFAULT_SEARCH_RETAILERS).toContain('awdit');
   });
 });

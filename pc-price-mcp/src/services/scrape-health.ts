@@ -16,8 +16,8 @@ export function failureThreshold(): number {
 }
 
 /**
- * Notify (once per source per 24h) about sources of this component that failed `threshold` or more
- * times in a row. Returns the sources reported. Sources are batched into a single message.
+ * Notify (once per source per 24h, across all components) about sources of this component that failed
+ * `threshold` or more times in a row. Returns the sources reported. Sources are batched into a single message.
  */
 export async function alertOnRepeatedFailures(
   component: Pick<db.TrackedComponent, 'id' | 'name'>,
@@ -30,7 +30,9 @@ export async function alertOnRepeatedFailures(
   for (const source of new Set(sources)) {
     const n = db.getConsecutiveFailures(component.id, source);
     if (n < threshold) continue;
-    const key = `scrape_fail_alerted:${component.id}:${source}`;
+    // One notice per source, not per component: when a retailer blocks the server, every tracked
+    // component fails on it at once and one message says everything the others would.
+    const key = `scrape_fail_alerted:${source}`;
     const last = Number(db.getConfig(key) ?? 0);
     if (now - last < ALERT_COOLDOWN_MS) continue;
     const err = db.getRecentScrapeRuns(20, component.id).find(r => r.source === source && !r.ok)?.error ?? null;
@@ -40,8 +42,8 @@ export async function alertOnRepeatedFailures(
   const lines = due.map(d => `- ${d.source}: ${d.n} failures in a row${d.error ? ` (${d.error})` : ''}`);
   await notify({
     type: 'scrape_failure', componentName: component.name,
-    message: `Prices may be stale.\n${lines.join('\n')}`,
+    message: `Prices may be stale (first seen while refreshing this component; other components may be affected too).\n${lines.join('\n')}`,
   });
-  for (const d of due) db.setConfig(`scrape_fail_alerted:${component.id}:${d.source}`, String(now));
+  for (const d of due) db.setConfig(`scrape_fail_alerted:${d.source}`, String(now));
   return due.map(d => d.source);
 }
