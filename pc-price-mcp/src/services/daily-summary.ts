@@ -5,6 +5,7 @@
  */
 import * as db from '../db.js';
 import type { notifyAll } from '../notifications.js';
+import { inQuietHours } from './quiet-hours.js';
 import { topOffers, formatOffer, formatOfferList } from './offers.js';
 
 type Notify = typeof notifyAll;
@@ -65,7 +66,7 @@ export async function sendDailySummary(notify: Notify): Promise<boolean> {
 /** Called after every refresh pass; sends at most once per local day, after the configured hour. */
 export async function maybeSendDailySummary(notify: Notify, now = new Date()): Promise<boolean> {
   const hour = summaryHour();
-  if (hour == null || now.getHours() < hour) return false;
+  if (hour == null || now.getHours() < hour || inQuietHours(now)) return false;
   const today = localDate(now);
   if (db.getConfig('last_daily_summary') === today) return false;
   const sent = await sendDailySummary(notify);
