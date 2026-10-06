@@ -62,8 +62,8 @@ Phase 0 correctness
 - [x] P0-3 John Lewis price fix (PR-B)
 - [x] P0-4 Remove "Search results" fallback (PR-B)
 - [x] P0-5 Shared JSON-LD module (PR-B, `sources/structured-data.ts`)
-- [ ] P0-6 Real HTML parser for rules
-- [ ] P0-7 Safe selector self-healing
+- [x] P0-6 Real HTML parser (cheerio) for selector rules; `price_attribute` honoured (`sources/selector-extract.ts`)
+- [x] P0-7 Safe self-healing: structural excerpt, proposals validated on the page, throttled per domain
 - [x] P0-8 Scheduler failure visibility (`scrape_runs`, PR-D)
 - [x] P0-9 No-paid-key scheduler path (PR-D; interim `matchesQuery` filter until P1-5)
 - [x] P0-10 Outlier policy: flag, never hide (HANDOFF 9j; owner may overrule)
@@ -309,3 +309,7 @@ Not done: creating watches from the app and webhook mode. Ebuyer product pages c
 **Cooldowns (P4-2):** config `alert_cooldown_minutes` (default 1440) and `drop_cooldown_minutes` (default 360). A missing, non-numeric or negative value falls back to the default. `0` removes the cooldown.
 
 **Retention (P5-2):** config `price_retention_days` (default 365, `0` = keep everything). After a scheduled pass, rows older than that keep only the cheapest row per component, retailer and day; recent rows are untouched.
+
+## 9k. Selector rules and self-healing (2026-10-06)
+
+Selector rules now run real CSS selectors through cheerio, so descendant selectors, nested-tag prices and `price_attribute` (e.g. `data-price-amount`) work. Fixtures are the real AWD-IT product block. Self-healing (when a stored rule stops working) sends the LLM a structural excerpt (tag, id, class, data attributes, parent), saves a proposal only if it extracts a plausible GBP price from that same page, never overwrites a working rule with a guess, and tries at most once per domain per 6 hours. Unverified: how well real LLM proposals perform (no LLM key is configured, so only the validation and excerpt are tested).
