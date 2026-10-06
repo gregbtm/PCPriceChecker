@@ -12,6 +12,7 @@ import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js'
 import { scrapeWithCamofox } from './camofox-client.js';
 import { openaiExtractPrice, openaiHealSelectors } from './openai-client.js';
 import * as db from '../db.js';
+import { extractWithRule, structuralExcerpt, validateProposal, healAllowed } from './selector-extract.js';
 import { extractStructuredProducts, bestOffer } from './structured-data.js';
 import { parsePriceText, isAcceptableCurrency } from '../services/price-text.js';
 import { parseStockText, stockStateFromAvailability, stockStateFromBoolean, type StockState } from '../services/stock-state.js';
@@ -85,41 +86,12 @@ function tryMeta(html: string): Partial<ScrapedProduct> | null {
   return { name, price, currency, ...stock(stockStateFromAvailability(avail)), image, method: 'meta' };
 }
 
-// ── Step 3: User-defined rules (simplified regex-based selector matching) ──
+// ── Step 3: User-defined rules (real CSS selectors via cheerio, P0-6) ───────
 
 function tryRules(html: string, rule: db.ScrapeRule): Partial<ScrapedProduct> | null {
-  const pickText = (selector: string | null): string | null => {
-    if (!selector) return null;
-    const classM = selector.match(/\.([a-zA-Z0-9_-]+)/);
-    const idM = selector.match(/#([a-zA-Z0-9_-]+)/);
-    const attrM = selector.match(/\[([a-zA-Z-]+)="([^"]+)"\]/);
-    if (idM) {
-      const m = html.match(new RegExp(`id="${idM[1]}"[^>]*>([^<]{1,300})<`, 'i'));
-      if (m) return m[1].trim();
-    }
-    if (attrM) {
-      const m = html.match(new RegExp(`${attrM[1]}="${attrM[2]}"[^>]*>([^<]{1,300})<`, 'i'));
-      if (m) return m[1].trim();
-    }
-    if (classM) {
-      const cls = classM[1].replace(/-/g, '[-_]?');
-      const m = html.match(new RegExp(`class="[^"]*${cls}[^"]*"[^>]*>([^<]{1,300})<`, 'i'));
-      if (m) return m[1].trim();
-    }
-    return null;
-  };
-
-  const priceText = pickText(rule.price_selector);
-  if (!priceText) return null;
-  const price = parsePrice(priceText, rule.price_regex);
-  if (!price) return null;
-  const nameText = pickText(rule.name_selector);
-  const availText = pickText(rule.avail_selector);
-  return {
-    name: nameText ?? undefined, price, currency: 'GBP',
-    ...stock(parseStockText(availText)),
-    method: 'rules',
-  };
+  const got = extractWithRule(html, rule);
+  if (!got) return null;
+  return { name: got.name, price: got.price, currency: 'GBP', ...stock(got.stockState), method: 'rules' };
 }
 
 // ── Step 4: Generic DOM heuristics ─────────────────────────────────────────
@@ -213,14 +185,11 @@ async function tryCamofox(url: string): Promise<Partial<ScrapedProduct> | null> 
 // ── AI self-healing: propose new selectors when rules fail ────────────────
 
 async function healSelectors(domain: string, html: string): Promise<void> {
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .slice(0, 4000);
+  if (!healAllowed(domain)) return;   // throttle per domain (P0-7)
+  const text = structuralExcerpt(html);
+  if (!text) return;
 
-  let parsed: { price_selector?: string | null; name_selector?: string | null; avail_selector?: string | null; price_regex?: string | null } | null = null;
+  let parsed: { price_selector?: string | null; name_selector?: string | null; avail_selector?: string | null; price_attribute?: string | null; price_regex?: string | null } | null = null;
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (anthropicKey) {
@@ -231,7 +200,7 @@ async function healSelectors(domain: string, html: string): Promise<void> {
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 300,
-          messages: [{ role: 'user', content: `Given this retail page HTML text for domain "${domain}", propose CSS selectors. Reply ONLY with JSON: {"price_selector":".price","name_selector":"h1","avail_selector":".stock","price_regex":null}. Use null for any you can't determine.\n\n${text}` }],
+          messages: [{ role: 'user', content: `Given this structural excerpt of a retail page for domain "${domain}", propose CSS selectors. Each line below is an element with its parent, tag, id/class/data attributes and text. Reply ONLY with JSON: {"price_selector":".price","price_attribute":null,"name_selector":"h1","avail_selector":".stock","price_regex":null}. price_attribute is an attribute name to read instead of the text (e.g. data-price-amount). Use null for any you can't determine.\n\n${text}` }],
         }),
         signal: AbortSignal.timeout(15_000),
       });
@@ -249,14 +218,15 @@ async function healSelectors(domain: string, html: string): Promise<void> {
     parsed = await openaiHealSelectors(domain, text);
   }
 
-  if (parsed?.price_selector) {
+  // Only a proposal that extracts a price from this very page is saved (P0-7); never a guess.
+  if (parsed && validateProposal(html, parsed)) {
     db.setScrapeRule(domain, {
       price_selector: parsed.price_selector ?? null,
       name_selector:  parsed.name_selector  ?? null,
       avail_selector: parsed.avail_selector ?? null,
-      price_attribute: null,
+      price_attribute: parsed.price_attribute ?? null,
       price_regex:    parsed.price_regex    ?? null,
-      notes: 'AI self-healed',
+      notes: 'AI self-healed (validated against the page)',
     });
   }
 }

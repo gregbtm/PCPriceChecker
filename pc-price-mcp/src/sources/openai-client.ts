@@ -62,6 +62,7 @@ export interface OpenAiSelectors {
   name_selector: string | null;
   avail_selector: string | null;
   price_regex: string | null;
+  price_attribute?: string | null;
 }
 
 export async function openaiHealSelectors(domain: string, pageText: string): Promise<OpenAiSelectors | null> {
@@ -69,7 +70,7 @@ export async function openaiHealSelectors(domain: string, pageText: string): Pro
     'gpt-4o-mini',
     [{
       role: 'user',
-      content: `Given this retail page HTML text for domain "${domain}", propose CSS selectors for extracting product data. Reply ONLY with JSON: {"price_selector":".price","name_selector":"h1","avail_selector":".stock","price_regex":null}. Use null for any you can't determine.\n\n${pageText.slice(0, 4000)}`,
+      content: `Given this retail page HTML text for domain "${domain}", propose CSS selectors for extracting product data. Reply ONLY with JSON: {"price_selector":".price","name_selector":"h1","avail_selector":".stock","price_attribute":null,"price_regex":null}. price_attribute is an attribute to read instead of the text, e.g. data-price-amount. Use null for any you can't determine.\n\n${pageText.slice(0, 4000)}`,
     }],
     300,
   );
