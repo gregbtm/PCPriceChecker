@@ -213,6 +213,7 @@ function app() {
         { key: 'searxng_url', label: 'SearXNG URL', placeholder: 'http://NAS-IP:8080' },
         { key: 'openai_base_url', label: 'Local LLM base URL', placeholder: 'http://NAS-IP:11434/v1' },
         { key: 'openai_model', label: 'Local LLM model', placeholder: 'llama3.1:8b' },
+        { key: 'prices_api_key', label: 'PricesAPI key (paid, optional)', secret: true, placeholder: 'nothing needs it; remove a stale key with the ✕' },
       ] },
     ],
 
@@ -380,7 +381,7 @@ function app() {
     },
     secretIsSet(key) {
       const i = this.integrations; if (!i) return false;
-      return { ntfy_token: i.ntfy.tokenSet, webhook_secret: i.webhook.secretSet, changedetection_api_key: i.changedetection.keySet }[key] ?? false;
+      return { ntfy_token: i.ntfy.tokenSet, webhook_secret: i.webhook.secretSet, changedetection_api_key: i.changedetection.keySet, prices_api_key: i.prices?.keySet }[key] ?? false;
     },
     async saveGroup(g) {
       this.intSaving = g.id;
@@ -470,7 +471,8 @@ function app() {
       } catch { /* the panel is advisory; never break the dashboard for it */ }
     },
     /** Sources that failed their latest run, worst first. */
-    failingSources() { return (this.scraperHealth.sources || []).filter(s => s.consecutive_failures > 0).sort((a, b) => b.consecutive_failures - a.consecutive_failures); },
+    failingSources() { return (this.scraperHealth.sources || []).filter(s => s.status === 'failing').sort((a, b) => b.consecutive_failures - a.consecutive_failures); },
+    blockedSources() { return (this.scraperHealth.sources || []).filter(s => s.status === 'blocked'); },
     fmtFlags(flags) {
       const map = { used_condition: 'used', delivery_excluded: '+delivery', kit_unconfirmed: 'kit?', will_downclock: 'runs slower', seller_feedback_low: 'low feedback', suspiciously_cheap: 'CHECK SELLER', non_binary_unverified: '24GB unverified' };
       return (flags || '').split(',').map(f => map[f] || '').filter(Boolean).join(', ');

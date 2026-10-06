@@ -14,7 +14,7 @@ import type { ScrapedProduct } from '../sources/url-scraper.js';
 import type { RetailerId, RetailerSearchResult } from '../sources/uk-retailers.js';
 import type { EbayBrowseResult, EbayListing } from '../sources/ebay-browse.js';
 import { evaluateAlerts } from './alerts.js';
-import { alertOnRepeatedFailures } from './scrape-health.js';
+import { alertOnRepeatedFailures, inBackoff } from './scrape-health.js';
 import { matchesQuery } from './query-match.js';
 import { classifyMemory, matchesProfile, PROFILES } from './memory-classifier.js';
 
@@ -103,7 +103,9 @@ export async function refreshComponent(
   const snapshots: db.PriceSnapshot[] = [];
   const attempted: string[] = [];
 
-  async function attempt(source: string, run: () => Promise<{ offers: db.PriceSnapshot[]; error?: string }>) {
+  /** Returns false when the source was skipped because it is backing off (see scrape-health.ts), true when it ran. */
+  async function attempt(source: string, run: () => Promise<{ offers: db.PriceSnapshot[]; error?: string }>): Promise<boolean> {
+    if (inBackoff(source)) return false;
     attempted.push(source);
     const t0 = Date.now();
     try {
@@ -115,6 +117,7 @@ export async function refreshComponent(
       db.recordScrapeRun({ componentId: component.id, source, durationMs: Date.now() - t0,
         ok: false, error: msg(e), offersFound: 0 });
     }
+    return true;
   }
 
   const componentUrls = db.getComponentUrls(component.id);
@@ -147,7 +150,7 @@ export async function refreshComponent(
     }
   } else {
     for (const id of ctx.retailers) {
-      await attempt(`search:${id}`, async () => {
+      const ran = await attempt(`search:${id}`, async () => {
         const viaWatch = deps.searchViaWatch && deps.changedetectionConfigured?.() ? await deps.searchViaWatch(id, component.search_query) : null;
         const r = viaWatch ?? await deps.searchRetailer(id, component.search_query);
         // Nothing parsed = the scraper (or the site) is broken. Parsed but nothing relevant = healthy.
@@ -163,7 +166,7 @@ export async function refreshComponent(
             ...profileAttrs(component, x.name, x.price as number) }));
         return { offers };
       });
-      await deps.sleep(RETAILER_GAP_MS);
+      if (ran) await deps.sleep(RETAILER_GAP_MS);
     }
     if (deps.searchEbay && deps.ebayConfigured?.()) {
       await attempt('ebay', async () => {

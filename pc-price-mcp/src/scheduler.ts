@@ -137,7 +137,7 @@ const realDeps: RefreshDeps = {
   sleep,
 };
 
-function configuredRetailers(): RetailerId[] {
+export function configuredRetailers(): RetailerId[] {
   const raw = db.getConfig('scheduler_retailers') ?? process.env.SCHEDULER_RETAILERS;
   if (!raw) return DEFAULT_SEARCH_RETAILERS;
   const wanted = raw.split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
