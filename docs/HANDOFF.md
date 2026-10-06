@@ -95,7 +95,7 @@ Phase 3 changedetection.io
 
 Phase 4 alerting
 - [x] P4-1 Alert rules (in-stock based; two tiers, options list, PR-J)
-- [~] P4-2 Configurable cooldowns done (`alert_cooldown_minutes`, `drop_cooldown_minutes`); quiet hours not built; dedupe by price not built
+- [x] P4-2 Configurable cooldowns, quiet hours (`quiet_hours`), offer/price-aware de-duplication (HANDOFF 9m)
 - [x] P4-3 Richer alert text (listing, GBP/GB, caveats, other options; PR-J)
 - [~] P4-4 Self-hosted ntfy (PR-D: `ntfy_token` Bearer support + test; docs not done)
 - [~] P4-5 Optional n8n workflow (generic `webhook_url` channel + `docs/N8N.md` + example workflow JSON; the JSON is Unverified, never imported into n8n)
@@ -317,3 +317,7 @@ Selector rules now run real CSS selectors through cheerio, so descendant selecto
 ## 9l. Novatech search through changedetection.io (2026-10-06)
 
 With `changedetection_url` and `changedetection_api_key` set, the scheduler reads Novatech search results from a changedetection.io browser watch instead of the plain fetch that finds nothing. The app creates the watch itself the first time (title `PCPC: novatech "<query>"`; set config `changedetection_autocreate` to `false` to stop that), asks it to recheck on each pass and reads the previous snapshot, so the first pass records a "pending" failure and the next one has data. A snapshot older than `max_offer_age_hours`, or a watch with a fetch error, is recorded as a failure, never reused as fresh. Stock is conservative: only "Only N left in stock" counts as in stock; "Ordered Upon Request" is backorder and "Dispatches within..." is unknown. Prices are inc VAT. Alerts link to the search page (the snapshot has no product links). Scan, Overclockers, CCL, Box and Currys refuse the browser fetch too (research row 32). Unverified on the live app: the end-to-end pass; the SO-DIMM search itself returned no SO-DIMM kit on the day.
+
+## 9m. Quiet hours and de-duplication (2026-10-06)
+
+Config `quiet_hours` as `HH:MM-HH:MM` in the container's local time (TZ), e.g. `22:00-07:00` (wraps past midnight, end exclusive). Unset or unparseable means none. While quiet, no alert or daily summary is sent and no alert state is recorded, so a deal still true afterwards is sent on the first pass after. De-duplication: the cooldown stops repeats of the same deal; a different retailer/listing, or a price at least 1% below the last alerted price, is news and bypasses it. Alerts are still based on in-stock, profile-matching offers only.
