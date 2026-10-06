@@ -39,6 +39,12 @@ export interface AlertContext {
 
 const OPTIONS_COOLDOWN_MS = 6 * 3_600_000;
 
+/** Minutes from config (P4-2); a missing, non-numeric or negative value falls back to the old literal. */
+export function cooldownMinutes(key: 'alert_cooldown_minutes' | 'drop_cooldown_minutes'): number {
+  const n = Number(db.getConfig(key));
+  return db.getConfig(key) != null && Number.isFinite(n) && n >= 0 ? n : key === 'alert_cooldown_minutes' ? 1440 : 360;
+}
+
 /**
  * "Worth a look" tier (owner request 2026-10-06): above the alert price but within `consider_price`,
  * send the cheapest offers as a list, but only when something NEW appeared (an offer not in the last list,
@@ -76,7 +82,7 @@ export async function evaluateAlerts(ctx: AlertContext): Promise<void> {
   if (!newBest) return;
 
   if (component.alert_price != null && newBest.price <= component.alert_price
-      && db.shouldSendAlert(component.id, 1440)) {
+      && db.shouldSendAlert(component.id, cooldownMinutes('alert_cooldown_minutes'))) {
     const others = topOffers(component.id, 6).filter(o => offerKey(o.url) !== offerKey(newBest.url)).slice(0, 5);
     await notify({ type: 'price_alert', componentName: component.name,
       price: newBest.price, currency: newBest.currency, retailer: newBest.retailer,
@@ -89,7 +95,7 @@ export async function evaluateAlerts(ctx: AlertContext): Promise<void> {
 
   if (prevBestPrice != null && newBest.price < prevBestPrice) {
     const dropPct = ((prevBestPrice - newBest.price) / prevBestPrice) * 100;
-    if (dropPct >= dropThresholdPct && db.shouldSendAlert(component.id, 360)) {
+    if (dropPct >= dropThresholdPct && db.shouldSendAlert(component.id, cooldownMinutes('drop_cooldown_minutes'))) {
       await notify({ type: 'price_drop', componentName: component.name,
         price: newBest.price, currency: newBest.currency, retailer: newBest.retailer,
         dropAmount: prevBestPrice - newBest.price, dropPercent: dropPct, url: newBest.url, message: describeOffer(newBest) });

@@ -176,6 +176,7 @@ export async function scheduledRefreshAll(deps: RefreshDeps = realDeps): Promise
     await deps.sleep(3_000);
   }
   db.pruneScrapeRuns(30);
+  try { db.pruneOldPriceRecords(db.priceRetentionDays()); } catch (e) { console.warn('[retention]', (e as Error).message); }
   try {
     await maybeSendDailySummary(deps.notify);
   } catch (e) {
