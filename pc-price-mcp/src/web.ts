@@ -3,6 +3,7 @@
  * Binds to 0.0.0.0 so it's accessible on the local network (NAS use).
  * Serves static files from ../public and REST API at /api/*.
  */
+import { changedetectionConfigured, spike as cdSpike } from './sources/changedetection.js';
 import express, { Request, Response, NextFunction } from 'express';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -77,6 +78,8 @@ const DB_KEY_TO_ENV: Record<string, string> = {
   apprise_url:          'APPRISE_URL',
   openai_api_key:       'OPENAI_API_KEY',
   apify_api_token:      'APIFY_API_TOKEN',
+  changedetection_url:     'CHANGEDETECTION_URL',
+  changedetection_api_key: 'CHANGEDETECTION_API_KEY',
 };
 
 function syncEnvFromDb(): void {
@@ -541,6 +544,16 @@ export function startWebServer(port: number): void {
   app.get('/api/ebay/status', h(async (_req, res) => {
     const fromConfig = !!(db.getConfig('ebay_client_id') || db.getConfig('ebay_client_secret'));
     res.json(await ebayCredentialStatus(fromConfig));
+  }));
+
+  /** P3-2 spike: what the configured changedetection.io exposes for its watches (no secrets printed). */
+  app.get('/api/changedetection/spike', h(async (req, res) => {
+    if (!changedetectionConfigured()) {
+      res.status(400).json({ error: 'changedetection.io is not configured: set changedetection_url and changedetection_api_key' });
+      return;
+    }
+    const uuid = typeof req.query.uuid === 'string' ? req.query.uuid : undefined;
+    try { res.json(await cdSpike(uuid)); } catch (err) { res.status(502).json({ error: (err as Error).message }); }
   }));
 
   app.get('/api/ebay/search', h(async (req, res) => {
