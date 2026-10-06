@@ -12,7 +12,7 @@ import { searchAllUkRetailers, ALL_RETAILER_IDS, unknownRetailerIds } from './so
 import { keepaSearch, keepaGetByAsin, keepaGetUsedPrices } from './sources/keepa.js';
 import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js';
 import { paapiSearch, paapiGetItems } from './sources/amazon-paapi.js';
-import { ebayBrowseSearch, ebayBrowseGetItem, type EbayCondition } from './sources/ebay-browse.js';
+import { ebayBrowseSearch, ebayBrowseGetItem, ebayCredentialStatus, type EbayCondition } from './sources/ebay-browse.js';
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
 import { getSchedulerStatus, restartScheduler, stopScheduler, triggerRefreshNow } from './scheduler.js';
 import { notifyAll } from './notifications.js';
@@ -520,6 +520,12 @@ export function startWebServer(port: number): void {
   }));
 
   // ── eBay Browse API ───────────────────────────────────────────────────────
+
+  /** Where the eBay keys came from and whether eBay accepts them (never prints the values). */
+  app.get('/api/ebay/status', h(async (_req, res) => {
+    const fromConfig = !!(db.getConfig('ebay_client_id') || db.getConfig('ebay_client_secret'));
+    res.json(await ebayCredentialStatus(fromConfig));
+  }));
 
   app.get('/api/ebay/search', h(async (req, res) => {
     const { q, condition = 'any', max = '20' } = req.query as Record<string, string>;
