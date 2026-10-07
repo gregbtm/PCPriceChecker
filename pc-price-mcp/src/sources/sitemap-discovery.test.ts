@@ -41,6 +41,21 @@ describe('sitemap parsing and candidate selection', () => {
   });
 });
 
+describe('Novatech-style addresses (name in the second-to-last segment)', () => {
+  // The first is a real Novatech product address (supplied by the owner, 2026-10-06); the SO-DIMM one is built on the same pattern.
+  const REAL = 'https://www.novatech.co.uk/products/klevv-cras-v-rgb-64gb-2x32gb-6000mhz-cl30-memory-ram-kit/kd5bgua80-60a300g.html';
+  const SODIMM = 'https://www.novatech.co.uk/products/crucial-64gb-2x32gb-ddr5-5600mhz-sodimm-laptop-memory-kit/ct2k32g56c46s5.html';
+  it('reads the descriptive segment as well as the manufacturer code', () => {
+    expect(slugText(REAL)).toBe('klevv cras v rgb 64gb 2x32gb 6000mhz cl30 memory ram kit kd5bgua80 60a300g');
+    expect(slugText('https://www.novatech.co.uk/products/memory/laptop-memory.html')).toBe('memory laptop memory');
+  });
+  it('a query matches the real KLEVV address; the SO-DIMM profile picks the SO-DIMM one and rejects the desktop kit', () => {
+    expect(candidateUrls([REAL], { search_query: 'ddr5 64gb kit', profile_id: null })).toEqual([]);          // no "ddr5" in that slug
+    expect(candidateUrls([REAL], { search_query: '64gb 2x32gb 6000mhz kit', profile_id: null })).toEqual([REAL]);
+    expect(candidateUrls([REAL, SODIMM], { search_query: 'ddr5 so-dimm 64gb', profile_id: 'n5-air-ram' })).toEqual([SODIMM]);
+  });
+});
+
 describe('searchViaSitemap', () => {
   const component = { search_query: 'ddr5 so-dimm 64gb', profile_id: 'n5-air-ram' };
   it('reads the sitemap, then only the candidate product pages, with a gap between them', async () => {
