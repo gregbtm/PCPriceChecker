@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import * as db from './db.js';
-import { notifyAll, sendWebhook } from './notifications.js';
+import { notifyAll, sendWebhook, alertHealth } from './notifications.js';
 
 beforeEach(() => { db.getDb().exec('DELETE FROM config;'); });
 afterEach(() => vi.unstubAllGlobals());
@@ -39,5 +39,29 @@ describe('generic webhook channel (n8n)', () => {
     db.setConfig('webhook_url', 'http://n8n.lan/webhook/x');
     expect((await notifyAll({ type: 'scrape_failure', componentName: 'c', message: 'm' })).webhook).toBe(true);
     expect(f).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('alert channel health (a banner must be impossible to miss when no alert can arrive)', () => {
+  it('none: no channel configured means no alert can ever arrive', () => {
+    expect(alertHealth()).toMatchObject({ state: 'none', configured: [] });
+  });
+  it('untested, then ok after one delivery, then failing when the latest attempt reaches nobody; names only, never values', async () => {
+    db.setConfig('webhook_url', 'http://n8n.lan/webhook/SECRETPATH');
+    expect(alertHealth().state).toBe('untested');
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+    await notifyAll({ type: 'test', componentName: 'c' });
+    expect(alertHealth().state).toBe('ok');
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+    await new Promise(r => setTimeout(r, 5));
+    await notifyAll({ type: 'test', componentName: 'c' });
+    const h = alertHealth();
+    expect(h.state).toBe('failing');
+    expect(h.configured).toEqual(['webhook']);
+    expect(JSON.stringify(h)).not.toContain('SECRETPATH');
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
+    await new Promise(r => setTimeout(r, 5));
+    await notifyAll({ type: 'test', componentName: 'c' });
+    expect(alertHealth().state).toBe('ok');   // recovers on the next success
   });
 });

@@ -635,6 +635,15 @@
         </div>
       </template>
 
+      <!-- Alert delivery health: with no working channel no alert can ever arrive -->
+      <template x-if="alertHealth && alertHealth.state !== 'ok'">
+        <div role="alert" class="alert alert-error alert-soft rounded-xl p-3 text-sm">
+          <span x-show="alertHealth.state === 'none'"><strong>No alert channel is set up.</strong> Nothing can reach you when a kit appears. Add Discord, Telegram or ntfy on the Integrations or Settings tab, then send a test.</span>
+          <span x-show="alertHealth.state === 'untested'"><strong>Alerts have never been delivered.</strong> A channel (<span x-text="alertHealth.configured.join(', ')"></span>) is set up but nothing has gone through yet. Send a test on the Integrations tab.</span>
+          <span x-show="alertHealth.state === 'failing'"><strong>The last alert reached nobody.</strong> Channels: <span x-text="alertHealth.configured.join(', ')"></span>. Check them on the Integrations tab.</span>
+        </div>
+      </template>
+
       <template x-if="blockedSources().length > 0 && failingSources().length === 0">
         <div class="text-xs text-base-content/50 px-1">
           <span x-text="blockedSources().length"></span> source(s) are blocked or broken for days and are only tried once a day:
@@ -2750,6 +2759,18 @@
       <div>
         <p class="text-xs text-base-content/60 mb-2">In stock, fits the profile, seen in the last 48 hours, cheapest first. Alert at <span x-text="offersData.component.alert_price ?? '—'"></span>, options up to <span x-text="offersData.component.consider_price ?? '—'"></span>.</p>
         <p x-show="offersData.offers.length === 0" class="text-sm text-base-content/50">No qualifying offer right now.</p>
+        <template x-if="offersData.market && offersData.market.floor">
+          <div class="text-xs bg-base-100 rounded p-2 my-2">
+            <p><span class="font-semibold">Market floor (any stock, last 7 days):</span>
+              <span x-text="'£' + offersData.market.floor.price.toFixed(2) + ' at ' + offersData.market.floor.retailer + ' (' + offersData.market.floor.stock_state.replace(/_/g, ' ') + ')'"></span></p>
+            <p x-show="offersData.market.target_below_floor_pct > 0" class="text-warning" x-text="'Your alert price is ' + offersData.market.target_below_floor_pct + '% below the market floor, so it will not fire until prices move.'"></p>
+            <ul class="mt-1 space-y-0.5 text-base-content/70">
+              <template x-for="m in offersData.market.rows" :key="m.url + m.retailer">
+                <li x-text="'£' + m.price.toFixed(2) + ' · ' + m.retailer + ' · ' + m.stock_state.replace(/_/g, ' ') + ' · ' + m.age_hours + 'h ago'"></li>
+              </template>
+            </ul>
+          </div>
+        </template>
         <ul class="space-y-2 max-h-96 overflow-y-auto">
           <template x-for="o in offersData.offers" :key="o.id">
             <li class="text-sm bg-base-100 rounded p-2">

@@ -224,6 +224,7 @@ function app() {
     // Needs attention
     needsAttention: [],
     scraperHealth: { failing: [], sources: [] },
+    alertHealth: null,
 
     // Component URLs modal
     showUrlsModal: false,
@@ -480,6 +481,7 @@ function app() {
         const r = await fetch('/api/health');
         const h = await r.json();
         this.scraperHealth = h.scrapers || { failing: [], sources: [] };
+        this.alertHealth = h.alerts || null;
       } catch { /* the panel is advisory; never break the dashboard for it */ }
     },
     /** Sources that failed their latest run, worst first. */
