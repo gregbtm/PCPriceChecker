@@ -6,7 +6,9 @@
  */
 import { scrapeViaChain } from './sources/providers.js';
 import { searchViaWatch } from './sources/search-watch.js';
-import { searchViaSitemap as searchViaSitemapImpl } from './sources/sitemap-discovery.js';
+import { searchViaSitemap as searchViaSitemapImpl, slugText } from './sources/sitemap-discovery.js';
+import { observeCatalogue } from './services/catalogue-watch.js';
+import { pingHeartbeat } from './services/heartbeat.js';
 import { readWatchForUrl, changedetectionConfigured } from './sources/changedetection.js';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
@@ -50,6 +52,7 @@ async function runTick(deps?: RefreshDeps): Promise<'ran' | 'busy'> {
   runCount++;
   try {
     await scheduledRefreshAll(deps);
+    if (!deps) await pingHeartbeat();   // tests inject deps and must never reach a real monitor
   } catch (e) {
     db.recordScrapeRun({ componentId: null, source: 'scheduler', ok: false, error: e instanceof Error ? e.message : String(e) });
   } finally {
@@ -132,7 +135,10 @@ const realDeps: RefreshDeps = {
   // Condition 'any' unless ebay_allow_used is "false". Fixed-price listings only.
   readWatch: readWatchForUrl,
   searchViaWatch,
-  searchViaSitemap: (id, component) => searchViaSitemapImpl(id, component, { scrapeUrl: scrapeViaChain, sleep }),
+  searchViaSitemap: (id, component) => searchViaSitemapImpl(id, component, {
+    scrapeUrl: scrapeViaChain, sleep,
+    observeCatalogue: (rid, retailer, urls) => observeCatalogue(rid, retailer, urls, slugText, notifyAll),
+  }),
   changedetectionConfigured,
   searchEbay: (query) => ebayBrowseSearch(query, db.getConfig('ebay_allow_used') === 'false' ? 'new' : 'any', 100, { buyItNowOnly: true }),
   notify: notifyAll,

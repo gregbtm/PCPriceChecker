@@ -45,6 +45,8 @@ import { bestFields } from './services/component-summary.js';
 import { sendDailySummary } from './services/daily-summary.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
 import { getDealScoresForAll } from './services/deal-scorer.js';
+import { catalogueSummary } from './services/catalogue-watch.js';
+import { SITEMAPS, slugText } from './sources/sitemap-discovery.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1080,7 +1082,9 @@ export function startWebServer(port: number): void {
       // retailers no longer in the search list are `disabled`; sources that have not run lately are `idle`.
       scrapers = { failing: sources.filter(x => x.status === 'failing').map(x => x.source), sources };
     } catch { /* health must never throw */ }
-    res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers });
+    let catalogue: ReturnType<typeof catalogueSummary> = [];
+    try { catalogue = catalogueSummary(Object.keys(SITEMAPS), slugText); } catch { /* health must never throw */ }
+    res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers, catalogue });
   });
 
   app.get('/api/scrape-runs', h(async (req, res) => {

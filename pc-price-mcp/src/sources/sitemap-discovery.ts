@@ -42,7 +42,11 @@ async function fetchXml(url: string, fetchFn: typeof fetch): Promise<string> {
   if (!res.ok) throw new Error(`sitemap HTTP ${res.status}`);
   const len = Number(res.headers?.get?.('content-length') ?? 0);
   if (len > MAX_BYTES) throw new Error(`sitemap too large (${len} bytes)`);
-  return res.text();
+  const text = await res.text();
+  // A challenge or error page served with HTTP 200 parses to zero addresses, which reads as "the shop sells nothing like this".
+  // Insist on real sitemap XML so that case is a recorded failure (blocked or changed), not a clean empty result.
+  if (!/<(urlset|sitemapindex)[\s>]/.test(text)) throw new Error('sitemap did not return XML (looks like a block or challenge page, or the address changed)');
+  return text;
 }
 
 export async function loadSitemapUrls(id: RetailerId, fetchFn: typeof fetch = fetch, now = Date.now()): Promise<string[]> {
@@ -89,6 +93,8 @@ export function candidateUrls(urls: string[], component: Pick<db.TrackedComponen
 
 export interface SitemapDeps {
   fetchFn?: typeof fetch;
+  /** Called with the full address list after every successful sitemap read (the catalogue census, see services/catalogue-watch.ts). */
+  observeCatalogue?: (id: RetailerId, retailer: string, urls: string[]) => Promise<unknown>;
   scrapeUrl: (url: string) => Promise<ScrapedProduct>;
   sleep: (ms: number) => Promise<void>;
 }
@@ -106,6 +112,8 @@ export async function searchViaSitemap(
   let urls: string[];
   try { urls = await loadSitemapUrls(id, deps.fetchFn); }
   catch (e) { return done([], `sitemap: ${e instanceof RobotsDisallowedError ? e.message : (e as Error).message}`); }
+
+  try { await deps.observeCatalogue?.(id, cfg.retailer, urls); } catch { /* the census must never break a price read */ }
 
   const candidates = candidateUrls(urls, component);
   if (candidates.length === 0) return done([], undefined, true);   // healthy: nothing in the catalogue looks like this component today

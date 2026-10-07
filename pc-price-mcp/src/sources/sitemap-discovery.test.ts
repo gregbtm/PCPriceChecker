@@ -99,3 +99,14 @@ describe('searchViaSitemap', () => {
     expect((fetchFn as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(before);
   });
 });
+
+describe('a block page is a failure, not an empty catalogue', () => {
+  it('HTTP 200 HTML (a Cloudflare challenge) raises instead of parsing to zero addresses', async () => {
+    const html = '<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>Checking your browser</body></html>';
+    const f = fakeFetch({ 'https://www.novatech.co.uk/sitemap-products.xml': html, 'https://www.novatech.co.uk/robots.txt': 'User-agent: *\nDisallow: /search.html\n' });
+    await expect(loadSitemapUrls('novatech', f)).rejects.toThrow(/did not return XML/);
+    const r = await searchViaSitemap('novatech', { search_query: 'ddr5 so-dimm 64gb', profile_id: 'n5-air-ram' }, { fetchFn: f, scrapeUrl: vi.fn(), sleep: vi.fn() });
+    expect(r?.error).toMatch(/did not return XML/);
+    expect(r?.emptyIsOk).toBeFalsy();
+  });
+});
