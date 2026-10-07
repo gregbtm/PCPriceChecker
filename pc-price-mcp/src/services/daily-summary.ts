@@ -6,7 +6,7 @@
 import * as db from '../db.js';
 import type { notifyAll } from '../notifications.js';
 import { inQuietHours } from './quiet-hours.js';
-import { topOffers, formatOffer, formatOfferList } from './offers.js';
+import { topOffers, formatOffer, formatOfferList, marketView, marketLine } from './offers.js';
 
 type Notify = typeof notifyAll;
 
@@ -44,6 +44,8 @@ export function buildSummary(components: db.TrackedComponent[]): string {
       const week = db.getPurchasablePriceSummary(c.id, 7);
       if (week.count > 1) lines.push(`Last 7 days: low ${money(week.low!)}, median ${money(week.median!)} (${week.count} observations).`);
     }
+    const market = marketLine(marketView(c.id, c.alert_price));
+    if (market) lines.push(market);
     return lines.join('\n');
   });
   return blocks.join('\n\n');

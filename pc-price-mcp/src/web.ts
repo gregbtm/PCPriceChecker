@@ -3,7 +3,7 @@
  * Binds to 0.0.0.0 so it's accessible on the local network (NAS use).
  * Serves static files from ../public and REST API at /api/*.
  */
-import { topOffers, formatOffer } from './services/offers.js';
+import { topOffers, formatOffer, marketView } from './services/offers.js';
 import { discoverProductPages } from './sources/searxng.js';
 import { changedetectionConfigured, spike as cdSpike, listWatches as cdListWatches, createRestockWatch, deleteWatch as cdDeleteWatch, PCPC_TITLE_PREFIX } from './sources/changedetection.js';
 import { firecrawlConfigured } from './sources/firecrawl.js';
@@ -25,7 +25,7 @@ import { sourceStatus } from './services/scrape-health.js';
 import { assertAllowedByRobots, RobotsDisallowedError } from './services/robots.js';
 import { pricesApiPause } from './services/pricesapi-guard.js';
 import { getSchedulerStatus, restartScheduler, stopScheduler, triggerRefreshNow, refreshOneNow } from './scheduler.js';
-import { notifyAll } from './notifications.js';
+import { notifyAll, alertHealth } from './notifications.js';
 import { searchCex, getCexProduct } from './sources/cex.js';
 import { searchDataset, browseDataset, DATASET_SLUGS, type DatasetSlug } from './sources/pcpartpicker-dataset.js';
 import {
@@ -193,7 +193,8 @@ export function startWebServer(port: number): void {
     const offers = topOffers(id, 10, c.consider_price ?? undefined).map(o => ({
       ...o, line: formatOffer(o), total_price: o.delivery_cost != null ? Math.round((o.price + o.delivery_cost) * 100) / 100 : null,
     }));
-    res.json({ component: { id: c.id, name: c.name, alert_price: c.alert_price, consider_price: c.consider_price, profile_id: c.profile_id }, offers });
+    res.json({ component: { id: c.id, name: c.name, alert_price: c.alert_price, consider_price: c.consider_price, profile_id: c.profile_id }, offers,
+      market: marketView(id, c.alert_price) });
   }));
 
   app.get('/api/components/:id/history', h(async (req, res) => {
@@ -1124,7 +1125,9 @@ export function startWebServer(port: number): void {
     } catch { /* health must never throw */ }
     let catalogue: ReturnType<typeof catalogueSummary> = [];
     try { catalogue = catalogueSummary(Object.keys(SITEMAPS), slugText); } catch { /* health must never throw */ }
-    res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers, catalogue });
+    let alerts: ReturnType<typeof alertHealth> | null = null;
+    try { alerts = alertHealth(); } catch { /* health must never throw */ }
+    res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers, catalogue, alerts });
   });
 
   app.get('/api/scrape-runs', h(async (req, res) => {

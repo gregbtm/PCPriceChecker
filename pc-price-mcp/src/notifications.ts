@@ -348,5 +348,43 @@ export async function notifyAll(payload: NotificationPayload): Promise<{ discord
     webhookUrl                      ? sendWebhook(webhookUrl, webhookSecret, payload)          : Promise.resolve(false),
   ]);
 
-  return { discord, slack, telegram, email, ntfy, pushover, gotify, apprise, webhook };
+  const result = { discord, slack, telegram, email, ntfy, pushover, gotify, apprise, webhook };
+  recordDelivery(result);
+  return result;
+}
+
+/** Channel name -> whether the config needed to use it is present (names only; never a value). */
+export function configuredChannels(): string[] {
+  const has = (k: string) => !!db.getConfig(k);
+  const out: string[] = [];
+  if (has('discord_webhook_url')) out.push('discord');
+  if (has('slack_webhook_url')) out.push('slack');
+  if (has('telegram_bot_token') && has('telegram_chat_id')) out.push('telegram');
+  if (has('resend_api_key') && has('alert_email')) out.push('email');
+  if (has('ntfy_topic')) out.push('ntfy');
+  if (has('pushover_app_token') && has('pushover_user_key')) out.push('pushover');
+  if (has('gotify_server_url') && has('gotify_app_token')) out.push('gotify');
+  if (has('apprise_url')) out.push('apprise');
+  if (has('webhook_url')) out.push('webhook');
+  return out;
+}
+
+/** Remember when a notification last reached at least one channel, and when one last reached none: the dashboard banner reads these. */
+function recordDelivery(result: Record<string, boolean>): void {
+  try {
+    if (configuredChannels().length === 0) return;
+    db.setConfig(Object.values(result).some(Boolean) ? 'notify_last_ok' : 'notify_last_fail', new Date().toISOString());
+  } catch { /* bookkeeping must never break a notification */ }
+}
+
+export interface AlertHealth { configured: string[]; last_ok: string | null; last_fail: string | null; state: 'none' | 'untested' | 'ok' | 'failing' }
+
+/** `none`: no channel is set up, so no alert can ever arrive. `untested`: set up, nothing delivered yet. `failing`: the latest attempt reached nobody. */
+export function alertHealth(): AlertHealth {
+  const configured = configuredChannels();
+  const last_ok = db.getConfig('notify_last_ok') ?? null;
+  const last_fail = db.getConfig('notify_last_fail') ?? null;
+  const state = configured.length === 0 ? 'none' : !last_ok && !last_fail ? 'untested'
+    : last_fail && (!last_ok || last_fail > last_ok) ? 'failing' : 'ok';
+  return { configured, last_ok, last_fail, state };
 }
