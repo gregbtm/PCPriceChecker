@@ -1,8 +1,8 @@
 /**
  * AWIN (Affiliate Window) integration — UK retailer product search.
- * AWIN is the UK's largest affiliate network: Scan, Overclockers, Ebuyer,
- * CCL, Currys, Amazon UK, Novatech and 300+ others publish live product
- * feeds through it.
+ * AWIN is a large UK affiliate network. UNVERIFIED (2026-10-07): the retailer list this comment used to give
+ * (Scan, Overclockers, Ebuyer, CCL, Currys, Amazon UK, Novatech) was never checked. What the retailers' own pages say:
+ * Scan and Overclockers run Awin programmes; nothing was found for the others. This module has not been run against Awin.
  *
  * Requires a publisher account: https://www.awin.com/gb/publishers
  * Approval takes ~1 week. Once approved:

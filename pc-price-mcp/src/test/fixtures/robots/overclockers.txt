@@ -1,0 +1,59 @@
+# Captured 2026-10-07 from https://www.overclockers.co.uk/robots.txt (public file).
+User-agent: *
+
+# Demandware Paths
+Disallow: /profile
+Disallow: /passwordreset
+Disallow: /setpassword
+Disallow: /account
+Disallow: /addressbook
+Disallow: /shopping-bag
+Disallow: /checkout
+Disallow: /offline
+Disallow: /error
+Disallow: /404
+Disallow: /login
+Disallow: /thank-you
+Disallow: /order-details
+Disallow: /orders
+Disallow: /page
+Disallow: /wallet
+Disallow: /search
+Disallow: /contentsearch
+Disallow: /storefinder
+Disallow: /styleguide
+Disallow: /searchwishlists
+Disallow: /wishlist
+Disallow: /wishlists
+Disallow: /showotherwishlist
+Disallow: /registration
+Disallow: /view-account
+Disallow: /edit-account
+Disallow: /cliqueoverview
+Disallow: /edit-password
+Disallow: /order-history
+Disallow: /on/demandware.store/*
+
+
+# Parameters Category
+Disallow: /*prefv1=*
+Disallow: /*prefn1=*
+Disallow: /*srule=*
+Disallow: /*pmax=*
+Disallow: /*src=*
+Disallow: /*prefv2=*
+Disallow: /*prefn2=*
+Disallow: /*prefv3=*
+Disallow: /*prefn3=*
+Disallow: /*prefv4=*
+Disallow: /*prefn4=*
+Disallow: /*prefv5=*
+Disallow: /*prefn5=*
+Disallow: /*prefv6=*
+Disallow: /*prefn6=*
+Disallow: /*pmin=*
+
+
+
+Sitemap: https://www.overclockers.co.uk/sitemap_index.xml
+Sitemap: https://www.overclockers.co.uk/blog/sitemap_index.xml

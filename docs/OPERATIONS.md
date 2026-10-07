@@ -51,8 +51,19 @@ Restore: stop the container, replace `/data/pc-prices.db` (and delete any `-wal`
 ## Known limits
 Scan, Overclockers, Box, Currys and CCL return HTTP 403 from the NAS and Ebuyer refuses connections; none of that is worked around. Novatech product pages work through a changedetection.io watch; AWD-IT and eBay work directly. See `docs/RESEARCH_AND_VERIFICATION.md` rows 23-30.
 
-## Novatech: more than 24 results
-Novatech's search shows the first 24 of its results in relevance order, and page-size or sort parameters could not be found. Instead watch a listing page that is already narrow: open Novatech's Memory > Laptop Memory (DDR5) category in a browser, copy the address, and set it as **Novatech page to watch** on the Integrations tab (config `novatech_search_url`; `{q}` in the address is replaced by the component's search text, so a category address needs none). The snapshot format is the same; the SO-DIMM profile still decides what counts. To find the right address with Novatech's own controls: open the category in a browser, choose **Price Low to High** and the largest **Items per page**, then copy the address bar. Whatever sort and page-size parameters Novatech uses are then in the address you paste. **Unverified** until a category address has been used: the parser expects the same product block layout as the search page.
+## Retailers: robots.txt, sitemaps and what is blocked
+The app does not request any address a site's robots.txt forbids (`services/robots.ts`; the refusal is recorded as a failure that names the rule). That removed the search pages of AWD-IT (no query strings), Novatech (`/search.html`), Overclockers and CCL (`/search`). For **AWD-IT and Novatech** the app now reads the retailer's own sitemap (cached 24 hours), picks product addresses whose slug fits the component's hardware profile, and reads those product pages (at most 12, 2 seconds apart). An empty match is healthy, not a failure. **Do not add sort or page-size parameters to Novatech addresses**: its robots.txt forbids the filter parameters `m, i, o, f, b, a, B, S, c, t`. If you want to watch a Novatech category page through changedetection.io anyway, set `novatech_search_url` to the plain category address (no parameters; `{q}` is replaced by the query if present); the app refuses an address robots.txt forbids. The earlier advice here to copy an address after choosing a sort order was wrong for that reason.
+
+| Source | State (2026-10-07) |
+|---|---|
+| AWD-IT | sitemap + product pages (verified on the sitemap; live pass pending) |
+| Novatech | sitemap + product pages (sitemap unverified: Novatech answers 403 from the build environment) |
+| eBay UK | official API, working |
+| Scan, Overclockers, CCL, Currys | Cloudflare bot challenge (HTTP 403), not worked around; Overclockers and CCL also forbid `/search`; Currys removed from the default list |
+| Box | wrong search address (404) and `/catalogsearch/` is disallowed; blocked from the NAS |
+| Ebuyer | connection refused at HTTP/2 level, cause unknown |
+| Aria | closed since 2022 |
+| PricesAPI | optional, metered: 10 credits per search with offers; free plan = 3,000 credits once. The app pauses it when credits run out (`403 CREDITS_EXCEEDED`) and searches each component at most once every 24 hours (`pricesapi_min_interval_hours`) |
 
 ## Optional: changedetection-mcp
 Claude can manage changedetection.io watches through the community MCP `changedetection-mcp` (PyPI 0.1.0, one maintainer, Python 3.11+; tools: list/get/create/update/delete/recheck watches, history, snapshot diff, tags, system info; **no price or restock tool**). It is for ad-hoc management only: this app talks to the changedetection.io REST API directly and does not depend on it. Install pinned (`pip install changedetection-mcp==0.1.0`, optionally `--require-hashes` with the hashes in `docs/RESEARCH_AND_VERIFICATION.md` section 5) and set `CHANGEDETECTION_BASE_URL` and `CHANGEDETECTION_API_KEY`. Not tested here against the owner's instance (research row 3: "Live test" outstanding).

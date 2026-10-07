@@ -69,10 +69,11 @@ export function inBackoff(source: string, now = Date.now()): boolean {
   return now - new Date(st.lastRunAt.replace(' ', 'T') + 'Z').getTime() < PROBE_EVERY_MS;
 }
 
-export type SourceStatus = 'ok' | 'failing' | 'blocked' | 'idle' | 'disabled';
+export type SourceStatus = 'ok' | 'failing' | 'blocked' | 'idle' | 'disabled' | 'paused';
 
 /** Dashboard/health classification. `disabled`: a search source no longer in the configured retailer list. */
-export function sourceStatus(h: Pick<db.SourceHealth, 'source' | 'last_run_at' | 'consecutive_failures'>, enabledSearchIds: string[], now = Date.now()): SourceStatus {
+export function sourceStatus(h: Pick<db.SourceHealth, 'source' | 'last_run_at' | 'consecutive_failures'>, enabledSearchIds: string[], now = Date.now(), pausedSources: string[] = []): SourceStatus {
+  if (pausedSources.includes(h.source)) return 'paused';   // deliberately not being called (for example credits used up)
   if (h.source.startsWith('search:') && !enabledSearchIds.includes(h.source.slice('search:'.length))) return 'disabled';
   const ageMs = now - new Date(h.last_run_at.replace(' ', 'T') + 'Z').getTime();
   if (h.consecutive_failures >= BLOCKED_AFTER) return ageMs > 2 * PROBE_EVERY_MS ? 'idle' : 'blocked';

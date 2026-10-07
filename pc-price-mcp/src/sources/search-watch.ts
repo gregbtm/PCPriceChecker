@@ -7,6 +7,7 @@
  * never silently reused as if it were fresh.
  */
 import * as db from '../db.js';
+import { assertAllowedByRobots, RobotsDisallowedError } from '../services/robots.js';
 import { listWatches, createTextWatch, recheckWatch, getLatestSnapshot, norm } from './changedetection.js';
 import { parseNovatechSnapshot } from './novatech-snapshot.js';
 import { SEARCH_URLS, type RetailerId, type RetailerSearchResult } from './uk-retailers.js';
@@ -20,9 +21,16 @@ export async function searchViaWatch(id: RetailerId, query: string, now = Date.n
   // Optional override (config novatech_search_url): a full URL, with {q} replaced by the query. Use it to watch a category page,
   // for example the DDR5 laptop-memory listing, which shows far more relevant kits than a keyword search's first 24 results.
   const override = db.getConfig(`${id}_search_url`);
+  // Without an override the default search page is robots.txt-disallowed (Novatech: /search.html); the sitemap tier handles that retailer.
+  if (!override) return null;
   const url = override ? override.replace('{q}', encodeURIComponent(query)) : SEARCH_URLS[id]!(query);
   const done = (results: RetailerSearchResult['results'], error?: string): RetailerSearchResult =>
     ({ retailer: 'Novatech', results, scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error });
+
+  // changedetection.io's browser is still us fetching the page: obey the site's robots.txt before creating or reading a watch.
+  try { await assertAllowedByRobots(url); } catch (e) {
+    if (e instanceof RobotsDisallowedError) return done([], e.message);
+  }
 
   const watch = (await listWatches()).find(w => norm(w.url) === norm(url));
   if (!watch) {

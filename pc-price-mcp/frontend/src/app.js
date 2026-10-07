@@ -213,7 +213,8 @@ function app() {
         { key: 'searxng_url', label: 'SearXNG URL', placeholder: 'http://NAS-IP:8080' },
         { key: 'openai_base_url', label: 'Local LLM base URL', placeholder: 'http://NAS-IP:11434/v1' },
         { key: 'openai_model', label: 'Local LLM model', placeholder: 'llama3.1:8b' },
-        { key: 'prices_api_key', label: 'PricesAPI key (paid, optional)', secret: true, placeholder: 'nothing needs it; remove a stale key with the ✕' },
+        { key: 'prices_api_key', label: 'PricesAPI key (optional; free plan = 3,000 credits once, 10 per search)', secret: true, placeholder: 'nothing needs it; remove a stale key with the ✕' },
+        { key: 'pricesapi_min_interval_hours', label: 'PricesAPI: at most one search per component every (hours)', placeholder: '24' },
       ] },
     ],
 

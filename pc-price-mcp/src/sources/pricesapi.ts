@@ -1,9 +1,17 @@
 /**
  * PricesAPI.io integration — server-side only (CORS blocked in browsers).
- * Free tier: 50,000 calls/month. Sign up at https://pricesapi.io
  *
- * Cold queries (uncached) can take 30–90 seconds.
- * Cached queries return in ~100ms.
+ * Cost, from pricesapi.io/pricing and /docs (read 2026-10-07): a Search that returns at least one merchant offer costs
+ * **10 credits**, cache hits included; a search with no offers, and any failed request, costs nothing. The free Personal plan
+ * is **3,000 credits, one-time, never renewed** (about 300 searches, 6 requests a minute, at most 3 products per search). The
+ * old comment here, "50,000 calls/month free", was wrong. Market code `gb` is the United Kingdom (`uk` is rejected).
+ *
+ * Errors come as `{ success: false, error: { code, message, details } }`. Out of credits is `403 CREDITS_EXCEEDED` (or
+ * `MONTHLY_LIMIT_EXCEEDED`) with details.credits_used / credits_included / resets_at (null when the allowance does not renew);
+ * 401 is a bad key; 429 `RATE_LIMIT_EXCEEDED` carries Retry-After. These must not be confused: an exhausted balance
+ * needs a pause, not a "check your key".
+ *
+ * Cold queries (uncached) can take 30–90 seconds. Cached queries return in ~100ms.
  */
 
 const BASE_URL = 'https://api.pricesapi.io/api/v1';
@@ -26,6 +34,45 @@ export interface SearchProduct {
   image?: string;
   offers: SearchOffer[];
   cacheSource?: string;
+}
+
+export type PricesApiErrorKind = 'auth' | 'quota' | 'rate' | 'busy' | 'server' | 'other';
+
+export class PricesApiError extends Error {
+  constructor(
+    message: string,
+    public kind: PricesApiErrorKind,
+    public status: number,
+    public code: string | null = null,
+    public details: { creditsUsed?: number; creditsIncluded?: number; resetsAt?: string | null } = {},
+    public retryAfterSec: number | null = null,
+  ) { super(message); this.name = 'PricesApiError'; }
+}
+
+/** Turns a failed response into a typed error. Exported for tests. */
+export function classifyPricesApiFailure(status: number, bodyText: string, retryAfter: string | null): PricesApiError {
+  let code: string | null = null, apiMessage = '';
+  let details: any = {};
+  try {
+    const b = JSON.parse(bodyText);
+    code = b?.error?.code ?? null; apiMessage = b?.error?.message ?? ''; details = b?.error?.details ?? {};
+  } catch { /* not JSON */ }
+  const retry = retryAfter != null && /^\d+$/.test(retryAfter) ? Number(retryAfter) : null;
+  const tail = apiMessage ? ` (${apiMessage})` : '';
+
+  if (code === 'CREDITS_EXCEEDED' || code === 'MONTHLY_LIMIT_EXCEEDED' || code === 'INSUFFICIENT_CREDITS') {
+    const d = { creditsUsed: details.credits_used, creditsIncluded: details.credits_included, resetsAt: details.resets_at ?? null };
+    const used = d.creditsUsed != null && d.creditsIncluded != null ? ` (${d.creditsUsed} of ${d.creditsIncluded} credits used)` : '';
+    const renew = d.resetsAt ? `; credits renew ${d.resetsAt}` : '; this allowance does not renew';
+    return new PricesApiError(`PricesAPI credits are used up${used}${renew}. PricesAPI is paused until the key is replaced or credits return.`, 'quota', status, code, d);
+  }
+  if (status === 401) return new PricesApiError(`PricesAPI rejected the API key (${code ?? 'HTTP 401'}): check PRICES_API_KEY${tail}`, 'auth', status, code);
+  if (code === 'SUBSCRIPTION_CANCELLED') return new PricesApiError('PricesAPI subscription is cancelled; reactivate it or remove the key', 'auth', status, code);
+  if (status === 429) return new PricesApiError(`PricesAPI rate limit${retry ? `, retry after ${retry}s` : ''}. Repeated over-quota searches can also return 429, so check the credit balance${tail}`, 'rate', status, code, {}, retry);
+  if (status === 503) return new PricesApiError(`PricesAPI scraper is busy — please retry after ${retry ?? 5}s`, 'busy', status, code, {}, retry ?? 5);
+  if (status >= 500) return new PricesApiError(`PricesAPI server error HTTP ${status}${code ? ` ${code}` : ''}${tail}`, 'server', status, code);
+  if (status === 403) return new PricesApiError(`PricesAPI refused the request (HTTP 403${code ? ` ${code}` : ', no error code in the response'})${tail}`, 'other', status, code);
+  return new PricesApiError(`PricesAPI returned HTTP ${status}${code ? ` ${code}` : ''}${tail}`, 'other', status, code);
 }
 
 function getApiKey(): string {
@@ -65,17 +112,8 @@ export async function searchProducts(
       signal: controller.signal,
     });
 
-    if (res.status === 503) {
-      const retryAfter = res.headers.get('Retry-After') ?? '5';
-      throw new Error(`PricesAPI scraper is busy — please retry after ${retryAfter}s`);
-    }
-
-    if (res.status === 401 || res.status === 403) {
-      throw new Error('PricesAPI authentication failed — check your PRICES_API_KEY');
-    }
-
     if (!res.ok) {
-      throw new Error(`PricesAPI returned HTTP ${res.status}: ${res.statusText}`);
+      throw classifyPricesApiFailure(res.status, await res.text().catch(() => ''), res.headers.get('Retry-After'));
     }
 
     const body = (await res.json()) as any;
@@ -132,7 +170,7 @@ export async function searchWithRetry(
       return await searchProducts(query, country, limit, offersLimit);
     } catch (err) {
       lastError = err as Error;
-      const isBusy = lastError.message.includes('scraper is busy') || lastError.message.includes('503');
+      const isBusy = lastError instanceof PricesApiError ? lastError.kind === 'busy' : lastError.message.includes('scraper is busy');
       if (!isBusy || attempt >= maxRetries) throw lastError;
 
       const retryAfterMatch = lastError.message.match(/after (\d+)s/);

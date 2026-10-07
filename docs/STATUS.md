@@ -44,7 +44,7 @@ All items are ticked in `docs/HANDOFF.md` section 5 except **P4-5 (n8n)**, which
 
 ## Known gaps worth knowing about
 
-1. **Novatech shows 24 of 229 results**, in relevance order. Page-size and sort URL parameters could not be found (six guesses all returned the same 24; Novatech is not fetchable from the build environment). Fix without guessing: set `novatech_search_url` to Novatech's own "Laptop Memory" category page (copy it from the browser); see `docs/OPERATIONS.md`.
+1. **Retailer access is limited by the retailers.** Cloudflare challenges block Scan, Overclockers, CCL and Currys; Ebuyer refuses connections; AWD-IT and Novatech forbid their search pages in robots.txt, so those two are read through their sitemaps and product pages (AWD-IT sitemap verified, Novatech's not, live pass pending). See research rows 35-37 and `docs/OPERATIONS.md`.
 2. **No authentication** on the dashboard or API; `GET /api/config` returns stored secrets. LAN only. See `docs/NEXT.md`.
 3. **Alerts compare the item price, not price plus delivery.**
 4. The old components (ids 1, 2, 3, 4, 6) should be paused by the owner.

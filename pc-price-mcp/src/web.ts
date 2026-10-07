@@ -22,6 +22,8 @@ import { ebayBrowseSearch, ebayBrowseGetItem, ebayCredentialStatus, ebayConfigur
 import { searchAllPrebuiltRetailers, ALL_PREBUILT_RETAILER_IDS, PrebuiltRetailerId } from './sources/prebuilt-retailers.js';
 import { configuredRetailers } from './scheduler.js';
 import { sourceStatus } from './services/scrape-health.js';
+import { assertAllowedByRobots, RobotsDisallowedError } from './services/robots.js';
+import { pricesApiPause } from './services/pricesapi-guard.js';
 import { getSchedulerStatus, restartScheduler, stopScheduler, triggerRefreshNow, refreshOneNow } from './scheduler.js';
 import { notifyAll } from './notifications.js';
 import { searchCex, getCexProduct } from './sources/cex.js';
@@ -582,7 +584,7 @@ export function startWebServer(port: number): void {
       ntfy: { configured: set('ntfy_topic'), server: cfg.ntfy_server ?? 'https://ntfy.sh', topic: cfg.ntfy_topic ?? '', tokenSet: set('ntfy_token') },
       webhook: { configured: set('webhook_url'), url: cfg.webhook_url ?? '', secretSet: set('webhook_secret') },
       ebay: { configured: ebayConfigured() },
-      prices: { keySet: set('prices_api_key') || !!process.env.PRICES_API_KEY?.trim() },
+      prices: { keySet: set('prices_api_key') || !!process.env.PRICES_API_KEY?.trim(), paused: pricesApiPause()?.message ?? null },
       changedetection: { configured: changedetectionConfigured(), url: cfg.changedetection_url ?? '', keySet: set('changedetection_api_key') || !!process.env.CHANGEDETECTION_API_KEY,
         autocreate: cfg.changedetection_autocreate !== 'false', novatechSearchUrl: cfg.novatech_search_url ?? '' },
       firecrawl: { configured: firecrawlConfigured(), url: cfg.firecrawl_url ?? '' },
@@ -623,10 +625,11 @@ export function startWebServer(port: number): void {
     const { url, title, browser, component_id } = req.body ?? {};
     if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) { res.status(400).json({ error: 'url must be an http(s) address' }); return; }
     try {
+      await assertAllowedByRobots(url);
       const uuid = await createRestockWatch({ url, title: `${PCPC_TITLE_PREFIX}: ${String(title ?? url).slice(0, 100)}`, browser: !!browser });
       if (component_id != null) db.addComponentUrl(Number(component_id), url, null, 'changedetection watch');
       res.json({ uuid });
-    } catch (err) { res.status(502).json({ error: (err as Error).message }); }
+    } catch (err) { res.status(err instanceof RobotsDisallowedError ? 400 : 502).json({ error: (err as Error).message }); }
   }));
 
   app.delete('/api/changedetection/watches/:uuid', h(async (req, res) => {
@@ -1071,7 +1074,8 @@ export function startWebServer(port: number): void {
     let scrapers: { failing: string[]; sources: Array<db.SourceHealth & { status: string }> } = { failing: [], sources: [] };
     try {
       const enabled = configuredRetailers() as string[];
-      const sources = db.getSourceHealth().map(x => ({ ...x, status: sourceStatus(x, enabled) }));
+      const paused = pricesApiPause() ? ['pricesapi'] : [];
+      const sources = db.getSourceHealth().map(x => ({ ...x, status: sourceStatus(x, enabled, Date.now(), paused) }));
       // `failing` = recently failing sources worth a look. Long-blocked sources (403 for days) are `blocked` and probed daily;
       // retailers no longer in the search list are `disabled`; sources that have not run lately are `idle`.
       scrapers = { failing: sources.filter(x => x.status === 'failing').map(x => x.source), sources };

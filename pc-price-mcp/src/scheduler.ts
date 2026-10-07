@@ -6,6 +6,7 @@
  */
 import { scrapeViaChain } from './sources/providers.js';
 import { searchViaWatch } from './sources/search-watch.js';
+import { searchViaSitemap as searchViaSitemapImpl } from './sources/sitemap-discovery.js';
 import { readWatchForUrl, changedetectionConfigured } from './sources/changedetection.js';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
@@ -131,6 +132,7 @@ const realDeps: RefreshDeps = {
   // Condition 'any' unless ebay_allow_used is "false". Fixed-price listings only.
   readWatch: readWatchForUrl,
   searchViaWatch,
+  searchViaSitemap: (id, component) => searchViaSitemapImpl(id, component, { scrapeUrl: scrapeViaChain, sleep }),
   changedetectionConfigured,
   searchEbay: (query) => ebayBrowseSearch(query, db.getConfig('ebay_allow_used') === 'false' ? 'new' : 'any', 100, { buyItNowOnly: true }),
   notify: notifyAll,

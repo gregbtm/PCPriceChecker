@@ -1,3 +1,4 @@
+import { assertAllowedByRobots, RobotsDisallowedError } from '../services/robots.js';
 import { extractStructuredProducts, bestOffer } from './structured-data.js';
 import { parsePriceText } from '../services/price-text.js';
 import { parseStockText, stockStateFromAvailability, stockStateFromBoolean, type StockState } from '../services/stock-state.js';
@@ -36,6 +37,8 @@ export interface RetailerResult {
 }
 
 export interface RetailerSearchResult {
+  /** True when zero results is a healthy answer (the sitemap holds nothing matching today), not a broken scraper. */
+  emptyIsOk?: boolean;
   retailer: string;
   results: RetailerResult[];
   scrapedAt: string;
@@ -143,7 +146,11 @@ function parseProductBlocks(html: string, retailer: string, domain: string, fall
   return results;
 }
 
-async function fetchPage(url: string): Promise<{ html: string; ok: boolean; status: number }> {
+async function fetchPage(url: string): Promise<{ html: string; ok: boolean; status: number; error?: string }> {
+  // Never request an address the site's robots.txt forbids (docs/RESEARCH_AND_VERIFICATION.md row 36).
+  try { await assertAllowedByRobots(url); } catch (e) {
+    if (e instanceof RobotsDisallowedError) return { html: '', ok: false, status: 0, error: e.message };
+  }
   try {
     const res = await fetch(url, { headers: SHARED_HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
     return { html: res.ok ? await res.text() : '', ok: res.ok, status: res.status };
@@ -161,11 +168,11 @@ async function scrapeRetailer(
   extraExtract?: (html: string, url: string) => RetailerResult[],
 ): Promise<RetailerSearchResult> {
   const t0 = Date.now();
-  const { html, ok, status } = await fetchPage(searchUrl);
+  const { html, ok, status, error: refused } = await fetchPage(searchUrl);
 
   if (!ok) {
     return { retailer, results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0,
-      error: status === 0 ? 'Fetch failed (timeout or network error)' : `HTTP ${status}` };
+      error: refused ?? (status === 0 ? 'Fetch failed (timeout or network error)' : `HTTP ${status}`) };
   }
 
   // Priority: JSON-LD → Next.js data → custom extractor → HTML blocks → price fallback
@@ -510,9 +517,9 @@ export async function currysSearch(query: string): Promise<RetailerSearchResult>
 export async function argosSearch(query: string): Promise<RetailerSearchResult> {
   const t0 = Date.now();
   const url = `https://www.argos.co.uk/search/${encodeURIComponent(query)}/`;
-  const { html, ok, status } = await fetchPage(url);
+  const { html, ok, status, error: refused } = await fetchPage(url);
   if (!ok) {
-    return { retailer: 'Argos', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error: `HTTP ${status}` };
+    return { retailer: 'Argos', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error: refused ?? `HTTP ${status}` };
   }
 
   const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
@@ -568,9 +575,9 @@ export function johnLewisPrice(p: any): number | null {
 export async function johnLewisSearch(query: string): Promise<RetailerSearchResult> {
   const t0 = Date.now();
   const url = `https://www.johnlewis.com/search?search-term=${encodeURIComponent(query)}`;
-  const { html, ok, status } = await fetchPage(url);
+  const { html, ok, status, error: refused } = await fetchPage(url);
   if (!ok) {
-    return { retailer: 'John Lewis', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error: `HTTP ${status}` };
+    return { retailer: 'John Lewis', results: [], scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error: refused ?? `HTTP ${status}` };
   }
 
   const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
