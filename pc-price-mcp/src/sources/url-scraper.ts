@@ -8,6 +8,7 @@
  *   5b. Camofox stealth browser (Cloudflare bypass — optional, requires running server)
  *   6. AI extraction — Claude (ANTHROPIC_API_KEY) then OpenAI (OPENAI_API_KEY) as fallback
  */
+import { assertAllowedByRobots, RobotsDisallowedError } from '../services/robots.js';
 import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js';
 import { scrapeWithCamofox } from './camofox-client.js';
 import { openaiExtractPrice, openaiHealSelectors } from './openai-client.js';
@@ -295,6 +296,11 @@ export function extractFromHtml(html: string, domain: string): Partial<ScrapedPr
 export async function scrapeProductUrl(url: string): Promise<ScrapedProduct> {
   const domain = extractDomain(url);
   const fallback: ScrapedProduct = { name: domain, price: null, currency: 'GBP', inStock: false, stockState: 'unknown', url, method: 'failed' };
+
+  // Respect the site's robots.txt: no request at all to a forbidden address (research row 36).
+  try { await assertAllowedByRobots(url); } catch (e) {
+    if (e instanceof RobotsDisallowedError) { console.warn(`[scraper] ${e.message}`); return fallback; }
+  }
 
   let html = '';
   try {

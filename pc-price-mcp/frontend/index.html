@@ -1372,7 +1372,7 @@
               <template x-for="s in scraperHealth.sources" :key="s.source">
                 <tr :class="s.status === 'failing' ? 'text-error' : (s.status === 'disabled' || s.status === 'idle' ? 'opacity-50' : '')">
                   <td class="font-mono" x-text="s.source"></td>
-                  <td><span class="badge badge-xs" :class="{ 'badge-success': s.status === 'ok', 'badge-error': s.status === 'failing', 'badge-warning': s.status === 'blocked', 'badge-ghost': s.status === 'idle' || s.status === 'disabled' }" x-text="s.status"></span></td>
+                  <td><span class="badge badge-xs" :class="{ 'badge-success': s.status === 'ok', 'badge-error': s.status === 'failing', 'badge-warning': s.status === 'blocked' || s.status === 'paused', 'badge-ghost': s.status === 'idle' || s.status === 'disabled' }" x-text="s.status"></span></td>
                   <td x-text="s.last_run_at"></td>
                   <td x-text="s.last_success_at || 'never'"></td>
                   <td x-text="s.failures_24h + ' / ' + s.runs_24h"></td><td x-text="s.consecutive_failures"></td>

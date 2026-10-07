@@ -15,6 +15,8 @@ import type { RetailerId, RetailerSearchResult } from '../sources/uk-retailers.j
 import type { EbayBrowseResult, EbayListing } from '../sources/ebay-browse.js';
 import { evaluateAlerts } from './alerts.js';
 import { alertOnRepeatedFailures, inBackoff } from './scrape-health.js';
+import { pricesApiPause, pausePricesApi, pricesApiDue, markPricesApiRun } from './pricesapi-guard.js';
+import { PricesApiError } from '../sources/pricesapi.js';
 import { matchesQuery } from './query-match.js';
 import { classifyMemory, matchesProfile, PROFILES } from './memory-classifier.js';
 
@@ -32,6 +34,8 @@ export interface RefreshDeps {
   changedetectionConfigured?: () => boolean;
   /** Search pages read through a changedetection.io watch; null = not handled, use searchRetailer. */
   searchViaWatch?: (id: RetailerId, query: string) => Promise<RetailerSearchResult | null>;
+  /** Retailer catalogue read through its sitemap and product pages (robots.txt-compliant replacement for a search page); null = not handled. */
+  searchViaSitemap?: (id: RetailerId, component: db.TrackedComponent) => Promise<RetailerSearchResult | null>;
   notify: typeof notifyAll;
   sleep: (ms: number) => Promise<void>;
 }
@@ -47,8 +51,8 @@ export interface RefreshContext {
  * Aria is not here: it closed its online shop in August 2022 (its homepage says so, checked 2026-10-06).
  */
 export const DEFAULT_SEARCH_RETAILERS: RetailerId[] = [
-  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'awdit', 'currys',
-];
+  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'awdit',
+];   // Currys left out 2026-10-07: Cloudflare challenge, and its scraper calls a private JSON endpoint with a spoofed Referer
 const RETAILER_GAP_MS = 2_000;
 
 /**
@@ -152,9 +156,10 @@ export async function refreshComponent(
     for (const id of ctx.retailers) {
       const ran = await attempt(`search:${id}`, async () => {
         const viaWatch = deps.searchViaWatch && deps.changedetectionConfigured?.() ? await deps.searchViaWatch(id, component.search_query) : null;
-        const r = viaWatch ?? await deps.searchRetailer(id, component.search_query);
+        const viaSitemap = !viaWatch && deps.searchViaSitemap ? await deps.searchViaSitemap(id, component) : null;
+        const r = viaWatch ?? viaSitemap ?? await deps.searchRetailer(id, component.search_query);
         // Nothing parsed = the scraper (or the site) is broken. Parsed but nothing relevant = healthy.
-        if (r.results.length === 0) return { offers: [], error: r.error ?? 'no products parsed' };
+        if (r.results.length === 0) return r.emptyIsOk && !r.error ? { offers: [] } : { offers: [], error: r.error ?? 'no products parsed' };
         const hasProfile = !!(component.profile_id && PROFILES[component.profile_id]);
         // With a profile the classifier decides (non-matching rows are stored but never alert);
         // without one, the interim query-word filter keeps unrelated products out entirely.
@@ -188,8 +193,20 @@ export async function refreshComponent(
       });
       await deps.sleep(RETAILER_GAP_MS);
     }
-    if (deps.pricesApiConfigured()) {
-      await attempt('pricesapi', async () => ({ offers: await deps.searchPricesApi(component.search_query, ctx.country) }));
+    // Optional and metered (10 credits per search with offers): skipped while paused for exhausted credits, and at most once a day per component.
+    if (deps.pricesApiConfigured() && !pricesApiPause() && pricesApiDue(component.id)) {
+      markPricesApiRun(component.id);
+      await attempt('pricesapi', async () => {
+        try {
+          return { offers: await deps.searchPricesApi(component.search_query, ctx.country) };
+        } catch (e) {
+          if (e instanceof PricesApiError && e.kind === 'quota') {
+            pausePricesApi(e);
+            await deps.notify({ type: 'scrape_failure', componentName: 'PricesAPI', message: e.message });
+          }
+          throw e;
+        }
+      });
     }
   }
 

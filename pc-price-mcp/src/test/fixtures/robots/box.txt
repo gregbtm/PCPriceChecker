@@ -1,0 +1,53 @@
+# Captured 2026-10-07 from https://box.co.uk/robots.txt (public file).
+# Crawlers Setup
+User-agent: *
+
+# Allow favicon
+Allow: /favicon.ico
+
+# Directories
+Disallow: /404/
+Disallow: /app/
+Disallow: /cgi-bin/
+Disallow: /downloader/
+Disallow: /errors/
+Disallow: /customer/
+Disallow: /sales/
+Disallow: /catalogsearch/
+
+# Paths (clean URLs)
+Disallow: /cdn-cgi/     
+Disallow: /control/
+Disallow: /contacts/
+Disallow: /customer/
+Disallow: /customize/
+Disallow: /poll/
+Disallow: /sendfriend/
+Disallow: /api/
+
+# Files
+Disallow: /cron.php
+Disallow: /cron.sh
+Disallow: /error_log
+Disallow: /install.php
+Disallow: /LICENSE.html
+Disallow: /LICENSE.txt
+Disallow: /LICENSE_AFL.txt
+Disallow: /STATUS.txt
+
+# Bussiness
+Allow: /business$
+Disallow: /business/
+
+# Paths (no clean URLs)
+Disallow: /*?amp=1
+
+# Block unwanted crawler.
+User-agent: BLEXBot
+Disallow: /
+
+# Block Specific NAV Images.
+User-agent: *
+Disallow: /wysiwyg/box-app/header/2025/
+
+Sitemap: https://box.co.uk/sitemap.xml

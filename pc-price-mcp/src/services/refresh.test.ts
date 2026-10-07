@@ -399,3 +399,22 @@ describe('search pages through a changedetection.io watch', () => {
     expect(db.getRecentScrapeRuns(5).find(r => r.source === 'search:novatech')).toMatchObject({ ok: 0, error: expect.stringMatching(/pending/) });
   });
 });
+
+describe('sitemap tier (robots.txt-compliant replacement for a disallowed search page)', () => {
+  it('uses the sitemap result instead of the retailer search, and an empty-but-healthy answer is not a failure', async () => {
+    const c = fresh(350);
+    const viaSitemap = page('AWD-IT', [res('Crucial 64GB (2x32GB) DDR5-5600 SODIMM kit', 449, 'in_stock', 'awdit')]);
+    const searchRetailer = vi.fn();
+    const { deps } = makeDeps({}, { searchRetailer, searchViaSitemap: async (id) => id === 'awdit' ? viaSitemap : { retailer: 'Novatech', results: [], scrapedAt: '', durationMs: 1, emptyIsOk: true } });
+    await refreshComponent(c, ctx(['awdit', 'novatech']), deps);
+    expect(searchRetailer).not.toHaveBeenCalled();
+    expect(db.getBestInStockOffer(c.id)?.price).toBe(449);
+    expect(db.getRecentScrapeRuns(10).find(r => r.source === 'search:novatech')).toMatchObject({ ok: 1, offers_found: 0 });
+  });
+  it('a sitemap error is a recorded failure with its reason', async () => {
+    const c = fresh(350);
+    const { deps } = makeDeps({}, { searchViaSitemap: async () => ({ retailer: 'AWD-IT', results: [], scrapedAt: '', durationMs: 1, error: 'sitemap: sitemap HTTP 404' }) });
+    await refreshComponent(c, ctx(['awdit']), deps);
+    expect(db.getRecentScrapeRuns(5).find(r => r.source === 'search:awdit')).toMatchObject({ ok: 0, error: 'sitemap: sitemap HTTP 404' });
+  });
+});

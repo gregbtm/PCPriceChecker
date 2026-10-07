@@ -2,11 +2,22 @@ import { readFileSync } from 'fs';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { johnLewisPrice, johnLewisSearch, scanSearch } from './uk-retailers.js';
 import { SCAN, ldJson } from '../test/fixtures.js';
+import { clearRobotsCache } from '../services/robots.js';
+
+const robotsFile = (n: string) => readFileSync(new URL(`../test/fixtures/robots/${n}.txt`, import.meta.url), 'utf8');
+/** fetch stub: robots.txt answers with a real captured file (or 404), every other address with `html`. Records the non-robots requests. */
+function stubWithRobots(html: string, robots: string | null) {
+  const f = vi.fn(async (url: unknown) => String(url).endsWith('/robots.txt')
+    ? (robots == null ? { ok: false, status: 404, text: async () => '' } : { ok: true, status: 200, text: async () => robots })
+    : { ok: true, status: 200, text: async () => html });
+  vi.stubGlobal('fetch', f);
+  return () => f.mock.calls.map(c => String(c[0])).filter(u => !u.endsWith('/robots.txt'));
+}
 
 function stubFetch(html: string) {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => html }));
 }
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); clearRobotsCache(); });
 
 describe('P0-3 John Lewis price selection (A-03)', () => {
   it('uses `now`, never `was`', () => {
@@ -83,12 +94,13 @@ describe('unknown retailer ids give a clear error, not "RETAILER_FNS[r] is not a
 describe('AWD-IT (Magento) against the REAL page block captured 2026-10-06', () => {
   const fixture = readFileSync(new URL('../test/fixtures/awd-it-kingston-fury-64gb.html', import.meta.url), 'utf8');
 
-  it('requests the real search path (the old /search?q= was a 404 on the owner\'s NAS)', async () => {
-    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => fixture });
-    vi.stubGlobal('fetch', f);
+  it('makes NO request to the search path: AWD-IT robots.txt disallows every query string (research row 36)', async () => {
+    const requests = stubWithRobots(fixture, robotsFile('awdit'));
     const { awditSearch } = await import('./uk-retailers.js');
-    await awditSearch('ddr5 so-dimm 64gb');
-    expect(String(f.mock.calls[0][0])).toBe('https://www.awd-it.co.uk/catalogsearch/result/?q=ddr5%20so-dimm%2064gb');
+    const r = await awditSearch('ddr5 so-dimm 64gb');
+    expect(requests()).toEqual([]);
+    expect(r.results).toEqual([]);
+    expect(r.error).toMatch(/disallowed by www\.awd-it\.co\.uk\/robots\.txt/);
   });
 
   it('extracts name, the VAT-inclusive price (not the ex-VAT 766.66) and the out-of-stock state', async () => {
@@ -134,17 +146,27 @@ describe('default retailer list', () => {
   });
 });
 
-describe('search addresses confirmed from the owner\'s browser, 2026-10-06 (the old ones were HTTP 404 from the NAS)', () => {
-  it.each([
-    ['ebuyerSearch', 'https://www.ebuyer.com/searchresults?descriptionfilter=ddr5%20so-dimm%2064gb'],
-    ['cclSearch', 'https://www.cclonline.com/search?query=ddr5%20so-dimm%2064gb'],
-    ['novatechSearch', 'https://www.novatech.co.uk/search.html?search=ddr5%20so-dimm%2064gb'],
-  ] as const)('%s requests %s', async (fn, expected) => {
-    const f = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => '<html></html>' });
-    vi.stubGlobal('fetch', f);
+describe('search requests and robots.txt (real captured files, 2026-10-07)', () => {
+  it('Ebuyer: robots.txt unavailable (4xx) means no rules, so the search address is requested', async () => {
+    const requests = stubWithRobots('<html></html>', null);
     const mod = await import('./uk-retailers.js');
-    await mod[fn]('ddr5 so-dimm 64gb');
-    expect(String(f.mock.calls[0][0])).toBe(expected);
+    await mod.ebuyerSearch('ddr5 so-dimm 64gb');
+    expect(requests()).toEqual(['https://www.ebuyer.com/searchresults?descriptionfilter=ddr5%20so-dimm%2064gb']);
+  });
+  it.each([
+    ['cclSearch', 'ccl', 'cclonline.com'],
+    ['novatechSearch', 'novatech', 'novatech.co.uk'],
+  ] as const)('%s makes no request: the site disallows its search page', async (fn, file, host) => {
+    const requests = stubWithRobots('<html></html>', robotsFile(file));
+    const mod = await import('./uk-retailers.js');
+    const r = await mod[fn]('ddr5 so-dimm 64gb');
+    expect(requests()).toEqual([]);
+    expect(r.error).toContain(`${host}/robots.txt`);
+  });
+  it('the search address builders are unchanged (used only when robots.txt allows them)', async () => {
+    const { SEARCH_URLS } = await import('./uk-retailers.js');
+    expect(SEARCH_URLS.novatech!('ddr5 so-dimm 64gb')).toBe('https://www.novatech.co.uk/search.html?search=ddr5%20so-dimm%2064gb');
+    expect(SEARCH_URLS.ccl!('ddr5 so-dimm 64gb')).toBe('https://www.cclonline.com/search?query=ddr5%20so-dimm%2064gb');
   });
 });
 

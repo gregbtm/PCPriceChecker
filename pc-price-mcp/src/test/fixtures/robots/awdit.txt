@@ -1,0 +1,25 @@
+# Captured 2026-10-07 from https://www.awd-it.co.uk/robots.txt (public file).
+User-agent: *
+Allow: /*?p=*
+Allow: /*utm=*
+Allow: /*utm_source=*
+Allow: /media/catalog/product/*
+Disallow: /index.php/
+Disallow: /*?
+Disallow: /checkout/
+Disallow: /app/
+Disallow: /lib/
+Disallow: /*.php$
+Disallow: /pkginfo/
+Disallow: /report/
+Disallow: /var/
+Disallow: /catalog/
+Disallow: /customer/
+Disallow: /sendfriend/
+Disallow: /review/
+Disallow: /*SID=
+Disallow: */chosen/result/index/*
+
+Sitemap: https://www.awd-it.co.uk/media/sitemap/sitemap.xml
+
+

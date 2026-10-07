@@ -1,0 +1,41 @@
+# Captured 2026-10-07 from https://www.novatech.co.uk/robots.txt through the owner's changedetection.io (Novatech answers the plain fetch with HTTP 403 from the build environment).
+User-agent: AdsBot-Google
+Disallow:
+
+User-agent: Googlebot-Image
+Disallow:
+
+User-agent: *
+Disallow: /search.html
+Disallow: /novatech/specpage.html
+Disallow: /ajax/
+Disallow: /includes/
+Disallow: /livezilla/
+Disallow: /pdfquote/
+
+# Parameter filters (m, i, o, f, b, a, B, S, c, t)
+Disallow: /*?*m=
+Disallow: /*&m=
+Disallow: /*?*i=
+Disallow: /*&i=
+Disallow: /*?*o=
+Disallow: /*&o=
+Disallow: /*?*f=
+Disallow: /*&f=
+Disallow: /*?*b=
+Disallow: /*&b=
+Disallow: /*?*a=
+Disallow: /*&a=
+Disallow: /*?*B=
+Disallow: /*&B=
+Disallow: /*?*S=
+Disallow: /*&S=
+Disallow: /*?*c=
+Disallow: /*&c=
+Disallow: /*?*t=
+Disallow: /*&t=
+
+Sitemap: https://www.novatech.co.uk/sitemap.xml
+Sitemap: https://www.novatech.co.uk/sitemap-categories.xml
+Sitemap: https://www.novatech.co.uk/sitemap-products.xml
+Sitemap: https://www.novatech.co.uk/sitemap-business.xml
