@@ -1,5 +1,6 @@
 import { assertAllowedByRobots, RobotsDisallowedError } from '../services/robots.js';
 import { extractStructuredProducts, bestOffer } from './structured-data.js';
+import { searchWooStore } from './woocommerce-store.js';
 import { parsePriceText } from '../services/price-text.js';
 import { parseStockText, stockStateFromAvailability, stockStateFromBoolean, type StockState } from '../services/stock-state.js';
 
@@ -46,7 +47,7 @@ export interface RetailerSearchResult {
   error?: string;
 }
 
-export type RetailerId = 'scan' | 'overclockers' | 'ebuyer' | 'ccl' | 'box' | 'novatech' | 'aria' | 'awdit'
+export type RetailerId = 'scan' | 'overclockers' | 'ebuyer' | 'ccl' | 'box' | 'novatech' | 'aria' | 'awdit' | 'wired2fire'
   | 'corsair' | 'nzxt' | 'coolermaster' | 'lianli' | 'fractal' | 'thermaltake'
   | 'currys' | 'argos' | 'johnlewis';
 
@@ -624,6 +625,7 @@ const RETAILER_FNS: Record<RetailerId, (q: string) => Promise<RetailerSearchResu
   novatech: novatechSearch,
   aria: ariaSearch,
   awdit: awditSearch,
+  wired2fire: (q) => searchWooStore('wired2fire', q),
   corsair: corsairSearch,
   nzxt: nzxtSearch,
   coolermaster: coolerMasterSearch,
@@ -636,7 +638,7 @@ const RETAILER_FNS: Record<RetailerId, (q: string) => Promise<RetailerSearchResu
 };
 
 export const ALL_RETAILER_IDS: RetailerId[] = [
-  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit',
+  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'wired2fire',
   'corsair', 'nzxt', 'coolermaster', 'lianli', 'fractal', 'thermaltake',
   'currys', 'argos', 'johnlewis',
 ];

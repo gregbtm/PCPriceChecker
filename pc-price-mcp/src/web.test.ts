@@ -71,6 +71,31 @@ describe('dashboard API: components', () => {
   });
 });
 
+describe('known product pages', () => {
+  it('lists the pages for the capacities the profile accepts, adds them once, and turns search_also on', async () => {
+    const c = db.addTrackedComponent('64GB known pages', 'ram', 'ddr5 so-dimm 64gb', 350);
+    expect((await json(`/api/components/${c.id}/known-pages`)).body.pages).toEqual([]);   // no profile: nothing to match against
+    await send(`/api/components/${c.id}/profile`, 'PATCH', { profile_id: 'n5-air-ram' });
+    const before = await json(`/api/components/${c.id}/known-pages`);
+    expect(before.body.pages.length).toBeGreaterThanOrEqual(5);
+    expect(before.body.pages.every((p: { added: boolean; kitGb: number }) => !p.added && [48, 64].includes(p.kitGb))).toBe(true);
+    const add = await send(`/api/components/${c.id}/known-pages`, 'POST', {});
+    expect(add.body.added.length).toBe(before.body.pages.length);
+    expect(db.getComponentUrls(c.id)).toHaveLength(before.body.pages.length);
+    expect(db.getTrackedComponentById(c.id)?.search_also).toBe(1);
+    const again = await send(`/api/components/${c.id}/known-pages`, 'POST', {});
+    expect(again.body.added).toEqual([]);
+    expect(db.getComponentUrls(c.id)).toHaveLength(before.body.pages.length);   // idempotent
+    expect((await json('/api/components/99999/known-pages')).status).toBe(404);
+  });
+  it('search_also can be switched and is validated', async () => {
+    const c = db.addTrackedComponent('x2', 'ram', 'q', null as unknown as number);
+    expect((await send(`/api/components/${c.id}/search-also`, 'PATCH', { search_also: 'yes' })).status).toBe(400);
+    expect((await send(`/api/components/${c.id}/search-also`, 'PATCH', { search_also: true })).status).toBe(200);
+    expect(db.getTrackedComponentById(c.id)?.search_also).toBe(1);
+  });
+});
+
 describe('changedetection watch deletion guard', () => {
   it('refuses to delete a watch this app did not create', async () => {
     process.env.CHANGEDETECTION_URL = 'http://cd.test'; process.env.CHANGEDETECTION_API_KEY = 'k';

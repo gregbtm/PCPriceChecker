@@ -1,7 +1,7 @@
 /**
  * Refresh one tracked component (extracted from the scheduler so it can be tested, P0-8 / P0-9).
  *
- * Tiers, first that applies:
+ * Tiers, first that applies (a component with `search_also` set runs 1 and then 2 and 3):
  *  1. The component's own URLs (component_urls / source_url), scraped one by one.
  *  2. Key-less: direct UK retailer searches, kept only if the title matches the component's query.
  *  3. Optional: PricesAPI, only when PRICES_API_KEY is configured. Never required.
@@ -51,7 +51,7 @@ export interface RefreshContext {
  * Aria is not here: it closed its online shop in August 2022 (its homepage says so, checked 2026-10-06).
  */
 export const DEFAULT_SEARCH_RETAILERS: RetailerId[] = [
-  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'awdit',
+  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'awdit', 'wired2fire',
 ];   // Currys left out 2026-10-07: Cloudflare challenge, and its scraper calls a private JSON endpoint with a spoofed Referer
 const RETAILER_GAP_MS = 2_000;
 
@@ -152,7 +152,10 @@ export async function refreshComponent(
           ...profileAttrs(component, scraped.name, scraped.price) }] };
       });
     }
-  } else {
+  }
+  // Own URLs replace the searches unless the component opts in to both (`search_also`): pinning known product pages must not
+  // silently switch eBay and the retailer searches off.
+  if (urls.length === 0 || component.search_also === 1) {
     for (const id of ctx.retailers) {
       const ran = await attempt(`search:${id}`, async () => {
         const viaWatch = deps.searchViaWatch && deps.changedetectionConfigured?.() ? await deps.searchViaWatch(id, component.search_query) : null;
