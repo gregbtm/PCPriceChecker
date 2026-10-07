@@ -5,6 +5,7 @@
  * title does not state it, never guessed. `matchesProfile` then decides whether a listing fits a
  * machine and returns the reasons and flags, so a rejection is explainable.
  */
+import { findKnownMpn } from '../data/memory-mpns.js';
 
 export interface MemoryListing {
   ddr: 4 | 5 | null;
@@ -92,13 +93,22 @@ export function classifyMemory(title: string): MemoryListing {
   const cl = t.match(/\bC(?:AS|L)\s?-?(\d{2})\b/i);
   const v = t.match(/\b(1\.\d{1,2})\s?V\b/i);
 
-  return {
+  const parsed: MemoryListing = {
     ddr, formFactor, ecc, registered, modules, moduleGb, totalGb,
     speedMts: parseSpeed(t, ddr),
     cl: cl ? +cl[1] : null,
     voltage: v ? +v[1] : null,
     bundle,
   };
+
+  // A manufacturer part number named in the text is exact where the words are not (Box's address for a DDR5 kit says "ddr4").
+  // The catalogue states generation, form factor and capacity only; ECC, CL and voltage stay as parsed, never guessed.
+  const known = findKnownMpn(title);
+  if (known && !bundle) {
+    return { ...parsed, ddr: 5, formFactor: 'SODIMM', modules: known.modules, moduleGb: known.kitGb / known.modules,
+      totalGb: known.kitGb, speedMts: parsed.speedMts ?? known.speedMts };
+  }
+  return parsed;
 }
 
 // ── Hardware profiles ──────────────────────────────────────────────────────

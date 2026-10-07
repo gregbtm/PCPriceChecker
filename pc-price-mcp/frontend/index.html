@@ -2759,6 +2759,19 @@
             </li>
           </template>
         </ul>
+        <template x-if="knownPages && knownPages.pages.length">
+          <div class="mt-3 pt-3 border-t border-base-300">
+            <p class="text-xs font-semibold mb-1">Verified product pages for this profile</p>
+            <p class="text-xs text-base-content/60 mb-2">Retailer sitemaps do not list every product, so these exact pages (read 2026-10-07) can be watched directly. Searches keep running alongside them.</p>
+            <ul class="text-xs space-y-1 mb-2">
+              <template x-for="p in knownPages.pages" :key="p.url">
+                <li class="flex justify-between gap-2"><span x-text="p.retailer + ' · ' + p.mpn"></span>
+                  <span :class="p.added ? 'text-success' : 'text-base-content/50'" x-text="p.added ? 'watching' : 'not added'"></span></li>
+              </template>
+            </ul>
+            <button class="btn btn-xs btn-primary" @click="addKnownPages()" x-show="knownPages.pages.some(p => !p.added)">Add the pages not yet watched</button>
+          </div>
+        </template>
       </div>
     </template>
   </div>

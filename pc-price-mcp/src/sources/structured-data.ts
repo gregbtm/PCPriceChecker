@@ -20,6 +20,11 @@ export interface StructuredProduct {
   name?: string;
   url?: string;
   sku?: string;
+  /** Manufacturer part number, stated separately from the shop's own SKU (kept apart because they identify different things). */
+  mpn?: string;
+  /** GTIN-8/12/13/14 (barcode), digits only. The most reliable product identity when present. */
+  gtin?: string;
+  brand?: string;
   image?: string;
   offers: StructuredOffer[];
 }
@@ -80,6 +85,20 @@ function collectOffers(rawOffers: unknown): StructuredOffer[] {
   return out;
 }
 
+/** First usable GTIN among gtin / gtin8 / gtin12 / gtin13 / gtin14 / isbn-free keys; digits only, 8, 12, 13 or 14 long. */
+function gtinOf(obj: Json): string | undefined {
+  for (const k of ['gtin', 'gtin13', 'gtin14', 'gtin12', 'gtin8']) {
+    const d = str(obj[k])?.replace(/\D/g, '');
+    if (d && [8, 12, 13, 14].includes(d.length)) return d;
+  }
+  return undefined;
+}
+
+function brandOf(v: unknown): string | undefined {
+  if (v && typeof v === 'object') return str((v as Json).name);
+  return str(v);
+}
+
 function firstImage(v: unknown): string | undefined {
   const f = asArray(v as unknown)[0];
   if (typeof f === 'string') return f;
@@ -97,6 +116,7 @@ function walk(node: unknown, found: StructuredProduct[], depth: number): void {
     if (offers.length > 0) {
       found.push({
         name: str(obj.name), url: str(obj.url), sku: str(obj.sku) ?? str(obj.mpn),
+        mpn: str(obj.mpn), gtin: gtinOf(obj), brand: brandOf(obj.brand),
         image: firstImage(obj.image), offers,
       });
     }

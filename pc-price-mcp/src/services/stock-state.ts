@@ -43,9 +43,12 @@ export function parseStockText(text: string | null | undefined): StockState {
 export function stockStateFromAvailability(value: unknown): StockState {
   if (value == null || value === '') return 'unknown';
   const s = String(value).replace(/^https?:\/\/schema\.org\//i, '').trim();
-  if (/^(BackOrder|PreOrder|PreSale)$/i.test(s)) return 'backorder';
-  if (/^(OutOfStock|SoldOut|Discontinued)$/i.test(s)) return 'out_of_stock';
-  if (/^(InStock|InStoreOnly|OnlineOnly|LimitedAvailability)$/i.test(s)) return 'in_stock';
+  if (/^(BackOrder|PreOrder|PreSale|MadeToOrder)$/i.test(s)) return 'backorder';
+  if (/^(OutOfStock|SoldOut|Discontinued|Reserved)$/i.test(s)) return 'out_of_stock';
+  // InStoreOnly means "buy it in a shop": it cannot be delivered, so it must never alert an online buyer (found in a prior-art
+  // review 2026-10-07: changedetection.io's own substring test counts it as in stock). `unknown` never alerts.
+  if (/^InStoreOnly$/i.test(s)) return 'unknown';
+  if (/^(InStock|OnlineOnly|LimitedAvailability)$/i.test(s)) return 'in_stock';
   return parseStockText(s);
 }
 

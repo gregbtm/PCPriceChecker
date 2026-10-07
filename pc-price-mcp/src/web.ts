@@ -46,6 +46,7 @@ import { sendDailySummary } from './services/daily-summary.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
 import { getDealScoresForAll } from './services/deal-scorer.js';
 import { catalogueSummary } from './services/catalogue-watch.js';
+import { knownPagesFor } from './data/known-pages.js';
 import { SITEMAPS, slugText } from './sources/sitemap-discovery.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -765,6 +766,45 @@ export function startWebServer(port: number): void {
     if (!url) { res.status(400).json({ error: 'url is required' }); return; }
     const record = db.addComponentUrl(id, url, retailer, label);
     res.json(record);
+  }));
+
+  // Verified product pages (src/data/known-pages.ts) for the capacities this component's profile accepts.
+  const knownPagesForComponent = (id: number) => {
+    const c = db.getTrackedComponents().find(x => x.id === id);
+    if (!c) return null;
+    const profile = c.profile_id ? PROFILES[c.profile_id] : undefined;
+    if (!profile) return { component: c, pages: [] as ReturnType<typeof knownPagesFor> };
+    return { component: c, pages: knownPagesFor(profile.acceptedTotalsGb.map(x => x.gb)) };
+  };
+
+  app.get('/api/components/:id/known-pages', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const k = knownPagesForComponent(id);
+    if (!k) { res.status(404).json({ error: 'component not found' }); return; }
+    const have = new Set(db.getComponentUrls(id).map(u => u.url));
+    res.json({ search_also: k.component.search_also === 1, pages: k.pages.map(p => ({ ...p, added: have.has(p.url) })) });
+  }));
+
+  // Adds every known page not yet tracked, and turns `search_also` on so eBay and the retailer searches keep running alongside them.
+  app.post('/api/components/:id/known-pages', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const k = knownPagesForComponent(id);
+    if (!k) { res.status(404).json({ error: 'component not found' }); return; }
+    const have = new Set(db.getComponentUrls(id).map(u => u.url));
+    const added: string[] = [];
+    for (const p of k.pages) {
+      if (have.has(p.url)) continue;
+      db.addComponentUrl(id, p.url, p.retailer, `${p.mpn} (known page)`);
+      added.push(p.url);
+    }
+    if (k.pages.length > 0) db.setSearchAlso(id, true);
+    res.json({ added, already: k.pages.length - added.length, search_also: k.pages.length > 0 || k.component.search_also === 1 });
+  }));
+
+  app.patch('/api/components/:id/search-also', h(async (req, res) => {
+    const on = req.body?.search_also;
+    if (typeof on !== 'boolean') { res.status(400).json({ error: 'search_also must be true or false' }); return; }
+    res.json({ updated: db.setSearchAlso(parseInt(param(req.params.id)), on) });
   }));
 
   app.delete('/api/component-urls/:urlId', h(async (req, res) => {

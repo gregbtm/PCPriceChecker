@@ -352,3 +352,8 @@ Investigated from the owner's request (research rows 35-37). (1) **PricesAPI:** 
 ## 9t. First live sitemap pass (2026-10-07)
 
 AWD-IT through its sitemap works on the NAS (2 offers for the 64GB component). Novatech returned `ok` with 0 offers because `slugText` read only the last URL segment, the manufacturer code; fixed to read every segment (research row 38). Novatech's `sitemap-products.xml` did load from the NAS. Whether Novatech lists any DDR5 SO-DIMM kit at all is still unknown: the earlier search listed none.
+
+## 9u. Product evaluation and the first reliability build (2026-10-07)
+
+The owner asked for an evaluation of the product and an ambitious build, searching GitHub and elsewhere. Two research passes (prior art; UK data sources) are summarised in `docs/PRODUCT_EVALUATION.md` with Verified/Unverified tags and a ranked roadmap (C = reliability, B = ambitious). Built: catalogue census with new-product alerts, block pages recorded as failures, heartbeat ping (PR 43); `InStoreOnly` fix and MPN/GTIN/brand extraction; a WooCommerce Store API source and `wired2fire` retailer id; a known-part-number catalogue (`src/data/memory-mpns.ts`) that overrides a misleading title or address in the classifier; five verified product pages (`src/data/known-pages.ts`) with `GET/POST /api/components/:id/known-pages` and an offers-modal button; a per-component `search_also` flag (migration, default 0) so pinned pages do not switch eBay and the searches off. Honest headline: the market floor seen today is £600 to £1,150 against a £350 target, and alert delivery has still never been observed.
+

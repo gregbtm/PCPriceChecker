@@ -73,7 +73,7 @@ function app() {
     searchQuery: '',
     lastSearchQuery: '',
     searchSource: 'retailers',
-    selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'currys', 'argos', 'johnlewis'],
+    selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'wired2fire', 'currys', 'argos', 'johnlewis'],
     allRetailers: [
       { id: 'currys',       label: 'Currys' },
       { id: 'argos',        label: 'Argos' },
@@ -86,6 +86,7 @@ function app() {
       { id: 'novatech',     label: 'Novatech' },
       { id: 'aria',         label: 'Aria PC' },
       { id: 'awdit',        label: 'AWD-IT' },
+      { id: 'wired2fire',   label: 'Wired2Fire' },
       { id: 'corsair',      label: 'Corsair UK' },
       { id: 'nzxt',         label: 'NZXT UK' },
       { id: 'coolermaster', label: 'Cooler Master UK' },
@@ -182,6 +183,8 @@ function app() {
     ebayStatus: null,
     showOffersModal: false,
     offersData: null,
+    knownPages: null,
+    offersComponentId: null,
     alertConsider: '',
     alertProfile: '',
     intGroups: [
@@ -452,8 +455,16 @@ function app() {
     },
     async checkEbay() { this.ebayStatus = await (await fetch('/api/ebay/status')).json(); },
     async openOffers(c) {
-      this.offersData = null; this.showOffersModal = true;
+      this.offersData = null; this.knownPages = null; this.showOffersModal = true;
       this.offersData = await (await fetch(`/api/components/${c.id}/offers`)).json();
+      this.offersComponentId = c.id;
+      try { this.knownPages = await (await fetch(`/api/components/${c.id}/known-pages`)).json(); } catch { /* advisory */ }
+    },
+    async addKnownPages() {
+      const r = await fetch(`/api/components/${this.offersComponentId}/known-pages`, { method: 'POST' });
+      const d = await r.json();
+      this.showToast(d.added.length ? `✅ Added ${d.added.length} verified product page(s); searches keep running too` : 'Nothing new to add');
+      this.knownPages = await (await fetch(`/api/components/${this.offersComponentId}/known-pages`)).json();
     },
     fmtRun(r) { return `${r.started_at} · ${r.source} · ${r.ok ? 'ok' : 'FAILED'}${r.offers_found ? ` · ${r.offers_found} offers` : ''}${r.error ? ' · ' + r.error : ''}`; },
     async loadAlerts()         { await this.loadFrom('/api/alerts',                  'alerts'); },

@@ -418,3 +418,34 @@ describe('sitemap tier (robots.txt-compliant replacement for a disallowed search
     expect(db.getRecentScrapeRuns(5).find(r => r.source === 'search:awdit')).toMatchObject({ ok: 0, error: 'sitemap: sitemap HTTP 404' });
   });
 });
+
+describe('search_also: pinned product pages must not switch the searches off', () => {
+  const pageProduct = { name: 'Crucial CT2K32G56C46S5 64GB (2 x 32GB) 5600 MHz DDR5 Laptop RAM', price: 885.71, currency: 'GBP', inStock: false,
+    stockState: 'out_of_stock' as const, method: 'json-ld', url: '' };
+
+  it('with its own URLs and search_also off, only the URLs run (original behaviour)', async () => {
+    const c = fresh();
+    db.addComponentUrl(c.id, 'https://box.co.uk/ct2k32g56c46s5-crucial-64gb-5600-ddr4-laptop-memory', 'box.co.uk', null);
+    const searchRetailer = vi.fn(async () => page('Scan.co.uk', []));
+    const { deps } = makeDeps({}, { scrapeUrl: vi.fn(async () => pageProduct as never), searchRetailer });
+    await refreshComponent(db.getTrackedComponentById(c.id)!, ctx(['scan']), deps);
+    expect(searchRetailer).not.toHaveBeenCalled();
+  });
+
+  it('with search_also on, the URLs run AND the searches run, and the Box page (slug says ddr4) is a profile match', async () => {
+    const c = fresh();
+    db.setComponentProfile(c.id, 'n5-air-ram');
+    db.addComponentUrl(c.id, 'https://box.co.uk/ct2k32g56c46s5-crucial-64gb-5600-ddr4-laptop-memory', 'box.co.uk', null);
+    db.setSearchAlso(c.id, true);
+    const searchRetailer = vi.fn(async () => page('Scan.co.uk', [res('Corsair Vengeance 64GB (2x32GB) DDR5 5600 SO-DIMM', 700, 'in_stock', 'scan')]));
+    const { deps } = makeDeps({}, { scrapeUrl: vi.fn(async () => pageProduct as never), searchRetailer });
+    await refreshComponent(db.getTrackedComponentById(c.id)!, ctx(['scan']), deps);
+    expect(searchRetailer).toHaveBeenCalledTimes(1);
+    const sources = db.getRecentScrapeRuns(10, c.id).map(r => r.source);
+    expect(sources).toContain('url:box.co.uk');
+    expect(sources).toContain('search:scan');
+    const boxRow = db.getLatestPricePerRetailer(c.id).find(r => r.retailer === 'box.co.uk')!;
+    expect(boxRow.profile_match).toBe(1);
+    expect(boxRow.in_stock).toBe(0);
+  });
+});

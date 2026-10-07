@@ -36,6 +36,12 @@ describe('stockStateFromAvailability', () => {
     ['https://schema.org/BackOrder', 'backorder'],
     ['https://schema.org/PreOrder', 'backorder'],
     ['https://schema.org/LimitedAvailability', 'in_stock'],
+    ['https://schema.org/OnlineOnly', 'in_stock'],
+    ['https://schema.org/InStoreOnly', 'unknown'],      // a shop-counter-only item is not a purchase an online buyer can make
+    ['https://schema.org/Reserved', 'out_of_stock'],
+    ['https://schema.org/MadeToOrder', 'backorder'],
+    ['https://schema.org/PreSale', 'backorder'],
+    ['InStoreOnly', 'unknown'],
     [undefined, 'unknown'],
     ['', 'unknown'],
   ] as const)('%s -> %s', (v, expected) => {

@@ -89,3 +89,27 @@ describe('bestOffer currency handling (P0-12)', () => {
     expect(bestOffer(p)?.price).toBe(699);
   });
 });
+
+describe('product identity fields (mpn, gtin, brand)', () => {
+  const page = (product: object) => `<script type="application/ld+json">${JSON.stringify(product)}</script>`;
+  // Shape follows schema.org/Product; values are constructed (the field names are the schema's, the numbers are not a real product's).
+  const base = { '@type': 'Product', name: 'x', offers: { '@type': 'Offer', price: '10', priceCurrency: 'GBP', availability: 'https://schema.org/InStock' } };
+
+  it('keeps the manufacturer part number apart from the shop SKU', () => {
+    const [p] = extractStructuredProducts(page({ ...base, sku: 'SHOP-1', mpn: 'CT2K32G56C46S5' }));
+    expect(p.sku).toBe('SHOP-1');
+    expect(p.mpn).toBe('CT2K32G56C46S5');
+  });
+  it('reads a GTIN under any of its schema.org names, digits only, and rejects wrong lengths', () => {
+    expect(extractStructuredProducts(page({ ...base, gtin13: '0649528 903 336' }))[0].gtin).toBe('0649528903336');
+    expect(extractStructuredProducts(page({ ...base, gtin: '12345' }))[0].gtin).toBeUndefined();
+  });
+  it('reads brand as a string or as a Brand object', () => {
+    expect(extractStructuredProducts(page({ ...base, brand: 'Crucial' }))[0].brand).toBe('Crucial');
+    expect(extractStructuredProducts(page({ ...base, brand: { '@type': 'Brand', name: 'Kingston' } }))[0].brand).toBe('Kingston');
+  });
+  it('an InStoreOnly offer is never reported as in stock', () => {
+    const p = extractStructuredProducts(page({ ...base, offers: { ...base.offers, availability: 'https://schema.org/InStoreOnly' } }))[0];
+    expect(bestOffer(p)?.stockState).toBe('unknown');
+  });
+});

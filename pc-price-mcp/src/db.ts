@@ -24,6 +24,8 @@ export interface TrackedComponent {
   profile_id: string | null;
   /** "Worth a look" ceiling above alert_price: offers up to this price are sent as a list of options (not a price alert). */
   consider_price: number | null;
+  /** 1 = also run the retailer/eBay searches when the component has its own URLs (default 0 keeps the original "URLs only" behaviour). */
+  search_also: number;
 }
 
 export interface ComponentUrl {
@@ -340,6 +342,7 @@ function runMigrations(db: Database.Database): void {
   if (!tcCols.includes('unit_type'))               db.exec('ALTER TABLE tracked_components ADD COLUMN unit_type TEXT');
   if (!tcCols.includes('profile_id'))              db.exec('ALTER TABLE tracked_components ADD COLUMN profile_id TEXT');
   if (!tcCols.includes('consider_price'))          db.exec('ALTER TABLE tracked_components ADD COLUMN consider_price REAL');
+  if (!tcCols.includes('search_also'))             db.exec('ALTER TABLE tracked_components ADD COLUMN search_also INTEGER NOT NULL DEFAULT 0');
 }
 
 // ── Config ─────────────────────────────────────────────────────────────────
@@ -391,6 +394,10 @@ export function removeTrackedComponent(id: number): boolean {
 
 export function updateAlertPrice(id: number, alertPrice: number | null): boolean {
   return getDb().prepare('UPDATE tracked_components SET alert_price = ? WHERE id = ?').run(alertPrice, id).changes > 0;
+}
+
+export function setSearchAlso(id: number, on: boolean): boolean {
+  return getDb().prepare('UPDATE tracked_components SET search_also = ? WHERE id = ?').run(on ? 1 : 0, id).changes > 0;
 }
 
 export function updateConsiderPrice(id: number, price: number | null): boolean {

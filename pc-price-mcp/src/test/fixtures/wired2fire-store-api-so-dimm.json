@@ -1,0 +1,66 @@
+[
+ {
+  "id": 34203,
+  "name": "64GB DDR5 5600MHz SO-DIMM (2 x 32GB)",
+  "sku": "MM_W2F_32D5RGB-2-1",
+  "slug": "64gb-ddr5-5600mhz-so-dimm-memory-2-x-32gb",
+  "permalink": "https://wired2fire.co.uk/product/64gb-ddr5-5600mhz-so-dimm-memory-2-x-32gb/",
+  "type": "simple",
+  "is_in_stock": true,
+  "is_on_backorder": true,
+  "is_purchasable": true,
+  "on_sale": false,
+  "low_stock_remaining": null,
+  "stock_availability": {
+   "text": "",
+   "class": "available-on-backorder"
+  },
+  "prices": {
+   "price": "60000",
+   "regular_price": "60000",
+   "sale_price": "60000",
+   "price_range": null,
+   "currency_code": "GBP",
+   "currency_symbol": "\u00a3",
+   "currency_minor_unit": 2,
+   "currency_decimal_separator": ".",
+   "currency_thousand_separator": ",",
+   "currency_prefix": "\u00a3",
+   "currency_suffix": ""
+  },
+  "has_options": false,
+  "brands": []
+ },
+ {
+  "id": 34195,
+  "name": "32GB DDR5 5600MHz SO-DIMM (2 x 16GB)",
+  "sku": "MM_W2F_32D5RGB-2",
+  "slug": "32gb-ddr5-5600mhz-so-dimm-memory-2-x-16gb",
+  "permalink": "https://wired2fire.co.uk/product/32gb-ddr5-5600mhz-so-dimm-memory-2-x-16gb/",
+  "type": "simple",
+  "is_in_stock": true,
+  "is_on_backorder": true,
+  "is_purchasable": true,
+  "on_sale": false,
+  "low_stock_remaining": null,
+  "stock_availability": {
+   "text": "",
+   "class": "available-on-backorder"
+  },
+  "prices": {
+   "price": "60000",
+   "regular_price": "60000",
+   "sale_price": "60000",
+   "price_range": null,
+   "currency_code": "GBP",
+   "currency_symbol": "\u00a3",
+   "currency_minor_unit": 2,
+   "currency_decimal_separator": ".",
+   "currency_thousand_separator": ",",
+   "currency_prefix": "\u00a3",
+   "currency_suffix": ""
+  },
+  "has_options": false,
+  "brands": []
+ }
+]
