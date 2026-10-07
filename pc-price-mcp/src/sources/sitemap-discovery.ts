@@ -60,10 +60,17 @@ export async function loadSitemapUrls(id: RetailerId, fetchFn: typeof fetch = fe
   return out;
 }
 
-/** The product slug as words: `/kingston-fury-64gb-2x32gb-ddr5-sodimm.html` becomes "kingston fury 64gb 2x32gb ddr5 sodimm". */
+/**
+ * The product address as words. Every path segment counts, not just the last: Novatech's descriptive slug is the SECOND to last
+ * (`/products/klevv-cras-v-rgb-64gb-2x32gb-6000mhz-cl30-memory-ram-kit/kd5bgua80-60a300g.html`, last = the manufacturer code), and
+ * reading only the last segment meant it never matched anything (found from the owner's first pass, 2026-10-07: `search:novatech` ok with 0 offers).
+ * A leading `products` is dropped. AWD-IT's single-segment slugs are unchanged.
+ */
 export function slugText(url: string): string {
-  try { return decodeURIComponent(new URL(url).pathname.split('/').filter(Boolean).pop() ?? '').replace(/\.html?$/i, '').replace(/[-_]+/g, ' '); }
-  catch { return ''; }
+  try {
+    const segs = new URL(url).pathname.split('/').filter(Boolean).map(x => decodeURIComponent(x).replace(/\.html?$/i, ''));
+    return segs.filter((x, i) => !(i === 0 && x.toLowerCase() === 'products')).join(' ').replace(/[-_]+/g, ' ');
+  } catch { return ''; }
 }
 
 /** Addresses worth reading for this component: the profile (when it has one) decides on the slug, else every query word must be in it. */
