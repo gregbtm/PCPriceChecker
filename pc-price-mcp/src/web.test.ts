@@ -148,6 +148,42 @@ describe('settings: limits, pausing and the PricesAPI switch', () => {
   });
 });
 
+describe('rejected listings diagnostic', () => {
+  const snap = (name: string, price: number, url: string, match: boolean, state: 'in_stock' | 'out_of_stock' = 'in_stock') => ({
+    source: 'ebay', price, currency: 'GBP', retailer: 'eBay UK', url, inStock: state === 'in_stock', stockState: state, listingName: name, profileMatch: match });
+  it('says what the classifier turned away and why, cheapest first, and offers single modules that could be paired (never automatically)', async () => {
+    const c = db.addTrackedComponent('64GB rejected', 'ram', 'q', 600);
+    await send(`/api/components/${c.id}/profile`, 'PATCH', { profile_id: 'n5-air-ram' });
+    db.savePriceSnapshots(c.id, [
+      snap('Kingston FURY Impact 32GB DDR5 5600MHz SO-DIMM laptop memory', 250, 'https://www.ebay.co.uk/itm/100000000001', false),
+      snap('Crucial 64GB (2x32GB) DDR4 3200 SODIMM kit', 180, 'https://www.ebay.co.uk/itm/100000000002', false),
+      snap('Corsair Vengeance 64GB (2x32GB) DDR5 5600 desktop DIMM', 300, 'https://www.ebay.co.uk/itm/100000000003', false),
+      snap('Fanxiang 64GB (2x32GB) DDR5 5600MHz SO-DIMM Laptop RAM Memory Kit', 492, 'https://www.ebay.co.uk/itm/100000000004', true),   // fits: must NOT be listed
+    ]);
+    const r = await json(`/api/components/${c.id}/rejected`);
+    expect(r.status).toBe(200);
+    expect(r.body.total).toBe(3);
+    expect(r.body.cheapest.map((x: { price: number }) => x.price)).toEqual([180, 250, 300]);
+    expect(JSON.stringify(r.body.cheapest)).not.toContain('Fanxiang');
+    expect(r.body.cheapest[0].reasons.join(' ')).toMatch(/DDR4, need DDR5/);
+    expect(r.body.cheapest[2].reasons.join(' ')).toMatch(/DIMM, need SODIMM/);
+    expect(Object.keys(r.body.by_reason).join(' ')).toMatch(/DDR4/);
+    expect(r.body.singles).toHaveLength(1);
+    expect(r.body.singles[0]).toMatchObject({ price: 250, pair_price: 500 });
+    expect(r.body.single_module_sizes_gb).toEqual([32, 24]);
+    expect((await json('/api/components/99999/rejected')).status).toBe(404);
+    expect((await json(`/api/components/${db.addTrackedComponent('no profile', 'ram', 'q', 1).id}/rejected`)).body).toMatchObject({ profile: null, total: 0 });
+  });
+  it('ignores listings last seen before the window', async () => {
+    const c = db.addTrackedComponent('64GB old', 'ram', 'q', 600);
+    await send(`/api/components/${c.id}/profile`, 'PATCH', { profile_id: 'n5-air-ram' });
+    db.savePriceSnapshots(c.id, [snap('Old 64GB (2x32GB) DDR4 SODIMM', 100, 'https://www.ebay.co.uk/itm/100000000009', false)]);
+    db.getDb().prepare("UPDATE price_records SET recorded_at = datetime('now', '-20 days') WHERE component_id = ?").run(c.id);
+    expect((await json(`/api/components/${c.id}/rejected?days=7`)).body.total).toBe(0);
+    expect((await json(`/api/components/${c.id}/rejected?days=30`)).body.total).toBe(1);
+  });
+});
+
 describe('alert evidence ledger', () => {
   it('lists what was true when an alert was sent or held back, newest first, with the JSON parsed', async () => {
     db.recordEvidence({ componentId: null, kind: 'suppressed', retailer: 'eBay UK', url: 'https://www.ebay.co.uk/itm/1', price: 300, evidence: { reason: 'the listing is gone' } });

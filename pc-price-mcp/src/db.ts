@@ -1264,6 +1264,20 @@ export function getRecentEvidence(limit = 50, componentId?: number): AlertEviden
     : getDb().prepare('SELECT * FROM alert_evidence ORDER BY id DESC LIMIT ?').all(limit) as AlertEvidence[];
 }
 
+/**
+ * Listings seen in the last `days` that did NOT fit the component's profile (profile_match = 0), newest observation per listing, cheapest first.
+ * The other half of "why did nothing alert": a classifier that rejects something it should accept is invisible without this.
+ */
+export function getRejectedOffers(componentId: number, days = 7, limit = 400): PriceRecord[] {
+  return getDb().prepare(`
+    SELECT p.* FROM price_records p
+    INNER JOIN (SELECT url, retailer, MAX(id) AS mid FROM price_records
+                WHERE component_id = ? AND recorded_at >= datetime('now', ?) GROUP BY retailer, url) latest ON p.id = latest.mid
+    WHERE p.profile_match = 0
+    ORDER BY p.price ASC LIMIT ?
+  `).all(componentId, `-${Math.max(1, Math.floor(days))} days`, limit) as PriceRecord[];
+}
+
 /** Replace a stored offer's comma-separated profile flags (what a re-check learned about the listing). */
 export function setRecordFlags(recordId: number, flags: string): void {
   getDb().prepare('UPDATE price_records SET profile_flags = ? WHERE id = ?').run(flags || null, recordId);
