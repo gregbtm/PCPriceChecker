@@ -110,3 +110,51 @@ describe('a block page is a failure, not an empty catalogue', () => {
     expect(r?.emptyIsOk).toBeFalsy();
   });
 });
+
+describe('Buy Kingston (real sitemap addresses and product page, captured 2026-10-08)', () => {
+  const BK_SITEMAP = readFileSync(new URL('../test/fixtures/buykingston-sitemap-excerpt.xml', import.meta.url), 'utf8');
+  const BK_ROBOTS = readFileSync(new URL('../test/fixtures/robots/buykingston.txt', import.meta.url), 'utf8');
+  const BK_PAGE = readFileSync(new URL('../test/fixtures/buykingston-kf556s40ibk2-64.html', import.meta.url), 'utf8');   // the page's real Product JSON-LD block only
+  const KIT64 = 'https://www.buykingston.co.uk/kingston-fury-impact-kf556s40ibk2-64-64gb-32gb-x2-ddr5-5600mt-s-non-ecc-sodimm/';
+  const CORSAIR48 = 'https://www.buykingston.co.uk/corsair-vengeance-48gb-2x24gb-ddr5-5200-mhz-sodimm-memory/';
+  const files = { 'https://www.buykingston.co.uk/sitemap.xml': BK_SITEMAP, 'https://www.buykingston.co.uk/robots.txt': BK_ROBOTS };
+  const component = { search_query: 'ddr5 so-dimm 64gb', profile_id: 'n5-air-ram' };
+
+  it('the N5 Air profile picks exactly the 64GB kit and the 48GB kit from 190 real addresses', () => {
+    const urls = parseSitemapLocs(BK_SITEMAP).locs;
+    expect(urls.length).toBeGreaterThan(150);
+    // The desktop DDR5 kits, DDR4 SO-DIMM 64GB kit, 32GB kits, singles and the 96GB SO-DIMM kit are all in the excerpt and all rejected.
+    expect(candidateUrls(urls, component).sort()).toEqual([CORSAIR48, KIT64].sort());
+  });
+
+  it('reads the real JSON-LD: GBP 1039.89 and out of stock (what the page said on 2026-10-08)', async () => {
+    const { extractFromHtml } = await import('./url-scraper.js');
+    const p = extractFromHtml(BK_PAGE, 'www.buykingston.co.uk');
+    expect(p?.price).toBe(1039.89);
+    expect(p?.currency).toBe('GBP');
+    expect(p?.stockState).toBe('out_of_stock');
+  });
+
+  it('searchViaSitemap works for it end to end, reading only its two candidate pages, and never alerts-worthy when out of stock', async () => {
+    const fetchFn = fakeFetch(files);
+    const { extractFromHtml } = await import('./url-scraper.js');
+    const scrapeUrl = vi.fn(async (u: string) => {
+      const x = extractFromHtml(BK_PAGE, 'www.buykingston.co.uk')!;   // the 48GB page is stood in for by the 64GB page's data: only the call pattern matters here
+      return { ...scraped(x.price!, u === KIT64 ? 'Kingston FURY Impact 64GB (32GB x2) DDR5 5600MT/s SODIMM' : 'Corsair Vengeance 48GB (2x24GB) DDR5 5200 SODIMM', false), stockState: x.stockState! };
+    });
+    const r = await searchViaSitemap('buykingston', component, { fetchFn, scrapeUrl, sleep: vi.fn().mockResolvedValue(undefined) });
+    expect(r?.retailer).toBe('Buy Kingston');
+    expect(scrapeUrl.mock.calls.map(c => c[0]).sort()).toEqual([CORSAIR48, KIT64].sort());
+    expect(r?.results.every(x => x.stockState === 'out_of_stock' && x.inStock === false)).toBe(true);
+    // the census saw the whole catalogue through the same read
+    const seen: number[] = [];
+    clearSitemapCache();
+    await searchViaSitemap('buykingston', component, { fetchFn, scrapeUrl, sleep: vi.fn(), observeCatalogue: async (_id, _name, urls) => { seen.push(urls.length); } });
+    expect(seen[0]).toBeGreaterThan(150);
+  });
+
+  it('robots.txt allows everything, so the sitemap and a product page are both fetchable', async () => {
+    const { assertAllowedByRobots } = await import('../services/robots.js');
+    await expect(assertAllowedByRobots(KIT64, fakeFetch(files))).resolves.toBeUndefined();
+  });
+});

@@ -78,3 +78,51 @@ describe('WooCommerce Store API (Wired2Fire)', () => {
     expect((await searchWooStore('nope', 'x', fakeFetch('[]').f)).error).toMatch(/unknown WooCommerce store/);
   });
 });
+
+// Real Inside-Tech Store API products and robots.txt, captured 2026-10-08 (response trimmed to six products and the fields used).
+const IT_API = readFileSync(new URL('../test/fixtures/insidetech-store-api-sodimm.json', import.meta.url), 'utf8');
+const IT_ROBOTS = readFileSync(new URL('../test/fixtures/robots/insidetech.txt', import.meta.url), 'utf8');
+
+function itFetch(apiBody: string) {
+  const calls: string[] = [];
+  const f = vi.fn(async (url: string) => {
+    calls.push(url);
+    if (url.endsWith('/robots.txt')) return { ok: true, status: 200, headers: new Headers(), text: async () => IT_ROBOTS };
+    return { ok: true, status: 200, headers: new Headers(), text: async () => apiBody, json: async () => JSON.parse(apiBody) };
+  }) as unknown as typeof fetch;
+  return { f, calls };
+}
+
+describe('WooCommerce Store API (Inside-Tech)', () => {
+  it('searches "sodimm" (its titles do not hyphenate it), while Wired2Fire keeps "so-dimm"', async () => {
+    expect(wooSearchTerm('ddr5 so-dimm 64gb', 'sodimm')).toBe('sodimm');
+    const it = itFetch(IT_API);
+    await searchWooStore('insidetech', 'DDR5 SO-DIMM 64GB kit', it.f);
+    expect(it.calls.some(u => u.startsWith('https://inside-tech.co.uk/wp-json/wc/store/v1/products?search=sodimm&'))).toBe(true);
+    const w = fakeFetch(API);
+    await searchWooStore('wired2fire', 'DDR5 SO-DIMM 64GB kit', w.f);
+    expect(w.calls.some(u => u.includes('search=so-dimm&'))).toBe(true);
+  });
+
+  it('reads the real response: GBP prices in major units, in stock, and none of today\'s products fits the N5 Air', async () => {
+    const r = await searchWooStore('insidetech', 'ddr5 so-dimm 64gb', itFetch(IT_API).f);
+    expect(r.error).toBeUndefined();
+    expect(r.retailer).toBe('Inside-Tech');
+    const single32 = r.results.find(x => x.name === '32GB DDR5 RAM SODIMM')!;
+    expect(single32.price).toBe(428);
+    expect(single32.stockState).toBe('in_stock');
+    // the trap in the real data: a GBP 12 "product" that is the no-RAM option, not memory
+    expect(r.results.find(x => /No RAM/.test(x.name))?.price).toBe(12);
+    const profile = PROFILES['n5-air-ram'];
+    for (const x of r.results) expect(matchesProfile(classifyMemory(x.name), profile).match, x.name).toBe(false);
+  });
+
+  it('a 64GB kit, if the shop lists one, matches the profile (constructed product, not captured)', async () => {
+    const real = JSON.parse(IT_API) as Array<Record<string, unknown>>;
+    const kit = { ...real[0], id: 1, name: 'Kingston FURY Impact KF556S40IBK2-64 64GB (2x 32GB) SODIMM System Memory, 5600MHz, DDR5, CL40', permalink: 'https://inside-tech.co.uk/product/constructed-64gb-kit/', prices: { price: '59900', currency_code: 'GBP', currency_minor_unit: 2 } };
+    const r = await searchWooStore('insidetech', 'ddr5 so-dimm 64gb', itFetch(JSON.stringify([...real, kit])).f);
+    const found = r.results.find(x => /64GB/.test(x.name))!;
+    expect(found.price).toBe(599);
+    expect(matchesProfile(classifyMemory(found.name), PROFILES['n5-air-ram']).match).toBe(true);
+  });
+});
