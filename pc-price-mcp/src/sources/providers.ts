@@ -26,7 +26,7 @@ export const directProvider: Provider = {
   async fetchOffer(url) {
     try {
       const o = await scrapeProductUrl(url);
-      return o.price != null ? { ok: true, offer: o } : { ok: false, reason: 'no price extracted from page' };
+      return o.price != null ? { ok: true, offer: o } : { ok: false, reason: o.failure ?? 'no price extracted from page' };
     } catch (e) { return { ok: false, reason: e instanceof Error ? e.message : String(e) }; }
   },
 };
@@ -81,5 +81,5 @@ export async function scrapeViaChain(url: string, providers: Provider[] = [direc
   }
   remember(domain, null, tried);
   if (reasons.length) console.warn(`[providers] ${domain}: ${reasons.join('; ')}`);
-  return { name: domain, price: null, currency: 'GBP', inStock: false, stockState: 'unknown', url, method: 'failed' };
+  return { name: domain, price: null, currency: 'GBP', inStock: false, stockState: 'unknown', url, method: 'failed', ...(reasons.length ? { failure: reasons.join('; ') } : {}) };
 }

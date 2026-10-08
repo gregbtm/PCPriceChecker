@@ -1,4 +1,5 @@
 import type { PriceSnapshot } from '../db.js';
+import { bypassAllowed, scraperUserAgent } from '../services/scrape-policy.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyBrowser = any;
@@ -19,7 +20,10 @@ const USER_AGENTS = [
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 ];
-export function randomUA(): string { return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)]; }
+/** A rotating browser identity only when the owner opted in to bypass tooling; otherwise the project's honest one (services/scrape-policy.ts). */
+export function randomUA(): string {
+  return bypassAllowed() ? USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)] : scraperUserAgent();
+}
 
 // Realistic desktop viewport sizes (width × height)
 const VIEWPORTS = [
@@ -188,7 +192,7 @@ export async function getBrowser(): Promise<AnyBrowser | null> {
     if (_browser?.isConnected()) return _browser;
 
     // Priority 1 — Novada cloud anti-detect browser (stealth + IP rotation + CAPTCHA solving)
-    const novadaWs = process.env.NOVADA_BROWSER_WS;
+    const novadaWs = bypassAllowed() ? process.env.NOVADA_BROWSER_WS : undefined;   // anti-detect backends: opt-in only
     if (novadaWs) {
       try {
         // @ts-ignore
@@ -198,7 +202,7 @@ export async function getBrowser(): Promise<AnyBrowser | null> {
     }
 
     // Priority 2 — Camoufox (self-hosted anti-detect Firefox with built-in spoofing)
-    const camofoxUrl = process.env.CAMOFOX_URL;
+    const camofoxUrl = bypassAllowed() ? process.env.CAMOFOX_URL : undefined;
     if (camofoxUrl) {
       try {
         // @ts-ignore
@@ -214,7 +218,8 @@ export async function getBrowser(): Promise<AnyBrowser | null> {
     }
 
     // Priority 3 — Local Chromium with stealth hardening
-    const launchOpts: Record<string, unknown> = {
+    // Without the opt-in, only the flags a container needs: no fingerprint hardening.
+    const launchOpts: Record<string, unknown> = bypassAllowed() ? {
       headless: true,
       args: [
         '--no-sandbox',
@@ -230,7 +235,7 @@ export async function getBrowser(): Promise<AnyBrowser | null> {
         // Match a realistic desktop renderer
         '--window-size=1920,1080',
       ],
-    };
+    } : { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] };
     const customPath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
     if (customPath) launchOpts.executablePath = customPath;
     // @ts-ignore
@@ -258,6 +263,15 @@ export async function newPageWithProxy(proxy?: string): Promise<AnyPage | null> 
 }
 
 async function _newStealthPage(browser: AnyBrowser, opts: ContextOpts = {}): Promise<AnyPage> {
+  if (!bypassAllowed()) {
+    // Honest page: the project's own identity, default viewport, no fingerprint patches, no proxy. Renders JavaScript, nothing more.
+    // @ts-ignore
+    const plainCtx = await browser.newContext({ locale: 'en-GB', timezoneId: 'Europe/London', userAgent: scraperUserAgent() });
+    // @ts-ignore
+    const plainPage: AnyPage = await plainCtx.newPage();
+    (plainPage as any).__ctx = plainCtx;
+    return plainPage;
+  }
   const ua = opts.ua ?? randomUA();
   const vp = randomViewport();
 

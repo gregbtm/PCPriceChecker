@@ -146,7 +146,7 @@ export async function refreshComponent(
       }
       await attempt(`url:${domain}`, async () => {
         const scraped = await deps.scrapeUrl(url);
-        if (scraped.price == null) return { offers: [], error: 'no price extracted from page' };
+        if (scraped.price == null) return { offers: [], error: scraped.failure ?? 'no price extracted from page' };
         return { offers: [{ source: scraped.method, price: scraped.price, currency: scraped.currency,
           retailer: domain, url, inStock: scraped.inStock, stockState: scraped.stockState,
           ...profileAttrs(component, scraped.name, scraped.price) }] };

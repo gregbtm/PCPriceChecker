@@ -815,6 +815,8 @@ If a URL scrape fails, `last_scrape_failed` is set to 1 and the component shows 
 
 ## 10. Browser Integration (Playwright / Novada / Camoufox)
 
+> **Changed 2026-10-08.** The owner's rule is to scrape politely and never defeat a site's protections. Everything below that exists to avoid being recognised as automation (the stealth init script, rotating user agents, random viewports, proxy rotation, the Novada and Camoufox backends, and trying a browser after a site has refused a plain request) is now **off unless `allow_bot_bypass` (config) or `ALLOW_BOT_BYPASS` (env) is exactly `true`**. By default the browser, when the image includes one, renders a page with the project's own identity, and a 403, 429 or challenge page is recorded as "blocked by the site" in `/api/scrape-runs` and not retried with a browser. Every plain request now sends `PCPriceChecker (self-hosted price tracker; github.com/gregbtm/PCPriceChecker)` as its User-Agent; add contact details with config `scraper_user_agent`. The Docker image does not include Chromium unless built with `ENABLE_PLAYWRIGHT=true`, which CI does not do, so none of this was active on the owner's NAS before this change; the code path existed and the docs advertised it.
+
 The scraper picks its browser backend using a priority chain evaluated at startup:
 
 | Priority | Backend | Config key | When to use |

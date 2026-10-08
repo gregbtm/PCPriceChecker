@@ -1,6 +1,7 @@
 import { assertAllowedByRobots, RobotsDisallowedError } from '../services/robots.js';
 import { extractStructuredProducts, bestOffer } from './structured-data.js';
 import { searchWooStore } from './woocommerce-store.js';
+import { scraperUserAgent } from '../services/scrape-policy.js';
 import { parsePriceText } from '../services/price-text.js';
 import { parseStockText, stockStateFromAvailability, stockStateFromBoolean, type StockState } from '../services/stock-state.js';
 
@@ -51,14 +52,15 @@ export type RetailerId = 'scan' | 'overclockers' | 'ebuyer' | 'ccl' | 'box' | 'n
   | 'corsair' | 'nzxt' | 'coolermaster' | 'lianli' | 'fractal' | 'thermaltake'
   | 'currys' | 'argos' | 'johnlewis';
 
-const SHARED_HEADERS = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-    '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'en-GB,en;q=0.9',
-  'Cache-Control': 'no-cache',
-};
+/** Identity is the project's own (services/scrape-policy.ts); it used to be a Chrome browser string. */
+function sharedHeaders() {
+  return {
+    'User-Agent': scraperUserAgent(),
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-GB,en;q=0.9',
+    'Cache-Control': 'no-cache',
+  };
+}
 
 const TIMEOUT_MS = 12_000;
 /**
@@ -153,7 +155,7 @@ async function fetchPage(url: string): Promise<{ html: string; ok: boolean; stat
     if (e instanceof RobotsDisallowedError) return { html: '', ok: false, status: 0, error: e.message };
   }
   try {
-    const res = await fetch(url, { headers: SHARED_HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const res = await fetch(url, { headers: sharedHeaders(), signal: AbortSignal.timeout(TIMEOUT_MS) });
     return { html: res.ok ? await res.text() : '', ok: res.ok, status: res.status };
   } catch (e) {
     return { html: '', ok: false, status: 0 };
@@ -484,7 +486,7 @@ export async function currysSearch(query: string): Promise<RetailerSearchResult>
     const url = `https://api.currys.co.uk/catalog/products/search/v1?q=${encodeURIComponent(query)}&start=0&sz=8&format=json`;
     const res = await fetch(url, {
       headers: {
-        ...SHARED_HEADERS,
+        ...sharedHeaders(),
         Accept: 'application/json',
         Referer: 'https://www.currys.co.uk/',
       },
@@ -705,7 +707,7 @@ export async function diagnoseRetailerPage(id: RetailerId, query: string, needle
   let html = '';
   let status = 0;
   try {
-    const res = await fetch(url, { headers: SHARED_HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const res = await fetch(url, { headers: sharedHeaders(), signal: AbortSignal.timeout(TIMEOUT_MS) });
     status = res.status;
     html = await res.text();
   } catch { /* status 0: network error or timeout */ }
