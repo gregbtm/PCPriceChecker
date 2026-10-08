@@ -20,6 +20,7 @@ const FLAG_TEXT: Record<string, string> = {
   used_condition: 'used / refurbished / open-box item; check the stated condition',
   seller_feedback_low: 'seller feedback is below 98%',
   delivery_excluded: 'price excludes delivery',
+  ecc_listed: 'WARNING: the seller\'s item specifics list "ECC Memory". DDR5 has on-die ECC, so this may not mean ECC modules, but the N5 Air needs non-ECC: ask the seller to confirm before buying',
 };
 
 /** Human-readable detail for an alert: listing, price per GB and any caveats (P4-3 part). */
@@ -117,7 +118,8 @@ async function pickVerifiedBest(ctx: AlertContext): Promise<{ best: db.PriceReco
     let v: Verdict;
     try { v = await ctx.verify(c); } catch { v = { ok: true, note: 'could not re-check the listing just now' }; }
     if (v.ok) {
-      const flags = (c.profile_flags ?? '').split(',').filter(f => f && !(v.flagsRemoved ?? []).includes(f)).join(',');
+      const flags = [...(c.profile_flags ?? '').split(',').filter(f => f && !(v.flagsRemoved ?? []).includes(f)), ...(v.flagsAdded ?? [])].join(',');
+      if (flags !== (c.profile_flags ?? '')) db.setRecordFlags(c.id, flags);   // so the dashboard and the daily summary carry what the re-check learned
       return { best: { ...c, price: v.price ?? c.price, profile_flags: flags || null }, note: v.note, verdict: v, excluded };
     }
     excluded.add(c.id);

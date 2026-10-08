@@ -1264,6 +1264,11 @@ export function getRecentEvidence(limit = 50, componentId?: number): AlertEviden
     : getDb().prepare('SELECT * FROM alert_evidence ORDER BY id DESC LIMIT ?').all(limit) as AlertEvidence[];
 }
 
+/** Replace a stored offer's comma-separated profile flags (what a re-check learned about the listing). */
+export function setRecordFlags(recordId: number, flags: string): void {
+  getDb().prepare('UPDATE price_records SET profile_flags = ? WHERE id = ?').run(flags || null, recordId);
+}
+
 /** Stop offering a listing that has been seen to be gone: it leaves every purchasable list until a later scrape sees it again. */
 export function markOfferUnavailable(recordId: number): void {
   getDb().prepare("UPDATE price_records SET in_stock = 0, stock_state = 'out_of_stock' WHERE id = ?").run(recordId);

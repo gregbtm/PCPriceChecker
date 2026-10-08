@@ -8,7 +8,7 @@ import * as db from '../db.js';
 const SHORT_FLAG: Record<string, string> = {
   used_condition: 'used', delivery_excluded: '+delivery', kit_unconfirmed: 'kit?', ecc_unstated: '',
   speed_unstated: '', will_downclock: 'runs slower', seller_feedback_low: 'low feedback',
-  suspiciously_cheap: 'CHECK SELLER', non_binary_unverified: '24GB UNVERIFIED',
+  suspiciously_cheap: 'CHECK SELLER', ecc_listed: 'ECC LISTED?', non_binary_unverified: '24GB UNVERIFIED',
 };
 
 /** Stable identity of a listing across scrapes (eBay URLs carry changing tracking parameters). */

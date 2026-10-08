@@ -32,8 +32,8 @@ describe('reading an item', () => {
     expect(aspectsVerdict({ ecc: 'ECC' }).conflict).toMatch(/ECC/);
     expect(aspectsVerdict({ type: 'DIMM' }).conflict).toMatch(/not SO-DIMM/);
     expect(aspectsVerdict({ type: 'DDR4 SDRAM' }).conflict).toMatch(/not DDR5/);
-    expect(aspectsVerdict({ type: 'SODIMM', ecc: 'Non-ECC' })).toEqual({ ecc: false, conflict: null });
-    expect(aspectsVerdict({})).toEqual({ ecc: null, conflict: null });
+    expect(aspectsVerdict({ type: 'SODIMM', ecc: 'Non-ECC' })).toEqual({ ecc: false, conflict: null, eccListed: false });
+    expect(aspectsVerdict({})).toEqual({ ecc: null, conflict: null, eccListed: false });
   });
 });
 
@@ -107,5 +107,43 @@ describe('verify before alert, inside evaluateAlerts', () => {
     db.setConfig('verify_before_alert', 'false');
     await evaluateAlerts({ component: c, prevBestPrice: null, dropThresholdPct: 5, notify: vi.fn(), now: Date.now(), verify });
     expect(verify).not.toHaveBeenCalled();
+  });
+});
+
+// REAL item specifics from the owner's NAS, 2026-10-08 (alert evidence row for the Fanxiang 64GB (2x32GB) DDR5-5600 SO-DIMM kit, eBay UK),
+// keys already lower-cased by readItem. Note "memory features": "ECC Memory" on a kit sold as plain DDR5 SO-DIMM.
+const REAL_ASPECTS = {
+  brand: 'Fanxiang', 'form factor': 'SO-DIMM', type: 'DDR5 SODIMM', 'total capacity': '64 GB', 'number of modules': '2',
+  'capacity per module': '32 GB', model: 'Fanxiang', 'bus speed': '5600', 'memory features': 'ECC Memory',
+};
+const realItem = () => item({ price: { value: '492.00', currency: 'GBP' }, localizedAspects: Object.entries(REAL_ASPECTS).map(([name, value]) => ({ type: 'STRING', name, value })) });
+
+describe('a real listing whose specifics say "ECC Memory"', () => {
+  it('is not blocked (DDR5 has on-die ECC and sellers tick it), but carries a warning flag', async () => {
+    expect(aspectsVerdict(REAL_ASPECTS)).toEqual({ ecc: null, conflict: null, eccListed: true });
+    const v = await verifyOffer(rec(), reader(200, realItem()));
+    expect(v).toMatchObject({ ok: true, flagsAdded: ['ecc_listed'] });
+    expect((v as { aspects: Record<string, string> }).aspects['type']).toBe('DDR5 SODIMM');
+  });
+  it('an explicit Non-ECC statement wins and adds no warning; an explicit ECC key still blocks', () => {
+    expect(aspectsVerdict({ ...REAL_ASPECTS, ecc: 'Non-ECC' })).toMatchObject({ ecc: false, eccListed: false, conflict: null });
+    expect(aspectsVerdict({ ...REAL_ASPECTS, ecc: 'ECC' })).toMatchObject({ ecc: true, conflict: expect.stringMatching(/ECC/) });
+    expect(aspectsVerdict({ 'memory features': 'Non-ECC, Unbuffered' }).eccListed).toBe(false);
+  });
+  it('the alert carries the warning, and the stored offer keeps the flag for the dashboard and summary', async () => {
+    db.getDb().exec('DELETE FROM price_records; DELETE FROM alert_evidence; DELETE FROM config; DELETE FROM tracked_components;');
+    const c = db.addTrackedComponent('64GB', 'ram', 'q', 600);
+    db.savePriceSnapshots(c.id, [{ source: 'ebay', price: 492, currency: 'GBP', retailer: 'eBay UK', url: 'https://www.ebay.co.uk/itm/237099708741', inStock: true,
+      stockState: 'in_stock', listingName: 'Fanxiang 64GB (2x32GB) DDR5 5600MHz SO-DIMM', kitTotalGb: 64, modules: 2, profileMatch: true, profileFlags: ['ecc_unstated'], deliveryCost: 6.84 }]);
+    const notify = vi.fn();
+    const verify = (o: db.PriceRecord) => verifyOffer(o, reader(200, realItem()));
+    await evaluateAlerts({ component: c, prevBestPrice: null, dropThresholdPct: 5, notify, now: Date.now(), verify });
+    const alert = notify.mock.calls.map(x => x[0]).find(p => p.type === 'price_alert');
+    expect(alert.price).toBe(492);
+    expect(alert.message).toContain('item specifics list "ECC Memory"');
+    expect(alert.message).toContain('ask the seller to confirm');
+    expect(db.getLatestPricePerRetailer(c.id, true, true)[0].profile_flags).toContain('ecc_listed');
+    const ev = JSON.parse(db.getRecentEvidence(1)[0].evidence);
+    expect(ev.aspects['memory features']).toBe('ECC Memory');
   });
 });
