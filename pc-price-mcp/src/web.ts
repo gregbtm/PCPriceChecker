@@ -46,6 +46,7 @@ import { sendDailySummary } from './services/daily-summary.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
 import { getDealScoresForAll } from './services/deal-scorer.js';
 import { catalogueSummary } from './services/catalogue-watch.js';
+import { loadDealFeedStatus, dealFeedsEnabled, pollDealFeeds } from './services/deal-feed.js';
 import { requireToken, appToken, isAuthorised, tokenMatches, loginCookie, logoutCookie, maskConfig, isMasked } from './services/access.js';
 import { knownPagesFor } from './data/known-pages.js';
 import { SITEMAPS, slugText } from './sources/sitemap-discovery.js';
@@ -1180,8 +1181,16 @@ export function startWebServer(port: number): void {
     try { catalogue = catalogueSummary(Object.keys(SITEMAPS), slugText); } catch { /* health must never throw */ }
     let alerts: ReturnType<typeof alertHealth> | null = null;
     try { alerts = alertHealth(); } catch { /* health must never throw */ }
-    res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers, catalogue, alerts });
+    let deal_feeds: { enabled: boolean; last: ReturnType<typeof loadDealFeedStatus> } | null = null;
+    try { deal_feeds = { enabled: dealFeedsEnabled(), last: loadDealFeedStatus() }; } catch { /* health must never throw */ }
+    res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers, catalogue, alerts, deal_feeds });
   });
+
+  // Read the HotUKDeals feeds now (ignores the hourly gate and the on/off switch) and report what was found. Same code as the scheduler.
+  app.post('/api/deal-feeds/poll', h(async (_req, res) => {
+    const r = await pollDealFeeds({}, true);
+    res.json({ polled: r.polled, notified: r.notified.length, status: r.status });
+  }));
 
   // What was true when each alert was sent (or held back after a re-check).
   app.get('/api/alerts/evidence', h(async (req, res) => {

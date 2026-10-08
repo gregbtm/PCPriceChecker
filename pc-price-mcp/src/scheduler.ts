@@ -9,6 +9,7 @@ import { searchViaWatch } from './sources/search-watch.js';
 import { searchViaSitemap as searchViaSitemapImpl, slugText } from './sources/sitemap-discovery.js';
 import { observeCatalogue } from './services/catalogue-watch.js';
 import { pingHeartbeat } from './services/heartbeat.js';
+import { pollDealFeeds } from './services/deal-feed.js';
 import { readWatchForUrl, changedetectionConfigured } from './sources/changedetection.js';
 import * as db from './db.js';
 import { searchWithRetry, pricesApiSwitchedOff } from './sources/pricesapi.js';
@@ -53,7 +54,11 @@ async function runTick(deps?: RefreshDeps): Promise<'ran' | 'busy'> {
   runCount++;
   try {
     await scheduledRefreshAll(deps);
-    if (!deps) await pingHeartbeat();   // tests inject deps and must never reach a real monitor
+    if (!deps) {   // tests inject deps and must never reach a real monitor or a real feed
+      // Community deal posts, about hourly (its own gate inside); a feed outage is recorded in its status line and never fails the pass.
+      try { await pollDealFeeds({ notify: notifyAll }); } catch (e) { console.warn('[deal-feed]', (e as Error).message); }
+      await pingHeartbeat();
+    }
   } catch (e) {
     db.recordScrapeRun({ componentId: null, source: 'scheduler', ok: false, error: e instanceof Error ? e.message : String(e) });
   } finally {

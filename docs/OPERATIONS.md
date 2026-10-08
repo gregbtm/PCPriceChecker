@@ -93,6 +93,7 @@ Self-hosted ntfy setup and the 403 fix: `docs/NTFY.md`.
 | `scraper_user_agent` / `SCRAPER_USER_AGENT` | `PCPriceChecker (self-hosted price tracker; github.com/gregbtm/PCPriceChecker)` | The identity every plain request sends. Add a contact address if you like |
 | `heartbeat_url` / `HEARTBEAT_URL` | unset | Pinged (GET) after every completed pass. Point it at an Uptime Kuma "Push" monitor or a healthchecks-style URL so something outside this app notices when it goes quiet |
 | `pricesapi_enabled` | on | `false` stops every PricesAPI call and keeps the key; switch it back on (Integrations tab toggle) when your credits reset. Nothing is lost: the key stays stored |
+| `deal_feeds_enabled` | on | `false` stops the hourly HotUKDeals tag-feed poll (about three requests an hour, robots.txt checked). When on, a community post that looks like a 48GB+ DDR5 SO-DIMM kit sends a "lead, not checked" notification. `POST /api/deal-feeds/poll` reads the feeds now; `/api/health` shows the last result |
 | `alert_on_total` | off | `true` compares price plus known delivery with the alert and options limits |
 | `options_cooldown_minutes` | 360 | Minimum gap between two "worth a look" lists |
 | `ebay_mpn_every_hours` | 6 | How often the known part numbers are also searched on eBay (`0` every pass, `off`) |

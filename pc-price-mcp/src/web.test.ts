@@ -146,6 +146,16 @@ describe('settings: limits, pausing and the PricesAPI switch', () => {
     expect((await json('/api/integrations')).body.prices.enabled).toBe(true);
     delete process.env.PRICES_API_KEY; db.deleteConfig('prices_api_key');
   });
+  it('/api/health reports the deal-feed poller: on by default, switchable, and its last status when there is one', async () => {
+    db.deleteConfig('deal_feeds_enabled'); db.deleteConfig('dealfeed:status');
+    expect((await json('/api/health')).body.deal_feeds).toEqual({ enabled: true, last: null });
+    await send('/api/config', 'POST', { key: 'deal_feeds_enabled', value: 'false' });
+    db.setConfig('dealfeed:status', JSON.stringify({ at: '2026-10-08T12:00:00.000Z', ok: false, items: 0, matched: 0, error: 'ram: HTTP 403' }));
+    const h = await json('/api/health');
+    expect(h.body.deal_feeds.enabled).toBe(false);
+    expect(h.body.deal_feeds.last).toMatchObject({ ok: false, error: 'ram: HTTP 403' });
+    db.deleteConfig('deal_feeds_enabled'); db.deleteConfig('dealfeed:status');
+  });
 });
 
 describe('rejected listings diagnostic', () => {
