@@ -8,6 +8,7 @@
  *   5b. Camofox stealth browser (Cloudflare bypass — optional, requires running server)
  *   6. AI extraction — Claude (ANTHROPIC_API_KEY) then OpenAI (OPENAI_API_KEY) as fallback
  */
+import { bypassAllowed, scraperUserAgent, looksBlocked } from '../services/scrape-policy.js';
 import { assertAllowedByRobots, RobotsDisallowedError } from '../services/robots.js';
 import { getBrowser, randomUA, newPageWithProxy } from './playwright-scraper.js';
 import { scrapeWithCamofox } from './camofox-client.js';
@@ -29,6 +30,8 @@ export interface ScrapedProduct {
   url: string;
   image?: string;
   method: 'json-ld' | 'meta' | 'rules' | 'dom' | 'playwright' | 'ai' | 'failed' | 'firecrawl';
+  /** Why no price came back, when the scraper knows (a block, for example); shown in the scrape run instead of a generic message. */
+  failure?: string;
 }
 
 /** Both stock fields from one state, so they can never disagree. */
@@ -36,11 +39,13 @@ function stock(state: StockState): { inStock: boolean; stockState: StockState } 
   return { inStock: state === 'in_stock', stockState: state };
 }
 
-const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-  'Accept-Language': 'en-GB,en;q=0.9',
-};
+function browserHeaders() {
+  return {
+    'User-Agent': scraperUserAgent(),
+    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-GB,en;q=0.9',
+  };
+}
 
 function extractDomain(url: string): string {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
@@ -125,6 +130,7 @@ function tryDom(html: string): Partial<ScrapedProduct> | null {
 // ── Step 5: Playwright (with UA + proxy rotation) ─────────────────────────
 
 function getNextProxy(): string | undefined {
+  if (!bypassAllowed()) return undefined;   // proxy rotation exists to avoid being recognised: off unless the owner opted in
   const raw = db.getConfig('scrape_proxies');
   if (!raw) return undefined;
   const proxies = raw.split(',').map(p => p.trim()).filter(Boolean);
@@ -137,7 +143,7 @@ async function tryPlaywright(url: string): Promise<Partial<ScrapedProduct> | nul
   const page: any = await newPageWithProxy(getNextProxy());
   if (!page) return null;
   try {
-    await page.setExtraHTTPHeaders({ 'User-Agent': randomUA(), 'Accept-Language': BROWSER_HEADERS['Accept-Language'] });
+    await page.setExtraHTTPHeaders({ 'User-Agent': randomUA(), 'Accept-Language': 'en-GB,en;q=0.9' });
     await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,ico,css}', (r: any) => r.abort());
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25_000 });
     await page.waitForTimeout(800);
@@ -176,6 +182,7 @@ async function tryPlaywright(url: string): Promise<Partial<ScrapedProduct> | nul
 // ── Step 5b: Camofox stealth browser (Cloudflare bypass) ──────────────────
 
 async function tryCamofox(url: string): Promise<Partial<ScrapedProduct> | null> {
+  if (!bypassAllowed()) return null;   // a Cloudflare-bypass browser: only when the owner opted in (services/scrape-policy.ts)
   const camofoxUrl = db.getConfig('camofox_url') ?? process.env.CAMOFOX_URL;
   if (!camofoxUrl) return null;
   const result = await scrapeWithCamofox(url, camofoxUrl);
@@ -304,8 +311,14 @@ export async function scrapeProductUrl(url: string): Promise<ScrapedProduct> {
 
   let html = '';
   try {
-    const res = await fetch(url, { headers: BROWSER_HEADERS, signal: AbortSignal.timeout(12_000) });
-    if (res.ok) html = await res.text();
+    const res = await fetch(url, { headers: browserHeaders(), signal: AbortSignal.timeout(12_000) });
+    const text = await res.text().catch(() => '');
+    // A refusal is an answer, not an obstacle (owner rule): record it as blocked and stop, rather than escalating to a
+    // disguised browser. Only an explicit opt-in (`allow_bot_bypass`) keeps the old "try harder" behaviour.
+    if (looksBlocked(res.status, text) && !bypassAllowed()) {
+      return { ...fallback, failure: `blocked by the site (HTTP ${res.status}${res.ok ? ', challenge page' : ''}); not retried with a browser` };
+    }
+    if (res.ok) html = text;
   } catch { /* try Playwright next */ }
 
   if (html) {

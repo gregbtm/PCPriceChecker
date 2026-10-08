@@ -17,7 +17,7 @@ Track GPU, CPU, RAM, storage, and pre-built PC prices across 40+ UK retailers. G
 - **PCPartPicker integration** — import lists, search 66,000+ component specs, browse by category
 - **Amazon data** — Keepa price history, PA API product data, or Apify scraper fallback
 - **Apify cloud scrapers** — Currys, Google Shopping, Argos, Idealo, Amazon (no bot detection issues)
-- **Stealth browser scraper** — Playwright with fingerprint hardening; supports Camoufox and Novada as priority backends
+- **Browser rendering for JavaScript pages** — Playwright with an honest identity. Fingerprint hardening, rotating browser identities, proxy rotation and the Camoufox/Novada anti-detect backends still exist in the code but are **off by default** since 2026-10-08 (see `pc-price-mcp/DOCS.md` section 10); a site that refuses the app is recorded as blocked, not worked around
 - **Auto-refresh scheduler** — background refresh at any interval you choose
 - **Export / import** — CSV and JSON export of price history, builds, and tracked components
 

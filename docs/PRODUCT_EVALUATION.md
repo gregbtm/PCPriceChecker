@@ -19,9 +19,9 @@ A self-hosted UK price and stock watcher for one job: tell the owner when a comp
 1. **Alert delivery has never been observed.** No notification channel is set up (ntfy login is lost). Everything else is moot until one real message arrives. *Owner action, two minutes with Discord or Telegram.*
 2. **The price target is far below the market.** Verified this session: Wired2Fire £600.00 (backorder), Box and LaptopOutlet £885.71 to £1,149.87 (all out of stock, read through the app's own extractor), PriceSpy lows for named 64GB kits £821 to £933 (from the research agent's reading of PriceSpy; the page was not re-read here), eBay UK £498.84 delivered for a Fanxiang kit (the app's own output). The £350 alert will not fire until the market moves; the £500 "worth a look" tier currently holds exactly one offer. This is a market fact, not a bug, but the product should make it visible (see C1).
 3. **"Zero results" can still mean "could not see".** Box's sitemap (6,803 addresses) lists none of the four 64GB kit pages that answer HTTP 200 with a price (Verified). So a sitemap that lacks a kit does not prove the retailer does not sell it. This also weakens the Novatech conclusion: its sitemap holds 4,673 addresses and one SO-DIMM (DDR4); that is what Novatech *lists*, not necessarily what it *sells*.
-4. **The best-stocked retailers are closed to us.** Scan, Overclockers, CCL, Currys sit behind Cloudflare challenges; Ebuyer needs JavaScript. We do not defeat protections. The sanctioned route (Awin feeds) needs an honest affiliate application.
+4. **The best-stocked retailers are closed to us.** Scan, Overclockers, CCL, Currys sit behind Cloudflare challenges; Ebuyer needs JavaScript. We do not defeat protections, and **as of 2026-10-08 the code enforces that**: an earlier version of this document said so while the repository still contained stealth-browser, user-agent rotation, proxy-rotation and Cloudflare-bypass code (inert on the NAS because its image has no Chromium, but present, documented in the README, and on the default path wherever a browser was installed). It is now behind an explicit opt-in flag that is off. The sanctioned route (Awin feeds) needs an honest affiliate application.
 5. **No access control** on the dashboard or API (`GET /api/config` returns stored secrets). LAN-only today.
-6. **Scrape politeness inconsistency (found today, not yet fixed):** `uk-retailers.ts` sends a Chrome-style User-Agent (`SHARED_HEADERS`). The newer sources send an honest one. The older scrapers should identify themselves too.
+6. **Scrape politeness inconsistency (found 2026-10-07, fixed 2026-10-08):** the older scrapers sent a Chrome-style User-Agent. Every plain request now identifies the project (`services/scrape-policy.ts`).
 
 ## 2. Prior art: what to borrow, what to avoid
 
@@ -69,7 +69,7 @@ Scope tags: S under half a day, M about a day, L several days.
 | C4 | **Verify-before-alert**: re-fetch the exact listing (eBay `getItem`, or the product page) just before sending, and abort the alert if price, stock or compatibility no longer hold | Removes stale-alert false positives | M |
 | C5 | **eBay item specifics** (`getItem` aspects: Type, Form Factor, ECC, Capacity) to resolve `ecc_unstated` from seller data, not the title | Unverified response shape; needs one run with the owner's keys | M |
 | C6 | **MPN-first eBay queries**: search each catalogue part number as well as the keyword query | Finds listings whose titles omit "SO-DIMM"; cheap (a handful of calls a day, free quota is 5,000) | S |
-| C7 | **Honest User-Agent on the older retailer scrapers** (weakness 6) | Consistency with the stated politeness policy | S |
+| C7 | **Honest User-Agent on the older retailer scrapers, and bypass tooling off by default** (weakness 6) | Consistency with the stated politeness policy. **Done 2026-10-08** | S |
 
 **B. Ambitious: where this becomes more than a scraper**
 

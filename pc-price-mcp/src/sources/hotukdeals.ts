@@ -1,3 +1,4 @@
+import { scraperUserAgent } from '../services/scrape-policy.js';
 // HotUKDeals RSS integration — UK's largest deal community.
 // No API key required. Covers flash sales, voucher codes, and time-limited
 // deals that don't appear on retailer APIs.
@@ -8,11 +9,11 @@
 const HUKD_BASE = 'https://www.hotukdeals.com';
 const TIMEOUT_MS = 10_000;
 
-const HUKD_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (compatible; pc-price-mcp/1.0; RSS reader)',
+const hukdHeaders = () => ({
+  'User-Agent': scraperUserAgent(),
   Accept: 'application/rss+xml, application/xml, text/xml, */*',
   'Accept-Language': 'en-GB,en;q=0.9',
-};
+});
 
 export interface HukdDeal {
   title: string;
@@ -99,7 +100,7 @@ async function fetchAndParse(url: string, queryLabel: string): Promise<HukdSearc
   const fetchedAt = new Date().toISOString();
   try {
     const res = await fetch(url, {
-      headers: HUKD_HEADERS,
+      headers: hukdHeaders(),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

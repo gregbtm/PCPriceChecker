@@ -4,6 +4,7 @@
  * Returns sell price (what CEX sells to you), cash price (CEX buys from you),
  * and exchange price (trade-in value).
  */
+import { scraperUserAgent } from '../services/scrape-policy.js';
 
 export interface CexProduct {
   boxId: string;
@@ -62,7 +63,7 @@ export async function searchCex(
   }
 
   const res = await fetch(`${BASE}/boxes?${params}`, {
-    headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+    headers: { 'Accept': 'application/json', 'User-Agent': scraperUserAgent() },
     signal: AbortSignal.timeout(12_000),
   });
 
@@ -76,7 +77,7 @@ export async function searchCex(
 
 export async function getCexProduct(boxId: string): Promise<CexProduct | null> {
   const res = await fetch(`${BASE}/boxes/${encodeURIComponent(boxId)}/detail`, {
-    headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+    headers: { 'Accept': 'application/json', 'User-Agent': scraperUserAgent() },
     signal: AbortSignal.timeout(10_000),
   });
   if (!res.ok) return null;

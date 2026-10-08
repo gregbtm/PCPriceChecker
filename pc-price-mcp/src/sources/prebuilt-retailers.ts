@@ -10,6 +10,7 @@
 
 import { searchWithRetry } from './pricesapi.js';
 import { scrapeDellPrebuilt, scrapeHpPrebuilt } from './playwright-scraper.js';
+import { scraperUserAgent } from '../services/scrape-policy.js';
 
 export interface PrebuiltResult {
   retailer: string;
@@ -53,7 +54,7 @@ export const ALL_PREBUILT_RETAILER_IDS: PrebuiltRetailerId[] = [
 ];
 
 const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'User-Agent': scraperUserAgent(),
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
   'Accept-Language': 'en-GB,en;q=0.9',
   'Cache-Control': 'no-cache',
