@@ -232,6 +232,8 @@ function app() {
     needsAttention: [],
     scraperHealth: { failing: [], sources: [] },
     alertHealth: null,
+    bannerDismissed: (() => { try { return localStorage.getItem('pcpc_banner_dismissed') || ''; } catch { return ''; } })(),
+    limitsDraft: {},
     showLogin: false,
     loginToken: '',
     loginError: '',
@@ -394,6 +396,8 @@ function app() {
         const form = {};
         for (const g of this.intGroups) for (const f of g.fields) form[f.key] = f.secret ? '' : (c[f.key] ?? '');
         this.intForm = form;
+        await this.loadComponents();
+        this.initLimits();
       } catch { /* the tab shows "unavailable" */ }
     },
     secretIsSet(key) {
@@ -467,6 +471,40 @@ function app() {
       this.cdSpikeResult = await r.json();
     },
     async checkEbay() { this.ebayStatus = await (await fetch('/api/ebay/status')).json(); },
+    dismissBanner() {
+      this.bannerDismissed = this.alertHealth?.state || '';
+      try { localStorage.setItem('pcpc_banner_dismissed', this.bannerDismissed); } catch { /* per-browser convenience only */ }
+    },
+    /** Alert limits and the active switch for every component, editable on the Integrations tab. Empty = no limit. */
+    initLimits() {
+      const d = {};
+      for (const c of this.components) d[c.id] = { alert: c.alert_price ?? '', consider: c.consider_price ?? '' };
+      this.limitsDraft = d;
+    },
+    limitHint(c) {
+      const dr = this.limitsDraft[c.id]; if (!dr) return '';
+      const a = dr.alert === '' ? null : Number(dr.alert), o = dr.consider === '' ? null : Number(dr.consider);
+      if (a != null && o != null && o <= a) return 'The "worth a look" list only shows offers above the alert price, so with a limit this low it will stay empty. Raise it above the alert price or clear it.';
+      return '';
+    },
+    async saveLimits(c) {
+      const dr = this.limitsDraft[c.id];
+      const num = v => (v === '' || v == null) ? null : Number(v);
+      const body = { alert_price: num(dr.alert), consider_price: num(dr.consider) };
+      if ((body.alert_price != null && !(body.alert_price >= 0)) || (body.consider_price != null && !(body.consider_price >= 0))) { this.showToast('❌ Prices must be numbers', 'error'); return; }
+      const r = await fetch(`/api/components/${c.id}/alert`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (r.ok) { this.showToast(`✅ Limits saved for "${c.name}"`); await this.loadComponents(); this.initLimits(); }
+    },
+    async setActive(c, active) {
+      await fetch(`/api/components/${c.id}/${active ? 'resume' : 'pause'}`, { method: 'POST' });
+      this.showToast(active ? `▶️ "${c.name}" is being tracked again` : `⏸️ "${c.name}" paused`);
+      await this.loadComponents(); this.initLimits();
+    },
+    async setPricesApi(on) {
+      await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: 'pricesapi_enabled', value: on ? 'true' : 'false' }) });
+      this.showToast(on ? '✅ PricesAPI is on' : '⏸️ PricesAPI is off (the key is kept)');
+      await this.loadIntegrations();
+    },
     async login() {
       this.loginError = '';
       const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: this.loginToken }) });

@@ -110,7 +110,9 @@ Still open from the roadmap: B1 (assembled kits), B3 (source arbitration), B4 (p
 
 ## 6. Decisions for the owner
 
-1. **Alert price.** At the observed market floor (£600 to £1,150, one eBay kit at £498.84), what do you want the £350 alert and £500 options tier to be? Keep them as aspirational thresholds, or move them to catch a real dip?
-2. **Notification channel** now (Discord or Telegram take two minutes), so the first real alert can be observed.
-3. **Awin**: apply with an honest description of the use, or skip.
-4. **Pause the old components** (ids 1, 2, 3, 4, 6) and remove the stale `PRICES_API_KEY` from Portainer.
+Answered 2026-10-08:
+
+1. **Alert price: £600**, editable in the dashboard (Integrations tab, "Alert limits and tracking"), not hard-coded: it is stored per component. Nothing in the code carries a price limit.
+2. **Notifications:** left as they are; the settings stay where they are. The red banner can be dismissed (it comes back if the state changes).
+3. **Awin:** see `docs/AWIN.md` for what to do and my honest odds.
+4. **Old components** (1, 2, 3, 4, 6) paused, and **PricesAPI switched off with its key kept**, both from the Integrations tab (a toggle, so they can be turned back on).

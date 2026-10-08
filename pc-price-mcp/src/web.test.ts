@@ -112,6 +112,42 @@ describe('optional access token and secret masking', () => {
   });
 });
 
+describe('settings: limits, pausing and the PricesAPI switch', () => {
+  it('alert and options limits are editable per component, and clearing one stores no limit', async () => {
+    const c = db.addTrackedComponent('64GB limits', 'ram', 'q', 350);
+    expect((await send(`/api/components/${c.id}/alert`, 'PATCH', { alert_price: 600, consider_price: 800 })).status).toBe(200);
+    expect(db.getTrackedComponentById(c.id)).toMatchObject({ alert_price: 600, consider_price: 800 });
+    await send(`/api/components/${c.id}/alert`, 'PATCH', { consider_price: null });
+    expect(db.getTrackedComponentById(c.id)).toMatchObject({ alert_price: 600, consider_price: null });
+  });
+  it('pause and resume round-trip', async () => {
+    const c = db.addTrackedComponent('old one', 'ram', 'q', null as unknown as number);
+    await send(`/api/components/${c.id}/pause`, 'POST', {});
+    expect(db.getTrackedComponentById(c.id)?.paused).toBe(1);
+    await send(`/api/components/${c.id}/resume`, 'POST', {});
+    expect(db.getTrackedComponentById(c.id)?.paused).toBe(0);
+  });
+  it('switching PricesAPI off keeps the key, shows as paused in /api/health, and /api/integrations says so without leaking the key', async () => {
+    db.setConfig('prices_api_key', 'SECRET-PRICES-KEY');
+    process.env.PRICES_API_KEY = 'SECRET-PRICES-KEY';
+    await send('/api/config', 'POST', { key: 'pricesapi_enabled', value: 'false' });
+    const i = await json('/api/integrations');
+    expect(i.body.prices).toMatchObject({ keySet: true, enabled: false });
+    expect(JSON.stringify(i.body)).not.toContain('SECRET-PRICES-KEY');
+    db.recordScrapeRun({ componentId: null, source: 'pricesapi', ok: true, offersFound: 1 });   // so the source is listed at all: the check below must not pass by absence
+    const h = await json('/api/health');
+    expect(h.body.scrapers.sources.find((s: { source: string }) => s.source === 'pricesapi')?.status).toBe('paused');
+    // and with the switch on and no pause, the same source is NOT reported as paused (the check can fail)
+    await send('/api/config', 'POST', { key: 'pricesapi_enabled', value: 'true' });
+    expect((await json('/api/health')).body.scrapers.sources.find((s: { source: string }) => s.source === 'pricesapi')?.status).not.toBe('paused');
+    await send('/api/config', 'POST', { key: 'pricesapi_enabled', value: 'false' });
+    expect(db.getConfig('prices_api_key')).toBe('SECRET-PRICES-KEY');   // the key is still stored
+    await send('/api/config', 'POST', { key: 'pricesapi_enabled', value: 'true' });
+    expect((await json('/api/integrations')).body.prices.enabled).toBe(true);
+    delete process.env.PRICES_API_KEY; db.deleteConfig('prices_api_key');
+  });
+});
+
 describe('alert evidence ledger', () => {
   it('lists what was true when an alert was sent or held back, newest first, with the JSON parsed', async () => {
     db.recordEvidence({ componentId: null, kind: 'suppressed', retailer: 'eBay UK', url: 'https://www.ebay.co.uk/itm/1', price: 300, evidence: { reason: 'the listing is gone' } });

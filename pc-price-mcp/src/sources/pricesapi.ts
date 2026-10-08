@@ -13,6 +13,7 @@
  *
  * Cold queries (uncached) can take 30–90 seconds. Cached queries return in ~100ms.
  */
+import * as db from '../db.js';
 
 const BASE_URL = 'https://api.pricesapi.io/api/v1';
 const TIMEOUT_MS = 95_000;
@@ -75,7 +76,13 @@ export function classifyPricesApiFailure(status: number, bodyText: string, retry
   return new PricesApiError(`PricesAPI returned HTTP ${status}${code ? ` ${code}` : ''}${tail}`, 'other', status, code);
 }
 
+/** Master switch (config `pricesapi_enabled`, or env PRICESAPI_ENABLED): `false` stops every call and keeps the key, so it can be turned back on when credits reset. */
+export function pricesApiSwitchedOff(): boolean {
+  return (db.getConfig('pricesapi_enabled') ?? process.env.PRICESAPI_ENABLED ?? '').trim().toLowerCase() === 'false';
+}
+
 function getApiKey(): string {
+  if (pricesApiSwitchedOff()) throw new PricesApiError('PricesAPI is switched off in Settings (the key is kept); switch it back on on the Integrations tab', 'other', 0);
   const key = process.env.PRICES_API_KEY?.trim();
   if (!key) {
     throw new Error(

@@ -92,6 +92,7 @@ Self-hosted ntfy setup and the 403 fix: `docs/NTFY.md`.
 | `allow_bot_bypass` / `ALLOW_BOT_BYPASS` | off | Only the exact word `true` enables fingerprint patching, rotating browser identities, proxy rotation and the Camoufox/Novada backends. Leave it off: a site that refuses the app is recorded as `blocked by the site` and left alone |
 | `scraper_user_agent` / `SCRAPER_USER_AGENT` | `PCPriceChecker (self-hosted price tracker; github.com/gregbtm/PCPriceChecker)` | The identity every plain request sends. Add a contact address if you like |
 | `heartbeat_url` / `HEARTBEAT_URL` | unset | Pinged (GET) after every completed pass. Point it at an Uptime Kuma "Push" monitor or a healthchecks-style URL so something outside this app notices when it goes quiet |
+| `pricesapi_enabled` | on | `false` stops every PricesAPI call and keeps the key; switch it back on (Integrations tab toggle) when your credits reset. Nothing is lost: the key stays stored |
 | `alert_on_total` | off | `true` compares price plus known delivery with the alert and options limits |
 | `options_cooldown_minutes` | 360 | Minimum gap between two "worth a look" lists |
 | `ebay_mpn_every_hours` | 6 | How often the known part numbers are also searched on eBay (`0` every pass, `off`) |

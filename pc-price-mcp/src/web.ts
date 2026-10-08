@@ -13,7 +13,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as db from './db.js';
-import { searchWithRetry } from './sources/pricesapi.js';
+import { searchWithRetry, pricesApiSwitchedOff } from './sources/pricesapi.js';
 import { searchAllUkRetailers, ALL_RETAILER_IDS, unknownRetailerIds, SEARCH_URLS, diagnoseRetailerPage, type RetailerId } from './sources/uk-retailers.js';
 import { keepaSearch, keepaGetByAsin, keepaGetUsedPrices } from './sources/keepa.js';
 import { awinSearch, awinGetMerchants, awinFeedSearch } from './sources/awin.js';
@@ -604,7 +604,7 @@ export function startWebServer(port: number): void {
       ntfy: { configured: set('ntfy_topic'), server: cfg.ntfy_server ?? 'https://ntfy.sh', topic: cfg.ntfy_topic ?? '', tokenSet: set('ntfy_token') },
       webhook: { configured: set('webhook_url'), url: cfg.webhook_url ?? '', secretSet: set('webhook_secret') },
       ebay: { configured: ebayConfigured() },
-      prices: { keySet: set('prices_api_key') || !!process.env.PRICES_API_KEY?.trim(), paused: pricesApiPause()?.message ?? null },
+      prices: { keySet: set('prices_api_key') || !!process.env.PRICES_API_KEY?.trim(), enabled: !pricesApiSwitchedOff(), paused: pricesApiPause()?.message ?? null },
       changedetection: { configured: changedetectionConfigured(), url: cfg.changedetection_url ?? '', keySet: set('changedetection_api_key') || !!process.env.CHANGEDETECTION_API_KEY,
         autocreate: cfg.changedetection_autocreate !== 'false', novatechSearchUrl: cfg.novatech_search_url ?? '' },
       firecrawl: { configured: firecrawlConfigured(), url: cfg.firecrawl_url ?? '' },
@@ -1133,7 +1133,7 @@ export function startWebServer(port: number): void {
     let scrapers: { failing: string[]; sources: Array<db.SourceHealth & { status: string }> } = { failing: [], sources: [] };
     try {
       const enabled = configuredRetailers() as string[];
-      const paused = pricesApiPause() ? ['pricesapi'] : [];
+      const paused = pricesApiPause() || pricesApiSwitchedOff() ? ['pricesapi'] : [];
       const sources = db.getSourceHealth().map(x => ({ ...x, status: sourceStatus(x, enabled, Date.now(), paused) }));
       // `failing` = recently failing sources worth a look. Long-blocked sources (403 for days) are `blocked` and probed daily;
       // retailers no longer in the search list are `disabled`; sources that have not run lately are `idle`.
