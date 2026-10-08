@@ -30,6 +30,19 @@ export function describeOffer(o: db.PriceRecord): string | undefined {
   return parts.length > 0 ? parts.join('\n') : undefined;
 }
 
+/**
+ * `alert_on_total=true` compares price plus delivery with the alert and options limits (NEXT.md #3). Default off: the item price alone,
+ * as before. A delivery charge that is not known counts as 0 here, which is why the message still says "price excludes delivery" for such offers.
+ */
+export function alertOnTotal(): boolean { return db.getConfig('alert_on_total') === 'true'; }
+export function effectivePrice(o: Pick<db.PriceRecord, 'price' | 'delivery_cost'>): number {
+  return o.price + (alertOnTotal() ? (o.delivery_cost ?? 0) : 0);
+}
+function bestOffer(componentId: number): db.PriceRecord | null {
+  if (!alertOnTotal()) return db.getBestInStockOffer(componentId);
+  return topOffers(componentId, 50).sort((a, b) => effectivePrice(a) - effectivePrice(b))[0] ?? null;
+}
+
 export interface AlertContext {
   component: db.TrackedComponent;
   prevBestPrice: number | null;
@@ -38,7 +51,12 @@ export interface AlertContext {
   now?: number;
 }
 
-const OPTIONS_COOLDOWN_MS = 6 * 3_600_000;
+/** Minimum gap between two options notices (config `options_cooldown_minutes`, default 360). A rare kit can sell within hours, so the owner may lower it. */
+function optionsCooldownMs(): number {
+  const raw = db.getConfig('options_cooldown_minutes');
+  const n = Number(raw);
+  return raw != null && raw.trim() !== '' && Number.isFinite(n) && n >= 0 ? n * 60_000 : 6 * 3_600_000;
+}
 
 /** Minutes from config (P4-2); a missing, non-numeric or negative value falls back to the old literal. */
 export function cooldownMinutes(key: 'alert_cooldown_minutes' | 'drop_cooldown_minutes'): number {
@@ -53,16 +71,17 @@ export function cooldownMinutes(key: 'alert_cooldown_minutes' | 'drop_cooldown_m
  */
 async function evaluateOptions(component: db.TrackedComponent, notify: Notify, now: number): Promise<void> {
   if (component.consider_price == null) return;
-  const offers = topOffers(component.id, 5, component.consider_price);
+  const offers = topOffers(component.id, 50).filter(o => effectivePrice(o) <= component.consider_price!)
+    .sort((a, b) => effectivePrice(a) - effectivePrice(b)).slice(0, 5);
   if (offers.length === 0) return;
   const best = offers[0];
-  if (component.alert_price != null && best.price <= component.alert_price) return;   // the price alert covers it
+  if (component.alert_price != null && effectivePrice(best) <= component.alert_price) return;   // the price alert covers it
 
   const sigKey = `options_sig:${component.id}`;
   const last = (() => { try { return JSON.parse(db.getConfig(sigKey) ?? 'null') as { keys: string[]; best: number; at: number } | null; } catch { return null; } })();
   const keys = offers.map(o => `${offerKey(o.url)}@${o.price}`);
   const somethingNew = !last || keys.some(k => !last.keys.includes(k)) || best.price < last.best;
-  if (!somethingNew || (last && now - last.at < OPTIONS_COOLDOWN_MS)) return;
+  if (!somethingNew || (last && now - last.at < optionsCooldownMs())) return;
 
   await notify({
     type: 'options', componentName: component.name,
@@ -81,7 +100,7 @@ export async function evaluateAlerts(ctx: AlertContext): Promise<void> {
 
   if (inQuietHours(now)) return;   // nothing is recorded, so it is sent on the first pass after quiet hours
 
-  const newBest = db.getBestInStockOffer(component.id);
+  const newBest = bestOffer(component.id);
   if (!newBest) return;
 
   // The cooldown stops repeats of the same deal; a different offer or a lower price is news and bypasses it (P4-2).
@@ -90,13 +109,13 @@ export async function evaluateAlerts(ctx: AlertContext): Promise<void> {
   const newKey = offerKey(newBest.url);
   const isNews = !lastSig || lastSig.key !== newKey || newBest.price < lastSig.price * 0.99;   // at least 1% cheaper, so pennies of noise are not news
 
-  if (component.alert_price != null && newBest.price <= component.alert_price
+  if (component.alert_price != null && effectivePrice(newBest) <= component.alert_price
       && (isNews || db.shouldSendAlert(component.id, cooldownMinutes('alert_cooldown_minutes')))) {
     const others = topOffers(component.id, 6).filter(o => offerKey(o.url) !== offerKey(newBest.url)).slice(0, 5);
     await notify({ type: 'price_alert', componentName: component.name,
       price: newBest.price, currency: newBest.currency, retailer: newBest.retailer,
       alertThreshold: component.alert_price, url: newBest.url,
-      message: [describeOffer(newBest), others.length > 0 ? `Other options:\n${formatOfferList(others)}` : null].filter(Boolean).join('\n\n') });
+      message: [alertOnTotal() && newBest.delivery_cost ? `Total with delivery £${effectivePrice(newBest).toFixed(2)} (item £${newBest.price.toFixed(2)} + £${newBest.delivery_cost.toFixed(2)})` : null, describeOffer(newBest), others.length > 0 ? `Other options:\n${formatOfferList(others)}` : null].filter(Boolean).join('\n\n') });
     db.markLastAlerted(component.id);
     db.setConfig(sigKey, JSON.stringify({ key: newKey, price: newBest.price }));
   }

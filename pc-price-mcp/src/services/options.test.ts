@@ -206,3 +206,21 @@ describe('P5-3 delivery cost and VAT', () => {
     expect(lines[2]).not.toContain('delivery =');
   });
 });
+
+describe('options cooldown is configurable (a rare kit can sell within hours)', () => {
+  it('a lower options_cooldown_minutes lets a new offer through inside the default six hours', async () => {
+    const c = fresh();
+    db.setConfig('options_cooldown_minutes', '30');
+    db.savePriceSnapshots(c.id, [offer(FANXIANG, 492, '111')]);
+    const notify = vi.fn().mockResolvedValue({});
+    const t0 = Date.now();
+    await run(c, notify, t0);
+    db.savePriceSnapshots(c.id, [offer(FANXIANG, 492, '111'), offer(SKHYNIX, 450, '444')]);
+    await run(c, notify, t0 + 1 * H);
+    expect(notify).toHaveBeenCalledTimes(2);
+    db.setConfig('options_cooldown_minutes', 'banana');   // an invalid value falls back to six hours
+    db.savePriceSnapshots(c.id, [offer(FANXIANG, 492, '111'), offer(SKHYNIX, 450, '444'), offer(CORSAIR, 400, '222')]);
+    await run(c, notify, t0 + 2 * H);
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+});
