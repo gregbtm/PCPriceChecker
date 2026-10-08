@@ -171,8 +171,24 @@ describe('rejected listings diagnostic', () => {
     expect(r.body.singles).toHaveLength(1);
     expect(r.body.singles[0]).toMatchObject({ price: 250, pair_price: 500 });
     expect(r.body.single_module_sizes_gb).toEqual([32, 24]);
+    expect(r.body.near_misses).toEqual([]);   // every rejection here says something specific (DDR4, desktop DIMM, 32GB): none is a mere omission
     expect((await json('/api/components/99999/rejected')).status).toBe(404);
     expect((await json(`/api/components/${db.addTrackedComponent('no profile', 'ram', 'q', 1).id}/rejected`)).body).toMatchObject({ profile: null, total: 0 });
+  });
+  it('counts one eBay listing once even when its address changes on every search, and lists listings that merely omit words as near misses', async () => {
+    const c = db.addTrackedComponent('64GB dup', 'ram', 'q', 600);
+    await send(`/api/components/${c.id}/profile`, 'PATCH', { profile_id: 'n5-air-ram' });
+    db.savePriceSnapshots(c.id, [
+      snap('RAM DDR3 DDR4 DDR5 4GB 8GB 16GB Desktop Laptop Server Memory Lot', 79.99, 'https://www.ebay.co.uk/itm/200000000001?_skw=a&hash=item1', false),
+      snap('RAM DDR3 DDR4 DDR5 4GB 8GB 16GB Desktop Laptop Server Memory Lot', 79.99, 'https://www.ebay.co.uk/itm/200000000001?_skw=b&hash=item2', false),
+      snap('RAM DDR3 DDR4 DDR5 4GB 8GB 16GB Desktop Laptop Server Memory Lot', 79.99, 'https://www.ebay.co.uk/itm/200000000001?_skw=c&hash=item3', false),
+      snap('Brand new 64GB (2x32GB) 5600MHz memory kit', 420, 'https://www.ebay.co.uk/itm/200000000002', false),   // omits DDR5 and the form factor: a near miss worth a human look
+      snap('ASUS ROG Thermal Paste 3g', 8.99, 'https://www.awd-it.co.uk/paste.html', false),                   // reasons are all "not stated" but the capacity is not either: also listed, cheapest first
+    ]);
+    const r = await json(`/api/components/${c.id}/rejected`);
+    expect(r.body.total).toBe(3);                                            // not 5
+    expect(r.body.near_misses.map((x: { price: number }) => x.price)).toEqual([8.99, 420]);
+    expect(r.body.near_misses.find((x: { price: number }) => x.price === 420).reasons.join(' ')).toMatch(/generation .*not stated/);
   });
   it('ignores listings last seen before the window', async () => {
     const c = db.addTrackedComponent('64GB old', 'ram', 'q', 600);
