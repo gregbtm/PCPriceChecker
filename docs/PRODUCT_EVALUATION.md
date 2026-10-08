@@ -67,7 +67,7 @@ Scope tags: S under half a day, M about a day, L several days.
 | C2 | **DONE 2026-10-07.** **Alert-channel health**: dashboard banner when no channel is configured or the last delivery failed; `GET /api/health` reports it; daily summary includes it | Weakness 1 must be impossible to miss | S |
 | C3 | **Covered 2026-10-08** by the existing per-source run records (each known page is a `url:<domain>` source; a block now says so). **Known-page canary**: a daily check that every known page still answers 200 with a parseable price, reported in health | A parser or page that silently dies is the original failure class | S |
 | C4 | **DONE 2026-10-08.** **Verify-before-alert**: re-fetch the exact listing (eBay `getItem`, or the product page) just before sending, and abort the alert if price, stock or compatibility no longer hold | Removes stale-alert false positives | M |
-| C5 | **DONE 2026-10-08** (response shape Unverified until a live run). **eBay item specifics** (`getItem` aspects: Type, Form Factor, ECC, Capacity) to resolve `ecc_unstated` from seller data, not the title | Unverified response shape; needs one run with the owner's keys | M |
+| C5 | **DONE 2026-10-08**; `localizedAspects` shape Verified live, availability and price fields not yet confirmed. **eBay item specifics** (`getItem` aspects: Type, Form Factor, ECC, Capacity) to resolve `ecc_unstated` from seller data, not the title | Unverified response shape; needs one run with the owner's keys | M |
 | C6 | **DONE 2026-10-08** (live behaviour Unverified). **MPN-first eBay queries**: search each catalogue part number as well as the keyword query | Finds listings whose titles omit "SO-DIMM"; cheap (a handful of calls a day, free quota is 5,000) | S |
 | C7 | **Honest User-Agent on the older retailer scrapers, and bypass tooling off by default** (weakness 6) | Consistency with the stated politeness policy. **Done 2026-10-08** | S |
 
@@ -104,7 +104,7 @@ Scope tags: S under half a day, M about a day, L several days.
 | Market-floor view and alert-channel health banner (PR 45) | `market-view.test.ts`, `notifications.test.ts`; dashboard checked in headless Chromium |
 | Scraping policy enforced in code: stealth, rotating identities, proxy rotation and bypass backends off by default; a refusal is recorded as blocked; honest User-Agent everywhere (PR 46) | `scrape-policy.test.ts`; research row 43 (this also corrects an earlier claim in this document) |
 | eBay part-number queries, `alert_on_total`, configurable options gap, reliability settings in the dashboard (PR 47) | `alert-total.test.ts`, `refresh.test.ts`, `options.test.ts` |
-| Verify before alert, item specifics, evidence ledger; optional access token and secret masking (PR 48) | `verify-offer.test.ts`, `web.test.ts`; sign-in flow driven in headless Chromium |
+| Verify before alert, item specifics, evidence ledger; optional access token and secret masking (PR 48) | `verify-offer.test.ts`, `web.test.ts`; sign-in flow driven in headless Chromium. **First live run 2026-10-08:** the re-check returned real item specifics (HANDOFF 9ab) and surfaced an `ECC Memory` caveat the first version missed |
 
 Still open from the roadmap: B1 (assembled kits), B3 (source arbitration), B4 (per-store strategy editor), B5 (PriceSpy email ingestion), B6 (Awin ingestor, needs an approved application), B8 (MCP parity, n8n verification), C7's sibling (`pcpartpicker-live.ts` still calls `randomUA()`, now honest by default but worth deleting if that source is never used).
 

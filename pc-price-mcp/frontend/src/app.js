@@ -543,7 +543,7 @@ function app() {
     failingSources() { return (this.scraperHealth.sources || []).filter(s => s.status === 'failing').sort((a, b) => b.consecutive_failures - a.consecutive_failures); },
     blockedSources() { return (this.scraperHealth.sources || []).filter(s => s.status === 'blocked'); },
     fmtFlags(flags) {
-      const map = { used_condition: 'used', delivery_excluded: '+delivery', kit_unconfirmed: 'kit?', will_downclock: 'runs slower', seller_feedback_low: 'low feedback', suspiciously_cheap: 'CHECK SELLER', non_binary_unverified: '24GB unverified' };
+      const map = { used_condition: 'used', delivery_excluded: '+delivery', kit_unconfirmed: 'kit?', will_downclock: 'runs slower', seller_feedback_low: 'low feedback', suspiciously_cheap: 'CHECK SELLER', non_binary_unverified: '24GB unverified', ecc_listed: 'ECC listed?' };
       return (flags || '').split(',').map(f => map[f] || '').filter(Boolean).join(', ');
     },
     async loadSavedSearches()  { await this.loadFrom('/api/saved-searches',          'savedSearches',  true); },

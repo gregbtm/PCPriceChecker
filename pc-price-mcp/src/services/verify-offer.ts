@@ -16,7 +16,7 @@ export interface ItemReading {
 }
 
 export type Verdict =
-  | { ok: true; note?: string; price?: number; aspects?: Record<string, string>; flagsRemoved?: string[] }
+  | { ok: true; note?: string; price?: number; aspects?: Record<string, string>; flagsRemoved?: string[]; flagsAdded?: string[] }
   | { ok: false; reason: string; aspects?: Record<string, string> };
 
 export type Reader = (legacyId: string) => Promise<{ status: number; body: Record<string, unknown> | null }>;
@@ -48,7 +48,7 @@ export function readItem(body: Record<string, unknown>): ItemReading {
 }
 
 /** What the seller's own item specifics say about fit. Only a clear statement counts; missing or odd values say nothing. */
-export function aspectsVerdict(aspects: Record<string, string>): { ecc: boolean | null; conflict: string | null } {
+export function aspectsVerdict(aspects: Record<string, string>): { ecc: boolean | null; conflict: string | null; eccListed: boolean } {
   const eccRaw = Object.entries(aspects).find(([k]) => /\becc\b|error\s*correct/.test(k))?.[1] ?? '';
   const type = Object.entries(aspects).find(([k]) => /^(type|form factor|memory type|ram type)$/.test(k))?.[1] ?? '';
   let ecc: boolean | null = null;
@@ -58,7 +58,10 @@ export function aspectsVerdict(aspects: Record<string, string>): { ecc: boolean 
   if (ecc === true) conflict = 'item specifics say ECC memory; the N5 Air needs non-ECC';
   else if (/^(u-?dimm|dimm|desktop)\b/i.test(type) && !/so-?dimm/i.test(type)) conflict = `item specifics say "${type}", not SO-DIMM`;
   else if (/ddr\s?4\b/i.test(type)) conflict = `item specifics say "${type}", not DDR5`;
-  return { ecc, conflict };
+  // Seen on a real listing (2026-10-08): the seller's "Memory Features" specific said "ECC Memory" for a kit sold as plain DDR5 SO-DIMM. DDR5 has
+  // on-die ECC, so sellers tick it for ordinary modules; it is a caveat to confirm, not proof of ECC modules, so it is a flag and never a block.
+  const eccListed = ecc == null && Object.entries(aspects).some(([k, v]) => !/\becc\b|error\s*correct/.test(k) && /\becc\b/i.test(v) && !/non[\s-]?ecc/i.test(v));
+  return { ecc, conflict, eccListed };
 }
 
 export async function verifyOffer(offer: Pick<PriceRecord, 'url' | 'price' | 'profile_flags' | 'source'>, read: Reader): Promise<Verdict> {
@@ -69,10 +72,11 @@ export async function verifyOffer(offer: Pick<PriceRecord, 'url' | 'price' | 'pr
   if (!r.body) return { ok: true, note: 'could not re-check the listing just now' };
   const item = readItem(r.body);
   if (item.available === false) return { ok: false, reason: 'the listing has ended or is out of stock', aspects: item.aspects };
-  const { ecc, conflict } = aspectsVerdict(item.aspects);
+  const { ecc, conflict, eccListed } = aspectsVerdict(item.aspects);
   if (conflict) return { ok: false, reason: conflict, aspects: item.aspects };
   const flagsRemoved = ecc === false && (offer.profile_flags ?? '').includes('ecc_unstated') ? ['ecc_unstated'] : [];
   const priceChanged = item.price != null && Math.abs(item.price - offer.price) / offer.price > 0.01;
-  return { ok: true, aspects: item.aspects, flagsRemoved, ...(priceChanged ? { price: item.price! } : {}),
+  const flagsAdded = eccListed && !(offer.profile_flags ?? '').includes('ecc_listed') ? ['ecc_listed'] : [];
+  return { ok: true, aspects: item.aspects, flagsRemoved, flagsAdded, ...(priceChanged ? { price: item.price! } : {}),
     ...(priceChanged ? { note: `price is now £${item.price!.toFixed(2)} (was £${offer.price.toFixed(2)})` } : {}) };
 }
