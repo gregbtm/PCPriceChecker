@@ -63,12 +63,12 @@ Scope tags: S under half a day, M about a day, L several days.
 
 | # | Item | Why | Size |
 |---|---|---|---|
-| C1 | **Market-floor context**: show the cheapest price seen for any compatible kit (any stock state) beside the alert threshold, in the offers modal and in the daily summary, with a plain "target is N% below the market floor" line | The owner needs to see at a glance that £350 vs £600+ is a market gap, and when it narrows | S |
-| C2 | **Alert-channel health**: dashboard banner when no channel is configured or the last delivery failed; `GET /api/health` reports it; daily summary includes it | Weakness 1 must be impossible to miss | S |
-| C3 | **Known-page canary**: a daily check that every known page still answers 200 with a parseable price, reported in health | A parser or page that silently dies is the original failure class | S |
-| C4 | **Verify-before-alert**: re-fetch the exact listing (eBay `getItem`, or the product page) just before sending, and abort the alert if price, stock or compatibility no longer hold | Removes stale-alert false positives | M |
-| C5 | **eBay item specifics** (`getItem` aspects: Type, Form Factor, ECC, Capacity) to resolve `ecc_unstated` from seller data, not the title | Unverified response shape; needs one run with the owner's keys | M |
-| C6 | **MPN-first eBay queries**: search each catalogue part number as well as the keyword query | Finds listings whose titles omit "SO-DIMM"; cheap (a handful of calls a day, free quota is 5,000) | S |
+| C1 | **DONE 2026-10-07.** **Market-floor context**: show the cheapest price seen for any compatible kit (any stock state) beside the alert threshold, in the offers modal and in the daily summary, with a plain "target is N% below the market floor" line | The owner needs to see at a glance that £350 vs £600+ is a market gap, and when it narrows | S |
+| C2 | **DONE 2026-10-07.** **Alert-channel health**: dashboard banner when no channel is configured or the last delivery failed; `GET /api/health` reports it; daily summary includes it | Weakness 1 must be impossible to miss | S |
+| C3 | **Covered 2026-10-08** by the existing per-source run records (each known page is a `url:<domain>` source; a block now says so). **Known-page canary**: a daily check that every known page still answers 200 with a parseable price, reported in health | A parser or page that silently dies is the original failure class | S |
+| C4 | **DONE 2026-10-08.** **Verify-before-alert**: re-fetch the exact listing (eBay `getItem`, or the product page) just before sending, and abort the alert if price, stock or compatibility no longer hold | Removes stale-alert false positives | M |
+| C5 | **DONE 2026-10-08** (response shape Unverified until a live run). **eBay item specifics** (`getItem` aspects: Type, Form Factor, ECC, Capacity) to resolve `ecc_unstated` from seller data, not the title | Unverified response shape; needs one run with the owner's keys | M |
+| C6 | **DONE 2026-10-08** (live behaviour Unverified). **MPN-first eBay queries**: search each catalogue part number as well as the keyword query | Finds listings whose titles omit "SO-DIMM"; cheap (a handful of calls a day, free quota is 5,000) | S |
 | C7 | **Honest User-Agent on the older retailer scrapers, and bypass tooling off by default** (weakness 6) | Consistency with the stated politeness policy. **Done 2026-10-08** | S |
 
 **B. Ambitious: where this becomes more than a scraper**
@@ -76,14 +76,14 @@ Scope tags: S under half a day, M about a day, L several days.
 | # | Item | Idea | Size |
 |---|---|---|---|
 | B1 | **Assembled kits**: pair two identical single 32GB (or 24GB) modules from one seller into a virtual 64GB (48GB) kit with the combined price | Singles are listed separately and often cheaper per GB; Box shows KVR56S46BD8-32 at £485.99 each (agent, Verified), so today it would not help, but the market moves. Identical module, same seller, quantity 2 | M |
-| B2 | **New-listing watch for eBay** (`sort=newlyListed`, alert on an unseen matching listing) | A rare cheap kit can sell within hours of listing | M |
+| B2 | **Not needed 2026-10-08** (the hourly search already sees new listings; the options gap is now configurable, HANDOFF 9x). **New-listing watch for eBay** (`sort=newlyListed`, alert on an unseen matching listing) | A rare cheap kit can sell within hours of listing | M |
 | B3 | **Source arbitration and confidence**: when two sources disagree about price or stock, show both and flag it; score every offer by source reliability, freshness and classification certainty | Borrowed from PriceGhost and changedetection's "lie detection" | M |
 | B4 | **Per-store strategy editor** in the dashboard (URL pattern, extractor, selectors) | Borrowed from PriceBuddy; today a new shop needs code | L |
 | B5 | **PriceSpy email ingestion** over IMAP | Sanctioned bulk coverage of shops we cannot read, using the aggregator's own alert feature | M |
 | B6 | **Awin feed ingestor** (only after an honest application is approved) | One daily file gives price, stock and MPN for Scan and Overclockers | L |
-| B7 | **Evidence ledger**: store the raw JSON-LD or API snippet behind each alert | Every alert becomes auditable after the fact | S |
+| B7 | **DONE 2026-10-08.** **Evidence ledger**: store the raw JSON-LD or API snippet behind each alert | Every alert becomes auditable after the fact | S |
 | B8 | **MCP parity** (offers, health, known pages via Claude) and n8n workflow verification | Ask Claude "what is the best offer now" | S to M |
-| B9 | **Access token for dashboard and API, and secret masking** | Weakness 5 | M |
+| B9 | **DONE 2026-10-08.** **Access token for dashboard and API, and secret masking** | Weakness 5 | M |
 
 **What we will not build:** anything that disguises the client, defeats a challenge page, rotates proxies, or spoofs a browser (streetmerchant-style tooling); crawling PriceSpy, idealo or HotUKDeals search; CeX search.
 
@@ -96,6 +96,17 @@ Scope tags: S under half a day, M about a day, L several days.
 | Wired2Fire source via the WooCommerce Store API, backorder never alerts | `woocommerce-store.test.ts` on the real response and real robots.txt |
 | Known-MPN catalogue; a part number overrides a misleading title or address (Box's DDR5 kit address says "ddr4") | `memory-mpns.test.ts`; Box page opened and its address checked |
 | Known pages (5 pages) with an "Add" button in the offers modal; `search_also` keeps eBay and the searches running beside pinned pages | `web.test.ts`, `refresh.test.ts` |
+
+### Built 2026-10-08
+
+| Item | Evidence |
+|---|---|
+| Market-floor view and alert-channel health banner (PR 45) | `market-view.test.ts`, `notifications.test.ts`; dashboard checked in headless Chromium |
+| Scraping policy enforced in code: stealth, rotating identities, proxy rotation and bypass backends off by default; a refusal is recorded as blocked; honest User-Agent everywhere (PR 46) | `scrape-policy.test.ts`; research row 43 (this also corrects an earlier claim in this document) |
+| eBay part-number queries, `alert_on_total`, configurable options gap, reliability settings in the dashboard (PR 47) | `alert-total.test.ts`, `refresh.test.ts`, `options.test.ts` |
+| Verify before alert, item specifics, evidence ledger; optional access token and secret masking (PR 48) | `verify-offer.test.ts`, `web.test.ts`; sign-in flow driven in headless Chromium |
+
+Still open from the roadmap: B1 (assembled kits), B3 (source arbitration), B4 (per-store strategy editor), B5 (PriceSpy email ingestion), B6 (Awin ingestor, needs an approved application), B8 (MCP parity, n8n verification), C7's sibling (`pcpartpicker-live.ts` still calls `randomUA()`, now honest by default but worth deleting if that source is never used).
 
 ## 6. Decisions for the owner
 
