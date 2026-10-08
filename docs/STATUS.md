@@ -45,6 +45,6 @@ All items are ticked in `docs/HANDOFF.md` section 5 except **P4-5 (n8n)**, which
 ## Known gaps worth knowing about
 
 1. **Retailer access is limited by the retailers.** Cloudflare challenges block Scan, Overclockers, CCL and Currys; Ebuyer refuses connections; AWD-IT and Novatech forbid their search pages in robots.txt, so those two are read through their sitemaps and product pages (AWD-IT sitemap verified, Novatech's not, live pass pending). See research rows 35-37 and `docs/OPERATIONS.md`.
-2. **No authentication** on the dashboard or API; `GET /api/config` returns stored secrets. LAN only. See `docs/NEXT.md`.
-3. **Alerts compare the item price, not price plus delivery.**
+2. **Authentication is opt-in** (`app_token` / `APP_TOKEN`, 2026-10-08) and off by default; stored secrets are masked in `GET /api/config` either way. Until a token is set the dashboard and API are open to anything on the LAN.
+3. **Alerts compare the item price, not price plus delivery**, unless `alert_on_total` is set (2026-10-08).
 4. The old components (ids 1, 2, 3, 4, 6) should be paused by the owner.

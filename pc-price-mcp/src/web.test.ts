@@ -71,6 +71,47 @@ describe('dashboard API: components', () => {
   });
 });
 
+describe('optional access token and secret masking', () => {
+  const get = (path: string, headers: Record<string, string> = {}) => fetch(base + path, { headers }).then(async r => ({ status: r.status, body: await r.json().catch(() => null) as any, headers: r.headers }));
+  it('with no token set nothing changes, but stored secrets are never returned in clear', async () => {
+    db.setConfig('discord_webhook_url', 'https://discord.com/api/webhooks/123456/SECRETWEBHOOKTOKEN');
+    db.setConfig('ntfy_topic', 'pcpc-topic');
+    const r = await get('/api/config');
+    expect(r.status).toBe(200);
+    expect(r.body.discord_webhook_url).toBe('••••••••OKEN');
+    expect(JSON.stringify(r.body)).not.toContain('SECRETWEBHOOKTOKEN');
+    expect(r.body.ntfy_topic).toBe('pcpc-topic');                         // not a secret: shown
+    expect((await get('/api/components')).status).toBe(200);
+  });
+  it('writing the masked stub back (what the Settings tabs do) leaves the real secret alone', async () => {
+    const r = await send('/api/config', 'POST', { key: 'discord_webhook_url', value: '••••••••OKEN' });
+    expect(r.body).toMatchObject({ ok: true, unchanged: true });
+    expect(db.getConfig('discord_webhook_url')).toContain('SECRETWEBHOOKTOKEN');
+  });
+  it('with a token set: 401 without it, 200 with Bearer, X-API-Key or the cookie from login; /api/health stays open', async () => {
+    db.setConfig('app_token', 'sekrit-token-123');
+    try {
+      expect((await get('/api/components')).status).toBe(401);
+      expect((await get('/api/components')).body.error).toBe('unauthorised');
+      expect((await get('/api/health')).status).toBe(200);
+      expect((await get('/api/auth/status')).body).toEqual({ required: true, authorised: false });
+      expect((await get('/api/components', { Authorization: 'Bearer wrong' })).status).toBe(401);
+      expect((await get('/api/components', { Authorization: 'Bearer sekrit-token-123' })).status).toBe(200);
+      expect((await get('/api/components', { 'X-API-Key': 'sekrit-token-123' })).status).toBe(200);
+      expect((await send('/api/auth/login', 'POST', { token: 'nope' })).status).toBe(401);
+      const login = await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: 'sekrit-token-123' }) });
+      expect(login.status).toBe(200);
+      const cookie = login.headers.get('set-cookie') ?? '';
+      expect(cookie).toMatch(/pcpc_token=.*HttpOnly.*SameSite=Strict/);
+      expect((await get('/api/components', { Cookie: cookie.split(';')[0] })).status).toBe(200);
+      expect((await get('/api/auth/status', { Cookie: cookie.split(';')[0] })).body).toEqual({ required: true, authorised: true });
+      // the token itself is masked like any other secret
+      expect((await get('/api/config', { Authorization: 'Bearer sekrit-token-123' })).body.app_token).toBe('••••••••-123');
+    } finally { db.deleteConfig('app_token'); }
+    expect((await get('/api/components')).status).toBe(200);              // switching it off restores open access
+  });
+});
+
 describe('alert evidence ledger', () => {
   it('lists what was true when an alert was sent or held back, newest first, with the JSON parsed', async () => {
     db.recordEvidence({ componentId: null, kind: 'suppressed', retailer: 'eBay UK', url: 'https://www.ebay.co.uk/itm/1', price: 300, evidence: { reason: 'the listing is gone' } });

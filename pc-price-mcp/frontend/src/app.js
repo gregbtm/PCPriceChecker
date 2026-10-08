@@ -206,7 +206,7 @@ function app() {
         { key: 'ebay_mpn_every_hours', label: 'eBay part-number searches every (hours, 0 = every pass, "off")', placeholder: '6' },
       ] },
       { id: 'reliability', title: 'Reliability and politeness', help: 'The heartbeat URL (for example an Uptime Kuma push monitor) is pinged after every completed pass, so a monitor outside this app notices if it goes quiet. The identity is what every plain request sends; leave it empty to use the default, or add a contact address so a shop can reach you.', fields: [
-        { key: 'heartbeat_url', label: 'Heartbeat URL', placeholder: 'http://kuma.lan:3001/api/push/…?status=up&msg=OK' },
+        { key: 'heartbeat_url', secret: true, label: 'Heartbeat URL (leave empty to keep the current one)', placeholder: 'http://kuma.lan:3001/api/push/…?status=up&msg=OK' },
         { key: 'scraper_user_agent', label: 'Request identity (User-Agent)', placeholder: 'PCPriceChecker (self-hosted price tracker; you@example.com)' },
       ] },
       { id: 'n8n', title: 'n8n (webhook)', help: 'The app posts every alert as JSON to this n8n Webhook node. Use the production URL, not /webhook-test/.', fields: [
@@ -232,6 +232,9 @@ function app() {
     needsAttention: [],
     scraperHealth: { failing: [], sources: [] },
     alertHealth: null,
+    showLogin: false,
+    loginToken: '',
+    loginError: '',
 
     // Component URLs modal
     showUrlsModal: false,
@@ -353,6 +356,7 @@ function app() {
 
     // ── Init ───────────────────────────────────────────────────────────────
     async init() {
+      window.addEventListener('pcpc-unauthorised', () => { this.showLogin = true; });
       clearInterval(this._schedulerTimer);
       this.selectedPrebuiltRetailers = this.allPrebuiltRetailers.map(r => r.id);
       await Promise.all([
@@ -462,6 +466,11 @@ function app() {
       this.cdSpikeResult = await r.json();
     },
     async checkEbay() { this.ebayStatus = await (await fetch('/api/ebay/status')).json(); },
+    async login() {
+      this.loginError = '';
+      const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: this.loginToken }) });
+      if (r.ok) { this.showLogin = false; location.reload(); } else { this.loginError = 'That token was not accepted.'; }
+    },
     async openOffers(c) {
       this.offersData = null; this.knownPages = null; this.showOffersModal = true;
       this.offersData = await (await fetch(`/api/components/${c.id}/offers`)).json();

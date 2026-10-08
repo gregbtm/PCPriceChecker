@@ -83,3 +83,25 @@ Self-hosted ntfy setup and the 403 fix: `docs/NTFY.md`.
 **Per-domain strategy memory:** for a product URL the app remembers which provider (`direct` or `firecrawl`) last worked for the domain and tries it first; three failures in a row demote it. Stored in config rows `provider_strategy:<domain>`.
 
 **Host decision (P6-2):** the owner chose the existing NAS (32GB RAM, ~130 containers). Nothing heavy is deployed by default. If Firecrawl is ever enabled, measure first (`docker stats`, DSM Resource Monitor) and lower `NUM_WORKERS_PER_QUEUE`, `BROWSER_POOL_SIZE` and `MAX_CONCURRENT_JOBS`, as the overlay does. Prebuilt Firecrawl images exist on GHCR (verified 2026-10-06: `firecrawl/firecrawl` latest and 2.10.1, `firecrawl/playwright-service` latest, `firecrawl/nuq-postgres` latest), so no source build is needed.
+
+## Access token, politeness switches and reliability settings (2026-10-08)
+
+| Setting (config table, or env var) | Default | What it does |
+|---|---|---|
+| `app_token` / `APP_TOKEN` | unset (open, LAN only) | When set, every `/api` call except `/api/health` needs it: `Authorization: Bearer <token>`, `X-API-Key: <token>`, or the cookie the dashboard's sign-in box sets (`POST /api/auth/login`). Stored secrets are shown as a stub (`••••••••abcd`) by `GET /api/config` whether or not a token is set; writing a stub back changes nothing. **If you lock yourself out**, remove the row: stop the container, `sqlite3 /data/<db> "DELETE FROM config WHERE key='app_token'"`, and unset `APP_TOKEN` in Portainer |
+| `allow_bot_bypass` / `ALLOW_BOT_BYPASS` | off | Only the exact word `true` enables fingerprint patching, rotating browser identities, proxy rotation and the Camoufox/Novada backends. Leave it off: a site that refuses the app is recorded as `blocked by the site` and left alone |
+| `scraper_user_agent` / `SCRAPER_USER_AGENT` | `PCPriceChecker (self-hosted price tracker; github.com/gregbtm/PCPriceChecker)` | The identity every plain request sends. Add a contact address if you like |
+| `heartbeat_url` / `HEARTBEAT_URL` | unset | Pinged (GET) after every completed pass. Point it at an Uptime Kuma "Push" monitor or a healthchecks-style URL so something outside this app notices when it goes quiet |
+| `alert_on_total` | off | `true` compares price plus known delivery with the alert and options limits |
+| `options_cooldown_minutes` | 360 | Minimum gap between two "worth a look" lists |
+| `ebay_mpn_every_hours` | 6 | How often the known part numbers are also searched on eBay (`0` every pass, `off`) |
+| `verify_before_alert` | on | `false` stops the re-read of the cheapest eBay offers just before an alert (`GET /api/alerts/evidence` shows what was sent or held back and why) |
+
+Checks from a shell (replace `$APP`):
+
+```bash
+curl -sS $APP/api/health | python3 -c "import json,sys;d=json.load(sys.stdin);print('alerts:',d['alerts']);print('catalogue:',d['catalogue']);print('failing:',d['scrapers']['failing'])"
+curl -sS $APP/api/alerts/evidence?limit=10 | python3 -c "import json,sys;[print(e['created_at'],e['kind'],e['retailer'],e['price'],(e['evidence'] or {}).get('reason','')) for e in json.load(sys.stdin)]"
+curl -sS $APP/api/components/7/known-pages
+```
+(add `-H "Authorization: Bearer <token>"` once `app_token` is set)
