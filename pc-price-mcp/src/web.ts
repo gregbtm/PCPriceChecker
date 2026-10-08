@@ -46,6 +46,7 @@ import { sendDailySummary } from './services/daily-summary.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
 import { getDealScoresForAll } from './services/deal-scorer.js';
 import { catalogueSummary } from './services/catalogue-watch.js';
+import { requireToken, appToken, isAuthorised, tokenMatches, loginCookie, logoutCookie, maskConfig, isMasked } from './services/access.js';
 import { knownPagesFor } from './data/known-pages.js';
 import { SITEMAPS, slugText } from './sources/sitemap-discovery.js';
 
@@ -112,6 +113,7 @@ export function startWebServer(port: number): void {
   const app = express();
   app.use(express.json());
   app.use(express.static(PUBLIC_DIR));
+  app.use('/api', requireToken);   // no-op unless an app token is set (services/access.ts)
 
   // Seed process.env from any API keys previously saved in the DB.
   syncEnvFromDb();
@@ -346,12 +348,26 @@ export function startWebServer(port: number): void {
   // ── Config ────────────────────────────────────────────────────────────────
 
   app.get('/api/config', h(async (_req, res) => {
-    res.json(db.getAllConfig());
+    res.json(maskConfig(db.getAllConfig()));   // secrets are shown as a stub: never in clear
   }));
+
+  // ── Access (optional app token) ───────────────────────────────────────────
+  app.get('/api/auth/status', (req, res) => { res.json({ required: appToken() != null, authorised: isAuthorised(req) }); });
+  app.post('/api/auth/login', (req, res) => {
+    const expected = appToken();
+    if (expected == null) { res.json({ ok: true, required: false }); return; }
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+    if (!tokenMatches(token, expected)) { res.status(401).json({ error: 'wrong token' }); return; }
+    res.setHeader('Set-Cookie', loginCookie(token));
+    res.json({ ok: true });
+  });
+  app.post('/api/auth/logout', (_req, res) => { res.setHeader('Set-Cookie', logoutCookie); res.json({ ok: true }); });
 
   app.post('/api/config', h(async (req, res) => {
     const { key, value } = req.body;
     if (!key) { res.status(400).json({ error: 'key is required' }); return; }
+    // The Settings tabs read the masked stub and write every field back; a stub must never overwrite the real secret.
+    if (isMasked(value)) { res.json({ ok: true, unchanged: true }); return; }
     if (value === null || value === '' || value === undefined) {
       db.deleteConfig(key);
       if (DB_KEY_TO_ENV[key]) delete process.env[DB_KEY_TO_ENV[key]];
@@ -1129,6 +1145,13 @@ export function startWebServer(port: number): void {
     try { alerts = alertHealth(); } catch { /* health must never throw */ }
     res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers, catalogue, alerts });
   });
+
+  // What was true when each alert was sent (or held back after a re-check).
+  app.get('/api/alerts/evidence', h(async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50')) || 50, 1), 200);
+    const cid = req.query.component_id ? parseInt(String(req.query.component_id)) : undefined;
+    res.json(db.getRecentEvidence(limit, cid).map(e => ({ ...e, evidence: (() => { try { return JSON.parse(e.evidence); } catch { return e.evidence; } })() })));
+  }));
 
   app.get('/api/scrape-runs', h(async (req, res) => {
     const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50')) || 50, 1), 500);

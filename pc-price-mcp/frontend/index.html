@@ -2745,6 +2745,17 @@
   </div>
 </div>
 
+<!-- Sign-in (only appears when an app token is set and a request was refused) -->
+<div x-show="showLogin" x-cloak class="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4">
+  <form @submit.prevent="login()" class="bg-base-200 rounded-xl border border-base-300 w-full max-w-sm p-5 space-y-3">
+    <h3 class="font-semibold">Sign in</h3>
+    <p class="text-xs text-base-content/60">This dashboard needs its access token (the <code>APP_TOKEN</code> setting).</p>
+    <input type="password" x-model="loginToken" autocomplete="current-password" class="input input-bordered w-full" placeholder="Access token" />
+    <p x-show="loginError" class="text-xs text-error" x-text="loginError"></p>
+    <button type="submit" class="btn btn-primary w-full">Sign in</button>
+  </form>
+</div>
+
 <!-- Current offers (what an alert would use) -->
 <div x-show="showOffersModal" x-cloak
      class="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"

@@ -267,3 +267,21 @@ export async function ebayBrowseGetItem(itemId: string): Promise<Record<string, 
     return null;
   }
 }
+
+/**
+ * Re-read one listing by the number in its address (`/itm/237099708741`), distinguishing "gone" (HTTP 404) from "could not tell".
+ * Browse API `item/get_item_by_legacy_id`. Unverified against the live API as of 2026-10-08: the response fields used by
+ * services/verify-offer.ts (`localizedAspects`, `estimatedAvailabilities`, `price`, `itemEndDate`) are the ones its documentation lists.
+ */
+export async function ebayGetItemByLegacyId(legacyId: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  try {
+    const token = await getToken();
+    const res = await fetch(`${BROWSE_URL}/item/get_item_by_legacy_id?legacy_item_id=${encodeURIComponent(legacyId)}`, {
+      headers: browseHeaders(token), signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return { status: res.status, body: null };
+    return { status: res.status, body: await res.json() as Record<string, unknown> };
+  } catch {
+    return { status: 0, body: null };
+  }
+}
