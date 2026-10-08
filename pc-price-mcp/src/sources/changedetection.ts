@@ -140,13 +140,68 @@ export function parseRestockSnapshot(text: string): { price: number; inStock: bo
 
 export const norm = (u: string) => u.replace(/#.*$/, '').replace(/\/+$/, '').toLowerCase();
 
+/**
+ * The watch's live `restock` object (`in_stock`, `price`, `currency`), committed on every check. Read from `GET /watch/{uuid}`.
+ * Why prefer it to the snapshot: under changedetection.io's default `in_stock_only` setting an in-stock to out-of-stock flip writes NO
+ * new snapshot (read in its source, 0.60.8), so the latest snapshot can keep saying "In Stock: True" for a sold-out product.
+ * Unverified on the owner's 0.55.x until `GET /api/changedetection/spike` (which lists the price-like keys of a real watch) shows a `restock` key,
+ * so every reader below degrades to the snapshot when the object is absent or unusable.
+ *
+ * A reading that says "in stock" without a positive price, or in a currency other than GBP, is distrusted (returned as null):
+ * changedetection.io counts pre-sale, in-store-only and limited-availability as in stock, and a stock claim with no price behind it
+ * is not something to alert on.
+ */
+export function readLiveRestock(watch: Record<string, unknown>): { price: number | null; inStock: boolean } | null {
+  const r = watch.restock;
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+  const o = r as Record<string, unknown>;
+  if (typeof o.in_stock !== 'boolean') return null;
+  if (typeof o.currency === 'string' && o.currency && o.currency.toUpperCase() !== 'GBP') return null;
+  const price = typeof o.price === 'number' ? o.price : typeof o.price === 'string' ? Number(o.price.replace(/[^0-9.]/g, '')) : NaN;
+  const goodPrice = Number.isFinite(price) && price > 0 ? price : null;
+  // If the object names the availability it saw, only a plain in-stock counts (pre-order, in-store-only and limited stock do not).
+  const avail = typeof o.availability === 'string' ? o.availability : '';
+  const inStock = o.in_stock && !/pre[\s-]?order|pre[\s-]?sale|in[\s-]?store|limited|back[\s-]?order/i.test(avail);
+  if (inStock && goodPrice == null) return null;
+  return { price: goodPrice, inStock };
+}
+
 /** Latest reading from the watch on `url`, or null when there is no such watch or nothing usable yet. */
 export async function readWatchForUrl(url: string): Promise<WatchReading | null> {
   const w = (await listWatches()).find(x => norm(x.url) === norm(url));
   if (!w) return null;
-  const parsed = parseRestockSnapshot(await getLatestSnapshot(w.uuid).catch(() => ''));
-  return parsed ? { ...parsed, checkedAt: typeof w.last_checked === 'number' ? w.last_checked : null } : null;
+  const checkedAt = typeof w.last_checked === 'number' ? w.last_checked : null;
+  const snapshot = parseRestockSnapshot(await getLatestSnapshot(w.uuid).catch(() => ''));
+  const live = readLiveRestock(await getWatch(w.uuid).catch(() => ({})));
+  // The live object is authoritative for stock; the price comes from it when it has one, else from the snapshot.
+  if (live) {
+    const price = live.price ?? snapshot?.price ?? null;
+    if (price == null) return null;
+    return { price, inStock: live.inStock, checkedAt };
+  }
+  return snapshot ? { ...snapshot, checkedAt } : null;
 }
+
+export interface WatchHealth {
+  uuid: string; url: string; title: string | null; lastCheckedAt: string | null; ageHours: number | null;
+  lastError: string | null; status: 'ok' | 'error' | 'stale' | 'never_checked';
+}
+
+/** A watch not checked for this long is stale: its fetcher is broken, paused or queued behind others. */
+export const STALE_AFTER_HOURS = 48;
+
+/** One row per watch: what it last said, how long ago, and whether it is failing (a block page, a broken selector, "more than one price found"). */
+export function summariseWatches(watches: CdWatchSummary[], nowMs = Date.now()): WatchHealth[] {
+  return watches.map(w => {
+    const checked = typeof w.last_checked === 'number' && w.last_checked > 0 ? w.last_checked * 1000 : null;
+    const ageHours = checked == null ? null : Math.round(((nowMs - checked) / 3_600_000) * 10) / 10;
+    const err = typeof w.last_error === 'string' && w.last_error ? w.last_error.slice(0, 200) : null;
+    const status: WatchHealth['status'] = err ? 'error' : checked == null ? 'never_checked' : ageHours! > STALE_AFTER_HOURS ? 'stale' : 'ok';
+    return { uuid: w.uuid, url: w.url, title: typeof w.title === 'string' ? w.title : null, lastCheckedAt: checked == null ? null : new Date(checked).toISOString(), ageHours, lastError: err, status };
+  });
+}
+
+export async function watchHealth(): Promise<WatchHealth[]> { return summariseWatches(await listWatches()); }
 
 /** Title prefix of watches this app creates; the dashboard only deletes watches that carry it. */
 export const PCPC_TITLE_PREFIX = 'PCPC';

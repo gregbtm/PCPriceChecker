@@ -93,6 +93,10 @@ Scan, Overclockers, CCL, Box, LaptopOutlet and Currys refuse the NAS (the owner'
 
 One more idea that came out of the numbers: the eBay Fanxiang kit is about 45% below the cheapest prices PriceSpy shows for named 64GB kits (£7.69 a GB against about £13 to £16). Our "suspiciously cheap" flag uses a fixed £2 a GB floor, so it never fired. A **market-relative** flag (price per GB far below the median of everything else seen) would have said "check this seller" without waiting for a human to notice. That is a small build, and it needs no new source.
 
+### Phase 1 status (updated 2026-10-08)
+
+Built and merged or in review, each with real-data fixtures: the HotUKDeals fix and hourly tag-feed poller (PR 56), Inside-Tech and Buy Kingston as default sources (PR 57), the reachability probe and a feed-window gap check (PR 58), and the changedetection reader fixes C1 to C3 (this change). **Correction to C1 above:** our own `createRestockWatch` already set `in_stock_processing: 'all_changes'`, so watches this app creates already write a snapshot on every change; the stale-snapshot risk applies to watches created any other way (the changedetection.io UI, n8n). What was missing, and is now built, is reading the watch's live `restock` object in preference to the snapshot (falling back to the snapshot whenever the object is absent), distrusting "in stock" with no GBP price, and a per-watch health report (`GET /api/changedetection/health`). Whether the owner's 0.55.x puts a `restock` object in `GET /watch/{uuid}` is still **Unverified**: `GET /api/changedetection/spike` on a real watch will show it.
+
 ## 7. Decisions for the owner
 
 1. Approve phase 1 (I would start with the probe, since it decides which emails are worth sending).

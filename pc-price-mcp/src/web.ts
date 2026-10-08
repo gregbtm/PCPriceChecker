@@ -5,7 +5,7 @@
  */
 import { topOffers, formatOffer, marketView, offerKey } from './services/offers.js';
 import { discoverProductPages } from './sources/searxng.js';
-import { changedetectionConfigured, spike as cdSpike, listWatches as cdListWatches, createRestockWatch, deleteWatch as cdDeleteWatch, PCPC_TITLE_PREFIX } from './sources/changedetection.js';
+import { changedetectionConfigured, spike as cdSpike, listWatches as cdListWatches, summariseWatches, createRestockWatch, deleteWatch as cdDeleteWatch, PCPC_TITLE_PREFIX } from './sources/changedetection.js';
 import { firecrawlConfigured } from './sources/firecrawl.js';
 import { llmConfigured } from './sources/openai-client.js';
 import { N8N_WORKFLOWS, buildN8nWorkflow } from './data/n8n-workflows.js';
@@ -669,6 +669,15 @@ export function startWebServer(port: number): void {
       const watches = await cdListWatches();
       res.json(watches.map(w => ({ uuid: w.uuid, title: w.title ?? w.page_title ?? '', url: w.url, last_checked: w.last_checked ?? null,
         last_error: w.last_error || null, ours: String(w.title ?? '').startsWith(PCPC_TITLE_PREFIX) })));
+    } catch (err) { res.status(502).json({ error: (err as Error).message }); }
+  }));
+
+  /** One row per watch with how long ago it was checked and what it last failed with, so a broken watch is visible (a block page, a broken selector, "more than one price found"). */
+  app.get('/api/changedetection/health', h(async (_req, res) => {
+    if (!changedetectionConfigured()) { res.status(400).json({ error: 'changedetection.io is not configured' }); return; }
+    try {
+      const watches = summariseWatches(await cdListWatches());
+      res.json({ total: watches.length, problems: watches.filter(w => w.status !== 'ok').length, watches });
     } catch (err) { res.status(502).json({ error: (err as Error).message }); }
   }));
 
