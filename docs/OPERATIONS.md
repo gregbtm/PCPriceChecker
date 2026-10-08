@@ -3,7 +3,7 @@
 For the self-hosted NAS deployment. Image: `ghcr.io/gregbtm/pc-price-mcp:latest`; the compose file maps host port `HOST_PORT` (default 38574) to the container's 3000, and Watchtower pulls new `:latest` images about every 5 minutes.
 
 ## Security
-The REST API and dashboard have **no authentication**, and `GET /api/config` returns every stored setting unmasked (API keys and tokens included). Keep the port on the LAN; do not publish it. Keep changedetection.io and any Firecrawl instance LAN-only too.
+The REST API and dashboard have **no authentication unless you set `app_token` / `APP_TOKEN`** (see "Access token" below); until then keep the port on the LAN and do not publish it. `GET /api/config` shows credential-shaped settings as a stub (`••••••••abcd`) either way. Keep changedetection.io and any Firecrawl instance LAN-only too.
 
 ## Settings
 Settings live in the SQLite `config` table and are changed with `POST /api/config` and body `{"key":"...","value":"..."}` (empty value deletes the key). A value stored this way **overrides the container's environment** at startup. Keys: `ntfy_server`, `ntfy_topic`, `ntfy_token`, `webhook_url`, `webhook_secret`, `ebay_client_id`, `ebay_client_secret`, `changedetection_url`, `changedetection_api_key`, `changedetection_autocreate` (`false` stops the app creating Novatech watches), `quiet_hours` (e.g. `22:00-07:00`, local time, default none), `alert_cooldown_minutes` (1440), `drop_cooldown_minutes` (360), `price_retention_days` (365, 0 keeps everything), `daily_summary_hour` (8, `off` disables), `max_offer_age_hours` (48), `scheduler_retailers`, `suspicious_price_per_gb` (2). Per component: `PATCH /api/components/:id/alert` with `alert_price` and `consider_price`.

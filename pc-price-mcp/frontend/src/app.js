@@ -343,6 +343,7 @@ function app() {
     async loadFrom(url, prop, silent = false) {
       try {
         const r = await fetch(url);
+        if (r.status === 401) return;   // locked: the sign-in box is open; keep the previous (empty) data instead of an error object
         this[prop] = await r.json();
       } catch (e) { if (!silent) throw e; }
     },
