@@ -149,18 +149,24 @@ export async function fetchHukdFeed(url: string, fetchFn: typeof fetch = fetch):
 export const HUKD_TAG_FEEDS = ['ram', 'computers', 'electronics'] as const;
 export const hukdFeedUrl = (tag: string) => `${HUKD_BASE}/rss/tag/${tag}`;
 
-/** Several feeds, merged and deduplicated by guid, newest first. Reports an error only when every feed failed. */
-export async function fetchHukdFeeds(tags: readonly string[] = HUKD_TAG_FEEDS, fetchFn: typeof fetch = fetch): Promise<{ deals: HukdDeal[]; failures: string[] }> {
+/**
+ * Several feeds, merged and deduplicated by guid, newest first. `failures` names feeds that did not answer; `byFeed` lists the guids each
+ * feed that DID answer held, so a caller can tell whether two polls of the same feed overlapped (a feed shows only its newest ~30 items).
+ */
+export async function fetchHukdFeeds(tags: readonly string[] = HUKD_TAG_FEEDS, fetchFn: typeof fetch = fetch): Promise<{ deals: HukdDeal[]; failures: string[]; byFeed?: Record<string, string[]> }> {
   const deals = new Map<string, HukdDeal>();
   const failures: string[] = [];
+  const byFeed: Record<string, string[]> = {};
   for (const tag of tags) {
     try {
-      for (const d of await fetchHukdFeed(hukdFeedUrl(tag), fetchFn)) if (!deals.has(d.guid)) deals.set(d.guid, d);
+      const items = await fetchHukdFeed(hukdFeedUrl(tag), fetchFn);
+      byFeed[tag] = items.map(d => d.guid);
+      for (const d of items) if (!deals.has(d.guid)) deals.set(d.guid, d);
     } catch (e) {
       failures.push(`${tag}: ${e instanceof RobotsDisallowedError ? e.message : (e as Error).message}`);
     }
   }
-  return { deals: [...deals.values()].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)), failures };
+  return { deals: [...deals.values()].sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)), failures, byFeed };
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────

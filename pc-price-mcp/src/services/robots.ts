@@ -10,6 +10,8 @@
  * Availability: 2xx = use it; 4xx (including a bot-challenge 403 that hides the file) = no rules, allowed, per RFC 9309; 5xx or a
  * network error = treated as disallowed, and retried after 10 minutes rather than cached for a day.
  */
+import { scraperUserAgent } from './scrape-policy.js';
+
 const AGENT = 'pcpricechecker';
 const TTL_MS = 24 * 3_600_000;
 const RETRY_MS = 10 * 60_000;
@@ -67,7 +69,7 @@ export async function loadRobots(origin: string, fetchFn: typeof fetch = fetch, 
   if (hit && now - hit.at < hit.ttl) return hit.value;
   let value: RobotsRules, ttl = TTL_MS;
   try {
-    const res = await fetchFn(`${origin}/robots.txt`, { headers: { 'User-Agent': 'PCPriceChecker (self-hosted price tracker)', Accept: 'text/plain' }, signal: AbortSignal.timeout(10_000) });
+    const res = await fetchFn(`${origin}/robots.txt`, { headers: { 'User-Agent': scraperUserAgent(), Accept: 'text/plain' }, signal: AbortSignal.timeout(10_000) });
     if (res.ok) value = { rules: parseRobots(await res.text()), status: 'ok' };
     else if (res.status >= 500) { value = { rules: [{ allow: false, pattern: '/' }], status: 'error' }; ttl = RETRY_MS; }
     else value = { rules: [], status: 'unavailable' };

@@ -23,6 +23,7 @@ const MIN_KIT_GB = 48;
 const SEEN_KEY = 'dealfeed:seen';
 const LAST_KEY = 'dealfeed:last_poll';
 const STATUS_KEY = 'dealfeed:status';
+const WINDOWS_KEY = 'dealfeed:windows';
 
 export function dealFeedsEnabled(): boolean {
   return (db.getConfig('deal_feeds_enabled') ?? 'true').trim().toLowerCase() !== 'false';
@@ -46,7 +47,11 @@ export function isTargetDeal(d: Pick<HukdDeal, 'title' | 'description'>): boolea
   return t.ddr === 5 && !t.bundle && (t.totalGb ?? 0) >= MIN_KIT_GB;
 }
 
-export interface FeedStatus { at: string; ok: boolean; items: number; matched: number; error?: string }
+export interface FeedStatus {
+  at: string; ok: boolean; items: number; matched: number; error?: string;
+  /** Feeds whose newest ~30 items shared nothing with the previous poll's: posts may have scrolled off between polls and been missed. */
+  gaps?: string[];
+}
 
 function loadSeen(): string[] {
   try { const a = JSON.parse(db.getConfig(SEEN_KEY) ?? '[]'); return Array.isArray(a) ? a.filter((x): x is string => typeof x === 'string') : []; } catch { return []; }
@@ -54,6 +59,24 @@ function loadSeen(): string[] {
 
 export function loadDealFeedStatus(): FeedStatus | null {
   try { return JSON.parse(db.getConfig(STATUS_KEY) ?? 'null') as FeedStatus | null; } catch { return null; }
+}
+
+function loadWindows(): Record<string, string[]> {
+  try { const w = JSON.parse(db.getConfig(WINDOWS_KEY) ?? '{}'); return w && typeof w === 'object' && !Array.isArray(w) ? w : {}; } catch { return {}; }
+}
+
+/**
+ * A feed is a window onto the newest items, not a complete list (an idea taken from vgvr0/chollo-alerts' `feed_window_risk`, applied here to RSS).
+ * If this poll's window shares no item with the previous poll's window of the same feed, more than a window's worth of posts appeared in
+ * between and some were never seen. Returns the feeds where that happened; a feed that did not answer keeps its previous window.
+ */
+export function windowGaps(previous: Record<string, string[]>, current: Record<string, string[]>): string[] {
+  const gaps: string[] = [];
+  for (const [tag, guids] of Object.entries(current)) {
+    const prev = previous[tag];
+    if (prev && prev.length > 0 && guids.length > 0 && !guids.some(g => prev.includes(g))) gaps.push(tag);
+  }
+  return gaps;
 }
 
 export interface PollDeps {
@@ -75,7 +98,7 @@ export async function pollDealFeeds(deps: Partial<PollDeps> = {}, force = false)
   }
   db.setConfig(LAST_KEY, String(now.getTime()));
 
-  const { deals, failures } = await (deps.fetchFeeds ?? fetchHukdFeeds)(HUKD_TAG_FEEDS);
+  const { deals, failures, byFeed } = await (deps.fetchFeeds ?? fetchHukdFeeds)(HUKD_TAG_FEEDS);
   const allFailed = deals.length === 0 && failures.length > 0;
   const seen = new Set(loadSeen());
   const fresh = deals.filter(d => !seen.has(d.guid) && now.getTime() - new Date(d.publishedAt).getTime() <= MAX_AGE_MS);
@@ -99,9 +122,13 @@ export async function pollDealFeeds(deps: Partial<PollDeps> = {}, force = false)
   for (const d of deals) seen.add(d.guid);
   db.setConfig(SEEN_KEY, JSON.stringify([...seen].slice(-SEEN_CAP)));
 
+  const gaps = windowGaps(loadWindows(), byFeed ?? {});
+  if (byFeed) db.setConfig(WINDOWS_KEY, JSON.stringify({ ...loadWindows(), ...byFeed }));
+
   const status: FeedStatus = {
     at: now.toISOString(), ok: !allFailed, items: deals.length, matched: matched.length,
     error: failures.length > 0 ? failures.join('; ') : undefined,
+    gaps: gaps.length > 0 ? gaps : undefined,
   };
   db.setConfig(STATUS_KEY, JSON.stringify(status));
   return { polled: true, notified, status };

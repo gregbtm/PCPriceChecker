@@ -47,6 +47,7 @@ import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } fr
 import { getDealScoresForAll } from './services/deal-scorer.js';
 import { catalogueSummary } from './services/catalogue-watch.js';
 import { loadDealFeedStatus, dealFeedsEnabled, pollDealFeeds } from './services/deal-feed.js';
+import { runProbe, loadProbe, probeRunning } from './services/reach-probe.js';
 import { requireToken, appToken, isAuthorised, tokenMatches, loginCookie, logoutCookie, maskConfig, isMasked } from './services/access.js';
 import { knownPagesFor } from './data/known-pages.js';
 import { SITEMAPS, slugText } from './sources/sitemap-discovery.js';
@@ -1185,6 +1186,16 @@ export function startWebServer(port: number): void {
     try { deal_feeds = { enabled: dealFeedsEnabled(), last: loadDealFeedStatus() }; } catch { /* health must never throw */ }
     res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers, catalogue, alerts, deal_feeds });
   });
+
+  // What does each shop answer to this machine? Started only by the owner: three requests per shop, honest identity, refusals recorded not worked around.
+  app.get('/api/access/probe', h(async (_req, res) => {
+    res.json({ running: probeRunning(), last: loadProbe() });
+  }));
+  app.post('/api/access/probe', h(async (_req, res) => {
+    if (probeRunning()) { res.status(409).json({ running: true, error: 'a probe is already running' }); return; }
+    void runProbe().catch(e => console.warn('[probe]', (e as Error).message));   // takes a couple of minutes; read the result with GET
+    res.status(202).json({ started: true, hint: 'GET /api/access/probe in about two minutes' });
+  }));
 
   // Read the HotUKDeals feeds now (ignores the hourly gate and the on/off switch) and report what was found. Same code as the scheduler.
   app.post('/api/deal-feeds/poll', h(async (_req, res) => {
