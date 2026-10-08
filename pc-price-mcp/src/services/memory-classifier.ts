@@ -46,6 +46,27 @@ function parseSpeed(t: string, ddr: 4 | 5 | null): number | null {
   return null;
 }
 
+/**
+ * A listing that is a whole computer states its RAM too ("... Laptop ... 64 GB DDR5-SDRAM 1 TB SSD ... Wi-Fi 6E"), and the word
+ * "laptop" would otherwise make the classifier read it as SO-DIMM memory. Found 2026-10-08 on the owner's NAS: Buy Kingston's
+ * sitemap census counted 128 laptops as DDR5 SO-DIMM products (two with 64GB), and one would have been read as a 64GB kit at GBP 2,056.63.
+ * Two or more distinct computer-spec markers (storage, wireless, operating system, CPU model, graphics, screen) make it a bundle,
+ * unless the title also has a memory kit's own wording (SO-DIMM, "kit", "2x32GB"): one marker alone is not enough either, because a kit can say
+ * "for Intel Core" or "Windows".
+ */
+const COMPUTER_SPEC_MARKERS = [
+  /\b(?:ssd|nvme|emmc|hdd)\b/i, /\bwi-?fi\b/i, /\bwindows\s?\d+\b|\bchrome\s?os\b|\bmacos\b/i,
+  /\bcore\s+(?:ultra|i[3579])\b|\bryzen\s+[3579]\b|\bsnapdragon\b|\bceleron\b|\bpentium\b/i,
+  /\b(?:rtx|gtx)\s?\d{3,4}|\bgeforce\b|\bradeon\s+(?:rx|graphics)\b/i,
+  /\b(?:wuxga|wqxga|wqhd|qhd|fhd|full\s?hd|touch\s?screen|oled)\b|\d+(?:\.\d)?\s?(?:cm|inch|in)\s*\(/i,
+];
+/** Wording a memory kit has and a computer's title does not: it names SO-DIMM, says "kit", or gives a module count ("2x32GB"). */
+const KIT_SHAPE = /so[\s-]?dimm|\bkit\b|\b\d\s*x\s*\d{1,3}\s*GB\b/i;
+export function describesWholeComputer(text: string): boolean {
+  if (KIT_SHAPE.test(text)) return false;   // a false "computer" verdict would hide a real kit from alerts, the worse mistake
+  return COMPUTER_SPEC_MARKERS.filter(re => re.test(text)).length >= 2;
+}
+
 export function classifyMemory(title: string): MemoryListing {
   // Normalise separators and the multiplication sign; drop on-die ECC, which is not module ECC.
   const t = title.replace(/×/g, 'x').replace(/on[\s-]?die\s+ecc/gi, ' ');
@@ -87,8 +108,9 @@ export function classifyMemory(title: string): MemoryListing {
 
   // Bundle: "<device> with <memory>" (a mini PC or laptop sold with RAM is not a RAM kit).
   const joiner = t.match(/\b(?:with|incl\.?|including|plus)\b/i);
-  const bundle = !!joiner && joiner.index !== undefined
-    && !/\b(?:ddr\s?\d?|so[\s-]?dimm|dimm|ram|memory|kit|modules?|\d+\s*gb)\b/i.test(t.slice(0, joiner.index));
+  const bundle = (!!joiner && joiner.index !== undefined
+    && !/\b(?:ddr\s?\d?|so[\s-]?dimm|dimm|ram|memory|kit|modules?|\d+\s*gb)\b/i.test(t.slice(0, joiner.index)))
+    || describesWholeComputer(t);
 
   const cl = t.match(/\bC(?:AS|L)\s?-?(\d{2})\b/i);
   const v = t.match(/\b(1\.\d{1,2})\s?V\b/i);

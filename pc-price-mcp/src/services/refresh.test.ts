@@ -368,7 +368,19 @@ describe('changedetection.io tier (P3-3)', () => {
     const { deps } = makeDeps({}, { scrapeUrl, changedetectionConfigured: () => true, readWatch: async () => null });
     await refreshComponent(c, ctx([]), deps);
     expect(scrapeUrl).toHaveBeenCalledOnce();
-    expect(db.getRecentScrapeRuns(10).filter(r => r.source.startsWith('changedetection')).every(r => r.ok === 1)).toBe(true);
+    // Nothing was read from changedetection.io, so no run is recorded for it (it used to log an "ok" run that read nothing, which made
+    // "changedetection:box.co.uk ok" look healthy on the owner's NAS for a shop it never read). The direct scrape is the real attempt.
+    const runs = db.getRecentScrapeRuns(10);
+    expect(runs.filter(r => r.source.startsWith('changedetection'))).toHaveLength(0);
+    expect(runs.find(r => r.source === 'url:shop.co.uk')).toMatchObject({ ok: 1, offers_found: 1 });
+  });
+  it('still records a failure when reading the watch throws, so a broken changedetection.io is visible', async () => {
+    const c = withUrl();
+    const scrapeUrl = vi.fn().mockResolvedValue({ price: 400, currency: 'GBP', inStock: true, stockState: 'in_stock', method: 'json-ld' });
+    const { deps } = makeDeps({}, { scrapeUrl, changedetectionConfigured: () => true, readWatch: async () => { throw new Error('connect ECONNREFUSED'); } });
+    await refreshComponent(c, ctx([]), deps);
+    expect(db.getRecentScrapeRuns(10).find(r => r.source === 'changedetection:shop.co.uk')).toMatchObject({ ok: 0 });
+    expect(scrapeUrl).toHaveBeenCalledOnce();
   });
   it('is skipped entirely when not configured', async () => {
     const c = withUrl();
