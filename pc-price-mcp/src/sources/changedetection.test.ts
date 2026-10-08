@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { parseRestockSnapshot, readWatchForUrl, changedetectionConfigured, listWatches, createRestockWatch, priceLikeKeys, spike } from './changedetection.js';
+import { parseRestockSnapshot, readWatchForUrl, changedetectionConfigured, listWatches, createRestockWatch, priceLikeKeys, spike, readLiveRestock, summariseWatches, STALE_AFTER_HOURS } from './changedetection.js';
 
 function stub(handler: (url: string, init: RequestInit) => unknown) {
   const f = vi.fn(async (url: string, init: RequestInit) => {
@@ -78,5 +78,73 @@ describe('restock snapshot reading (format observed live 2026-10-06)', () => {
       : { 'u-1': { url: 'https://A.test/p/#top', last_checked: 1700000000 } });
     expect(await readWatchForUrl('https://a.test/p')).toEqual({ price: 492, inStock: true, checkedAt: 1700000000 });
     expect(await readWatchForUrl('https://other.test/x')).toBeNull();
+  });
+});
+
+describe('live restock object (C1, C2): the watch\'s own current state beats a possibly stale snapshot', () => {
+  // The watch JSON shape is Unverified on 0.55.x: these are constructed from the 0.60.8 source, so they pin OUR handling of it.
+  const WATCHES = { 'u-1': { url: 'https://a.test/p', last_checked: 1700000000 } };
+  const serve = (live: unknown, snapshot = 'In Stock: True - Price: 492.00') => stub((url) => {
+    if (url.endsWith('/history/latest')) return snapshot;
+    if (url.endsWith('/api/v1/watch')) return WATCHES;
+    return { url: 'https://a.test/p', ...(live === undefined ? {} : { restock: live }) };
+  });
+
+  it('a sold-out product whose latest snapshot still says "In Stock: True" is reported out of stock (the in_stock_only trap)', async () => {
+    serve({ in_stock: false, price: 492, currency: 'GBP' });
+    expect(await readWatchForUrl('https://a.test/p')).toEqual({ price: 492, inStock: false, checkedAt: 1700000000 });
+  });
+
+  it('with no restock object on the watch it falls back to the snapshot, exactly as before', async () => {
+    serve(undefined);
+    expect(await readWatchForUrl('https://a.test/p')).toEqual({ price: 492, inStock: true, checkedAt: 1700000000 });
+  });
+
+  it('takes the live price when it has one, else the snapshot\'s', async () => {
+    serve({ in_stock: true, price: 479.5 });
+    expect((await readWatchForUrl('https://a.test/p'))?.price).toBe(479.5);
+    serve({ in_stock: false });                                         // out of stock, no price in the object
+    expect(await readWatchForUrl('https://a.test/p')).toEqual({ price: 492, inStock: false, checkedAt: 1700000000 });
+  });
+
+  it('distrusts "in stock" with no positive price, and anything not in GBP', () => {
+    expect(readLiveRestock({ restock: { in_stock: true } })).toBeNull();
+    expect(readLiveRestock({ restock: { in_stock: true, price: 0 } })).toBeNull();
+    expect(readLiveRestock({ restock: { in_stock: true, price: 100, currency: 'USD' } })).toBeNull();
+    expect(readLiveRestock({ restock: { in_stock: true, price: '£1,049.99' } })).toEqual({ price: 1049.99, inStock: true });
+    expect(readLiveRestock({ restock: { in_stock: false } })).toEqual({ price: null, inStock: false });
+  });
+
+  it('pre-order, in-store-only, limited and backorder availability do not count as in stock', () => {
+    for (const availability of ['PreOrder', 'InStoreOnly', 'LimitedAvailability', 'BackOrder', 'Pre-sale'])
+      expect(readLiveRestock({ restock: { in_stock: true, price: 100, availability } }), availability).toEqual({ price: 100, inStock: false });
+    expect(readLiveRestock({ restock: { in_stock: true, price: 100, availability: 'InStock' } })).toEqual({ price: 100, inStock: true });
+  });
+
+  it('ignores anything that is not the expected object', () => {
+    for (const bad of [undefined, null, 'x', 5, [], {}, { in_stock: 'yes' }]) expect(readLiveRestock({ restock: bad })).toBeNull();
+    expect(readLiveRestock({})).toBeNull();
+  });
+});
+
+describe('watch health (C3)', () => {
+  const NOW = Date.parse('2026-10-08T12:00:00Z');
+  const at = (hoursAgo: number) => Math.floor((NOW - hoursAgo * 3_600_000) / 1000);
+  it('names the failing, the stale and the never-checked watches, and leaves the healthy one alone', () => {
+    const rows = summariseWatches([
+      { uuid: 'ok', url: 'https://a.test/1', title: 'PCPC A', last_checked: at(2), last_error: false },
+      { uuid: 'err', url: 'https://a.test/2', last_checked: at(1), last_error: 'More than one price found on the page' },
+      { uuid: 'old', url: 'https://a.test/3', last_checked: at(STALE_AFTER_HOURS + 5) },
+      { uuid: 'new', url: 'https://a.test/4' },
+    ], NOW);
+    expect(rows.map(r => [r.uuid, r.status])).toEqual([['ok', 'ok'], ['err', 'error'], ['old', 'stale'], ['new', 'never_checked']]);
+    expect(rows[0]).toMatchObject({ ageHours: 2, lastError: null, title: 'PCPC A' });
+    expect(rows[1].lastError).toBe('More than one price found on the page');
+    expect(rows[3].lastCheckedAt).toBeNull();
+  });
+  it('an error wins over staleness, and a long error is cut', () => {
+    const [r] = summariseWatches([{ uuid: 'x', url: 'u', last_checked: at(100), last_error: 'e'.repeat(500) }], NOW);
+    expect(r.status).toBe('error');
+    expect(r.lastError!.length).toBe(200);
   });
 });
