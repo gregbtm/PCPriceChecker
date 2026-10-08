@@ -11,7 +11,7 @@ import { observeCatalogue } from './services/catalogue-watch.js';
 import { pingHeartbeat } from './services/heartbeat.js';
 import { readWatchForUrl, changedetectionConfigured } from './sources/changedetection.js';
 import * as db from './db.js';
-import { searchWithRetry } from './sources/pricesapi.js';
+import { searchWithRetry, pricesApiSwitchedOff } from './sources/pricesapi.js';
 import { ebayBrowseSearch, ebayConfigured, ebayGetItemByLegacyId } from './sources/ebay-browse.js';
 import { verifyOffer } from './services/verify-offer.js';
 import { searchUkRetailer, ALL_RETAILER_IDS, type RetailerId } from './sources/uk-retailers.js';
@@ -131,7 +131,7 @@ const realDeps: RefreshDeps = {
         stockState: stockStateFromBoolean(offer.inStock),
       })));
   },
-  pricesApiConfigured: () => !!process.env.PRICES_API_KEY?.trim(),
+  pricesApiConfigured: () => !!process.env.PRICES_API_KEY?.trim() && !pricesApiSwitchedOff(),
   ebayConfigured,
   // Condition 'any' unless ebay_allow_used is "false". Fixed-price listings only.
   readWatch: readWatchForUrl,

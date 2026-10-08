@@ -636,11 +636,12 @@
       </template>
 
       <!-- Alert delivery health: with no working channel no alert can ever arrive -->
-      <template x-if="alertHealth && alertHealth.state !== 'ok'">
+      <template x-if="alertHealth && alertHealth.state !== 'ok' && bannerDismissed !== alertHealth.state">
         <div role="alert" class="alert alert-error alert-soft rounded-xl p-3 text-sm">
           <span x-show="alertHealth.state === 'none'"><strong>No alert channel is set up.</strong> Nothing can reach you when a kit appears. Add Discord, Telegram or ntfy on the Integrations or Settings tab, then send a test.</span>
           <span x-show="alertHealth.state === 'untested'"><strong>Alerts have never been delivered.</strong> A channel (<span x-text="alertHealth.configured.join(', ')"></span>) is set up but nothing has gone through yet. Send a test on the Integrations tab.</span>
           <span x-show="alertHealth.state === 'failing'"><strong>The last alert reached nobody.</strong> Channels: <span x-text="alertHealth.configured.join(', ')"></span>. Check them on the Integrations tab.</span>
+          <button class="btn btn-ghost btn-xs" @click="dismissBanner()" title="Hide this until the state changes">Dismiss</button>
         </div>
       </template>
 
@@ -1399,6 +1400,31 @@
         </details>
       </div>
 
+      <!-- Alert limits and which components are tracked (nothing here is hard-coded: it is all stored per component) -->
+      <div class="bg-base-200 rounded-xl border border-base-300 p-5 space-y-3">
+        <div>
+          <h3 class="font-semibold text-sm">Alert limits and tracking</h3>
+          <p class="text-xs text-base-content/60">An alert is sent for an in-stock, compatible offer at or below the alert price. The "worth a look" list shows offers above the alert price up to its limit. Empty means no limit. Pausing a component stops all scraping for it.</p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="table table-xs">
+            <thead><tr><th>Component</th><th>Alert at or below (£)</th><th>Worth a look up to (£)</th><th>Tracking</th><th></th></tr></thead>
+            <tbody>
+              <template x-for="c in components" :key="c.id">
+                <tr :class="c.paused ? 'opacity-50' : ''">
+                  <td><span x-text="c.name"></span> <span class="text-base-content/40" x-text="'#' + c.id"></span>
+                    <div class="text-warning text-xs max-w-md whitespace-normal" x-show="limitsDraft[c.id] && limitHint(c)" x-text="limitHint(c)"></div></td>
+                  <td><template x-if="limitsDraft[c.id]"><input type="number" min="0" step="1" class="input input-bordered input-xs w-24" x-model="limitsDraft[c.id].alert"></template></td>
+                  <td><template x-if="limitsDraft[c.id]"><input type="number" min="0" step="1" class="input input-bordered input-xs w-24" x-model="limitsDraft[c.id].consider"></template></td>
+                  <td><input type="checkbox" class="toggle toggle-xs" :checked="!c.paused" @change="setActive(c, $event.target.checked)"></td>
+                  <td><button class="btn btn-primary btn-xs" @click="saveLimits(c)">Save</button></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Settings groups (ntfy, alert behaviour, n8n, changedetection, optional tiers) -->
       <template x-for="g in intGroups" :key="g.id">
         <div class="bg-base-200 rounded-xl border border-base-300 p-5 space-y-3">
@@ -1446,6 +1472,16 @@
                   <a :href="'/api/n8n/workflows/' + w.id" class="btn btn-ghost btn-xs border border-base-300">Download</a>
                 </div>
               </template>
+            </div>
+          </template>
+          <template x-if="g.id === 'other' && integrations">
+            <div class="border-t border-base-300 pt-3 flex flex-wrap items-center gap-3 text-sm">
+              <label class="flex items-center gap-2">
+                <input type="checkbox" class="toggle toggle-sm" :checked="integrations.prices.enabled" @change="setPricesApi($event.target.checked)">
+                PricesAPI is <strong x-text="integrations.prices.enabled ? 'on' : 'off'"></strong>
+              </label>
+              <span class="text-xs text-base-content/60" x-show="!integrations.prices.enabled">Switched off: nothing calls it, and the key stays saved so you can switch it back on when your credits reset.</span>
+              <span class="text-xs text-warning" x-show="integrations.prices.enabled && integrations.prices.paused" x-text="'Paused automatically: ' + integrations.prices.paused"></span>
             </div>
           </template>
           <template x-if="g.id === 'cd'">
