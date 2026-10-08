@@ -178,6 +178,19 @@ function initSchema(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_scrape_runs_component_source ON scrape_runs(component_id, source, id DESC);
 
+    -- What was true when an alert was sent (or held back): makes every alert auditable afterwards.
+    CREATE TABLE IF NOT EXISTS alert_evidence (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      component_id INTEGER,
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+      kind         TEXT    NOT NULL,
+      retailer     TEXT,
+      url          TEXT,
+      price        REAL,
+      evidence     TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_alert_evidence_created ON alert_evidence(id DESC);
+
     CREATE TABLE IF NOT EXISTS builds (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       name        TEXT    NOT NULL UNIQUE,
@@ -1232,6 +1245,28 @@ export function getAllScrapeRules(): ScrapeRule[] {
 export interface ScrapeRun {
   id: number; component_id: number | null; source: string; started_at: string;
   duration_ms: number | null; ok: number; error: string | null; offers_found: number;
+}
+
+export interface AlertEvidence {
+  id: number; component_id: number | null; created_at: string; kind: string;
+  retailer: string | null; url: string | null; price: number | null; evidence: string;
+}
+
+/** kind: 'price_alert' | 'options' | 'suppressed'. `evidence` is JSON text; the caller never puts a secret in it. */
+export function recordEvidence(e: { componentId: number | null; kind: string; retailer?: string | null; url?: string | null; price?: number | null; evidence: unknown }): void {
+  getDb().prepare('INSERT INTO alert_evidence (component_id, kind, retailer, url, price, evidence) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(e.componentId, e.kind, e.retailer ?? null, e.url ?? null, e.price ?? null, JSON.stringify(e.evidence).slice(0, 4000));
+}
+
+export function getRecentEvidence(limit = 50, componentId?: number): AlertEvidence[] {
+  return componentId != null
+    ? getDb().prepare('SELECT * FROM alert_evidence WHERE component_id = ? ORDER BY id DESC LIMIT ?').all(componentId, limit) as AlertEvidence[]
+    : getDb().prepare('SELECT * FROM alert_evidence ORDER BY id DESC LIMIT ?').all(limit) as AlertEvidence[];
+}
+
+/** Stop offering a listing that has been seen to be gone: it leaves every purchasable list until a later scrape sees it again. */
+export function markOfferUnavailable(recordId: number): void {
+  getDb().prepare("UPDATE price_records SET in_stock = 0, stock_state = 'out_of_stock' WHERE id = ?").run(recordId);
 }
 
 export function recordScrapeRun(run: {

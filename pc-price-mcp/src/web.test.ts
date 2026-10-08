@@ -71,6 +71,17 @@ describe('dashboard API: components', () => {
   });
 });
 
+describe('alert evidence ledger', () => {
+  it('lists what was true when an alert was sent or held back, newest first, with the JSON parsed', async () => {
+    db.recordEvidence({ componentId: null, kind: 'suppressed', retailer: 'eBay UK', url: 'https://www.ebay.co.uk/itm/1', price: 300, evidence: { reason: 'the listing is gone' } });
+    db.recordEvidence({ componentId: null, kind: 'price_alert', retailer: 'eBay UK', url: 'https://www.ebay.co.uk/itm/2', price: 320, evidence: { title: 'Kit', verified: true } });
+    const r = await json('/api/alerts/evidence?limit=2');
+    expect(r.status).toBe(200);
+    expect(r.body.map((e: { kind: string }) => e.kind)).toEqual(['price_alert', 'suppressed']);
+    expect(r.body[0].evidence).toEqual({ title: 'Kit', verified: true });
+  });
+});
+
 describe('known product pages', () => {
   it('lists the pages for the capacities the profile accepts, adds them once, and turns search_also on', async () => {
     const c = db.addTrackedComponent('64GB known pages', 'ram', 'ddr5 so-dimm 64gb', 350);

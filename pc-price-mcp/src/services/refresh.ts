@@ -14,6 +14,7 @@ import type { ScrapedProduct } from '../sources/url-scraper.js';
 import type { RetailerId, RetailerSearchResult } from '../sources/uk-retailers.js';
 import type { EbayBrowseResult, EbayListing } from '../sources/ebay-browse.js';
 import { evaluateAlerts } from './alerts.js';
+import type { Verdict } from './verify-offer.js';
 import { alertOnRepeatedFailures, inBackoff } from './scrape-health.js';
 import { pricesApiPause, pausePricesApi, pricesApiDue, markPricesApiRun } from './pricesapi-guard.js';
 import { PricesApiError } from '../sources/pricesapi.js';
@@ -37,6 +38,8 @@ export interface RefreshDeps {
   searchViaWatch?: (id: RetailerId, query: string) => Promise<RetailerSearchResult | null>;
   /** Retailer catalogue read through its sitemap and product pages (robots.txt-compliant replacement for a search page); null = not handled. */
   searchViaSitemap?: (id: RetailerId, component: db.TrackedComponent) => Promise<RetailerSearchResult | null>;
+  /** Re-reads an offer at its source just before an alert is sent; absent = no check. */
+  verifyOffer?: (offer: db.PriceRecord) => Promise<Verdict>;
   notify: typeof notifyAll;
   sleep: (ms: number) => Promise<void>;
 }
@@ -253,7 +256,7 @@ export async function refreshComponent(
 
   db.savePriceSnapshots(component.id, snapshots);
   db.markLastChecked(component.id);
-  await evaluateAlerts({ component, prevBestPrice, dropThresholdPct: ctx.dropThresholdPct, notify: deps.notify });
+  await evaluateAlerts({ component, prevBestPrice, dropThresholdPct: ctx.dropThresholdPct, notify: deps.notify, verify: deps.verifyOffer });
   return { snapshots: snapshots.length };
 }
 

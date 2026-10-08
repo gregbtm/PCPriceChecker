@@ -1130,6 +1130,13 @@ export function startWebServer(port: number): void {
     res.json({ status: 'ok', uptime: process.uptime(), ts: new Date().toISOString(), scrapers, catalogue, alerts });
   });
 
+  // What was true when each alert was sent (or held back after a re-check).
+  app.get('/api/alerts/evidence', h(async (req, res) => {
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50')) || 50, 1), 200);
+    const cid = req.query.component_id ? parseInt(String(req.query.component_id)) : undefined;
+    res.json(db.getRecentEvidence(limit, cid).map(e => ({ ...e, evidence: (() => { try { return JSON.parse(e.evidence); } catch { return e.evidence; } })() })));
+  }));
+
   app.get('/api/scrape-runs', h(async (req, res) => {
     const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '50')) || 50, 1), 500);
     const cid = req.query.component_id ? parseInt(String(req.query.component_id)) : undefined;

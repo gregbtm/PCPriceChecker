@@ -12,7 +12,8 @@ import { pingHeartbeat } from './services/heartbeat.js';
 import { readWatchForUrl, changedetectionConfigured } from './sources/changedetection.js';
 import * as db from './db.js';
 import { searchWithRetry } from './sources/pricesapi.js';
-import { ebayBrowseSearch, ebayConfigured } from './sources/ebay-browse.js';
+import { ebayBrowseSearch, ebayConfigured, ebayGetItemByLegacyId } from './sources/ebay-browse.js';
+import { verifyOffer } from './services/verify-offer.js';
 import { searchUkRetailer, ALL_RETAILER_IDS, type RetailerId } from './sources/uk-retailers.js';
 import { notifyAll } from './notifications.js';
 import { stockStateFromBoolean } from './services/stock-state.js';
@@ -141,6 +142,7 @@ const realDeps: RefreshDeps = {
   }),
   changedetectionConfigured,
   searchEbay: (query) => ebayBrowseSearch(query, db.getConfig('ebay_allow_used') === 'false' ? 'new' : 'any', 100, { buyItNowOnly: true }),
+  verifyOffer: (o) => ebayConfigured() ? verifyOffer(o, ebayGetItemByLegacyId) : Promise.resolve({ ok: true as const }),
   notify: notifyAll,
   sleep,
 };
