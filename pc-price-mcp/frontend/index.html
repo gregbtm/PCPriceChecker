@@ -2834,7 +2834,9 @@
             <ul class="text-xs space-y-1 mb-2">
               <template x-for="p in knownPages.pages" :key="p.url">
                 <li class="flex justify-between gap-2"><span x-text="p.retailer + ' · ' + p.mpn"></span>
-                  <span :class="p.added ? 'text-success' : 'text-base-content/50'" x-text="p.added ? 'watching' : 'not added'"></span></li>
+                  <span :class="(p.status === 'blocked' || p.status === 'failing') ? 'text-warning' : (p.added ? 'text-success' : 'text-base-content/50')"
+                        :title="p.last_error || ''"
+                        x-text="!p.added ? 'not added' : (p.status === 'blocked' || p.status === 'failing') ? 'shop refuses us (tried daily)' : 'watching'"></span></li>
               </template>
             </ul>
             <button class="btn btn-xs btn-primary" @click="addKnownPages()" x-show="knownPages.pages.some(p => !p.added)">Add the pages not yet watched</button>

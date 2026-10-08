@@ -176,6 +176,18 @@ describe('known product pages', () => {
     expect(db.getComponentUrls(c.id)).toHaveLength(before.body.pages.length);   // idempotent
     expect((await json('/api/components/99999/known-pages')).status).toBe(404);
   });
+  it('shows which shops refuse us: three 403s on a page source read as blocked, with the reason', async () => {
+    const c = db.addTrackedComponent('64GB status', 'ram', 'q', 600);
+    await send(`/api/components/${c.id}/profile`, 'PATCH', { profile_id: 'n5-air-ram' });
+    for (let i = 0; i < 3; i++) db.recordScrapeRun({ componentId: c.id, source: 'url:box.co.uk', ok: false, error: 'direct: blocked by the site (HTTP 403); not retried with a browser' });
+    db.recordScrapeRun({ componentId: c.id, source: 'url:awd-it.co.uk', ok: true, offersFound: 1 });
+    const r = await json(`/api/components/${c.id}/known-pages`);
+    const box = r.body.pages.find((p: { retailer: string }) => p.retailer === 'box.co.uk');
+    const awd = r.body.pages.find((p: { retailer: string }) => p.retailer === 'awd-it.co.uk');
+    expect(box).toMatchObject({ status: 'blocked', last_error: expect.stringContaining('HTTP 403') });
+    expect(awd.status).toBe('ok');
+    db.getDb().exec("DELETE FROM scrape_runs WHERE source LIKE 'url:%'");
+  });
   it('search_also can be switched and is validated', async () => {
     const c = db.addTrackedComponent('x2', 'ram', 'q', null as unknown as number);
     expect((await send(`/api/components/${c.id}/search-also`, 'PATCH', { search_also: 'yes' })).status).toBe(400);

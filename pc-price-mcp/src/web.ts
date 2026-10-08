@@ -799,7 +799,13 @@ export function startWebServer(port: number): void {
     const k = knownPagesForComponent(id);
     if (!k) { res.status(404).json({ error: 'component not found' }); return; }
     const have = new Set(db.getComponentUrls(id).map(u => u.url));
-    res.json({ search_also: k.component.search_also === 1, pages: k.pages.map(p => ({ ...p, added: have.has(p.url) })) });
+    // Whether each page's shop currently answers: its `url:<domain>` source status and last error (a 403 shows as blocked).
+    const health = new Map(db.getSourceHealth().map(h => [h.source, h]));
+    const enabled = configuredRetailers() as string[];
+    res.json({ search_also: k.component.search_also === 1, pages: k.pages.map(p => {
+      const h = health.get(`url:${p.retailer}`);
+      return { ...p, added: have.has(p.url), status: h ? sourceStatus(h, enabled) : null, last_error: h?.last_error ?? null };
+    }) });
   }));
 
   // Adds every known page not yet tracked, and turns `search_also` on so eBay and the retailer searches keep running alongside them.

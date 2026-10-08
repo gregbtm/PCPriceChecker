@@ -22,10 +22,21 @@ function deps(over: Partial<RefreshDeps> = {}) {
 beforeEach(() => db.getDb().exec('DELETE FROM scrape_runs; DELETE FROM price_records; DELETE FROM config; DELETE FROM tracked_components;'));
 
 describe('back-off for sources that keep failing', () => {
-  it('only search and PricesAPI sources ever back off', () => {
+  it('search, product-page and PricesAPI sources back off; eBay and watches never do', () => {
     expect(backsOff('search:scan')).toBe(true);
     expect(backsOff('pricesapi')).toBe(true);
-    for (const s of ['ebay', 'url:shop.co.uk', 'changedetection:x', 'search']) expect(backsOff(s)).toBe(false);
+    expect(backsOff('url:shop.co.uk')).toBe(true);
+    for (const s of ['ebay', 'changedetection:x', 'search']) expect(backsOff(s)).toBe(false);
+  });
+  it('a product-page source backs off after 3 refusals, not 10, and is probed once a day (seen live: box.co.uk answered 403 four times an hour)', () => {
+    seedRuns('url:box.co.uk', 3, 60_000);
+    expect(inBackoff('url:box.co.uk')).toBe(true);
+    seedRuns('url:ok-shop.co.uk', 2, 60_000);
+    expect(inBackoff('url:ok-shop.co.uk')).toBe(false);                       // two failures: still tried
+    expect(inBackoff('url:box.co.uk', Date.now() + 25 * 3_600_000)).toBe(false);   // a day later: one probe
+    seedRuns('search:scan', 3, 60_000);
+    expect(inBackoff('search:scan')).toBe(false);                             // searches still wait for 10
+    expect(sourceStatus({ source: 'url:box.co.uk', last_run_at: iso(60_000), consecutive_failures: 3 }, [])).toBe('blocked');
   });
   it('after 10 failures in a row the source is skipped, with no run recorded and no politeness sleep', async () => {
     const c = db.addTrackedComponent('64GB kit', 'ram', 'ddr5 so-dimm 64gb', 350);
