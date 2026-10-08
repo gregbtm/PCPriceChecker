@@ -156,6 +156,13 @@ describe('settings: limits, pausing and the PricesAPI switch', () => {
     expect(h.body.deal_feeds.last).toMatchObject({ ok: false, error: 'ram: HTTP 403' });
     db.deleteConfig('deal_feeds_enabled'); db.deleteConfig('dealfeed:status');
   });
+  it('GET /api/access/probe reports no run and no result before the owner starts one (POST is not exercised here: it would reach real shops)', async () => {
+    db.deleteConfig('reach_probe:last');
+    expect((await json('/api/access/probe')).body).toEqual({ running: false, last: null });
+    db.setConfig('reach_probe:last', JSON.stringify({ startedAt: 'x', finishedAt: 'y', userAgent: 'ua', results: [{ id: 'box', name: 'Box', verdict: 'refused', steps: [], advice: 'a' }] }));
+    expect((await json('/api/access/probe')).body.last.results[0]).toMatchObject({ id: 'box', verdict: 'refused' });
+    db.deleteConfig('reach_probe:last');
+  });
 });
 
 describe('rejected listings diagnostic', () => {

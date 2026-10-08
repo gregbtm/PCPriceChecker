@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as db from '../db.js';
 import { parseHukdFeed, type HukdDeal } from '../sources/hotukdeals.js';
-import { isTargetDeal, pollDealFeeds, loadDealFeedStatus, POLL_EVERY_MS, MAX_AGE_MS } from './deal-feed.js';
+import { isTargetDeal, pollDealFeeds, loadDealFeedStatus, windowGaps, POLL_EVERY_MS, MAX_AGE_MS } from './deal-feed.js';
 
 // Real HotUKDeals feed items, captured 2026-10-08 from /rss/tag/ram and /rss/tag/computers (trimmed to the first few items).
 const RAM = parseHukdFeed(readFileSync(new URL('../test/fixtures/hotukdeals-rss-tag-ram.xml', import.meta.url), 'utf8'));
@@ -107,5 +107,27 @@ describe('pollDealFeeds', () => {
     expect((await pollDealFeeds({ fetchFeeds: f, notify: vi.fn() as never, now: () => NOW })).polled).toBe(false);
     expect(f).not.toHaveBeenCalled();
     expect((await pollDealFeeds({ fetchFeeds: f, notify: vi.fn() as never, now: () => NOW }, true)).polled).toBe(true);
+  });
+});
+
+describe('feed window gaps (a feed shows only its newest ~30 items)', () => {
+  it('windowGaps: no overlap with the previous poll is a gap; any overlap, a first poll or a silent feed is not', () => {
+    expect(windowGaps({ ram: ['a', 'b'] }, { ram: ['c', 'd'] })).toEqual(['ram']);
+    expect(windowGaps({ ram: ['a', 'b'] }, { ram: ['b', 'c'] })).toEqual([]);
+    expect(windowGaps({}, { ram: ['c'] })).toEqual([]);                       // first poll: nothing to compare with
+    expect(windowGaps({ ram: ['a'] }, {})).toEqual([]);                       // the feed did not answer this time
+    expect(windowGaps({ ram: ['a'] }, { ram: [] })).toEqual([]);              // an empty window proves nothing
+    expect(windowGaps({ ram: ['a'], computers: ['x'] }, { ram: ['a'], computers: ['y'] })).toEqual(['computers']);
+  });
+
+  it('pollDealFeeds reports the gap in its status, and a failed feed keeps its earlier window', async () => {
+    const poll = (byFeed: Record<string, string[]>, minutesLater: number, failures: string[] = []) =>
+      pollDealFeeds({ fetchFeeds: vi.fn(async () => ({ deals: [], failures, byFeed })), notify: vi.fn() as never, now: () => new Date(NOW.getTime() + minutesLater * 60_000) });
+    await poll({ ram: ['a', 'b'], computers: ['x', 'y'] }, 0);
+    expect(loadDealFeedStatus()?.gaps).toBeUndefined();
+    await poll({ computers: ['y', 'z'] }, 60, ['ram: HTTP 500']);                // ram silent, computers overlaps
+    expect(loadDealFeedStatus()?.gaps).toBeUndefined();
+    await poll({ ram: ['q'], computers: ['m', 'n'] }, 120);                      // ram: nothing shared with the stored [a,b]; computers: nothing shared with [y,z]
+    expect(loadDealFeedStatus()?.gaps?.sort()).toEqual(['computers', 'ram']);
   });
 });
