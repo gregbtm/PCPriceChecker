@@ -104,6 +104,6 @@ Checks from a shell (replace `$APP`):
 curl -sS $APP/api/health | python3 -c "import json,sys;d=json.load(sys.stdin);print('alerts:',d['alerts']);print('catalogue:',d['catalogue']);print('failing:',d['scrapers']['failing'])"
 curl -sS $APP/api/alerts/evidence?limit=10 | python3 -c "import json,sys;[print(e['created_at'],e['kind'],e['retailer'],e['price'],(e['evidence'] or {}).get('reason','')) for e in json.load(sys.stdin)]"
 curl -sS $APP/api/components/7/known-pages
-curl -sS "$APP/api/components/7/rejected?days=7" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['total'],'rejected');[print(v,k) for k,v in sorted(d['by_reason'].items(),key=lambda x:-x[1])];[print(x['price'],x['retailer'],x['listing_name'][:70],x['reasons']) for x in d['cheapest']];print('singles:');[print(x['price'],'x2 =',x['pair_price'],x['listing_name'][:70]) for x in d['singles']]"
+curl -sS "$APP/api/components/7/rejected?days=7" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d['total'],'rejected');[print(v,k) for k,v in sorted(d['by_reason'].items(),key=lambda x:-x[1])];[print(x['price'],x['retailer'],x['listing_name'][:70],x['reasons']) for x in d['cheapest']];print('near misses (reasons are only \"not stated\"):');[print(x['price'],x['retailer'],x['listing_name'][:80]) for x in d['near_misses']];print('singles:');[print(x['price'],'x2 =',x['pair_price'],x['listing_name'][:70]) for x in d['singles']]"
 ```
 (add `-H "Authorization: Bearer <token>"` once `app_token` is set)

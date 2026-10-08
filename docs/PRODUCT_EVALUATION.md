@@ -75,7 +75,7 @@ Scope tags: S under half a day, M about a day, L several days.
 
 | # | Item | Idea | Size |
 |---|---|---|---|
-| B1 | **Assembled kits**: pair two identical single 32GB (or 24GB) modules from one seller into a virtual 64GB (48GB) kit with the combined price | Singles are listed separately and often cheaper per GB; Box shows KVR56S46BD8-32 at £485.99 each (agent, Verified), so today it would not help, but the market moves. Identical module, same seller, quantity 2 | M |
+| B1 | **Not worth building now, 2026-10-08:** the only in-stock single module that fits is 465.70 (pair 931.40) against a 498.84 kit (HANDOFF 9ae); revisit if singles drop. **Assembled kits**: pair two identical single 32GB (or 24GB) modules from one seller into a virtual 64GB (48GB) kit with the combined price | Singles are listed separately and often cheaper per GB; Box shows KVR56S46BD8-32 at £485.99 each (agent, Verified), so today it would not help, but the market moves. Identical module, same seller, quantity 2 | M |
 | B2 | **Not needed 2026-10-08** (the hourly search already sees new listings; the options gap is now configurable, HANDOFF 9x). **New-listing watch for eBay** (`sort=newlyListed`, alert on an unseen matching listing) | A rare cheap kit can sell within hours of listing | M |
 | B3 | **Source arbitration and confidence**: when two sources disagree about price or stock, show both and flag it; score every offer by source reliability, freshness and classification certainty | Borrowed from PriceGhost and changedetection's "lie detection" | M |
 | B4 | **Per-store strategy editor** in the dashboard (URL pattern, extractor, selectors) | Borrowed from PriceBuddy; today a new shop needs code | L |

@@ -3,7 +3,7 @@
  * Binds to 0.0.0.0 so it's accessible on the local network (NAS use).
  * Serves static files from ../public and REST API at /api/*.
  */
-import { topOffers, formatOffer, marketView } from './services/offers.js';
+import { topOffers, formatOffer, marketView, offerKey } from './services/offers.js';
 import { discoverProductPages } from './sources/searxng.js';
 import { changedetectionConfigured, spike as cdSpike, listWatches as cdListWatches, createRestockWatch, deleteWatch as cdDeleteWatch, PCPC_TITLE_PREFIX } from './sources/changedetection.js';
 import { firecrawlConfigured } from './sources/firecrawl.js';
@@ -210,7 +210,9 @@ export function startWebServer(port: number): void {
     const profile = c.profile_id ? PROFILES[c.profile_id] : undefined;
     if (!profile) { res.json({ profile: null, total: 0, by_reason: {}, cheapest: [], singles: [] }); return; }
     const days = Math.min(Math.max(parseInt(String(req.query.days ?? '7')) || 7, 1), 60);
-    const rows = db.getRejectedOffers(id, days).map(r => {
+    // One row per listing: eBay changes the tracking part of a listing's address on every search, so the raw address would count one listing many times.
+    const seenKeys = new Set<string>();
+    const rows = db.getRejectedOffers(id, days).filter(r => { const k = offerKey(r.url); if (seenKeys.has(k)) return false; seenKeys.add(k); return true; }).map(r => {
       const listing = classifyMemory(r.listing_name ?? '');
       return { r, listing, reasons: matchesProfile(listing, profile).reasons };
     });
@@ -219,8 +221,12 @@ export function startWebServer(port: number): void {
     const line = (x: typeof rows[number]) => ({ price: x.r.price, retailer: x.r.retailer, stock_state: x.r.stock_state, listing_name: x.r.listing_name, reasons: x.reasons, url: x.r.url, age_hours: Math.round((Date.now() - new Date(x.r.recorded_at.replace(' ', 'T') + 'Z').getTime()) / 3_600_000) });
     const singles = rows.filter(x => x.listing.ddr === profile.ddr && x.listing.formFactor === profile.formFactor && x.listing.modules !== 2
       && x.listing.totalGb != null && profile.acceptedTotalsGb.some(a => a.gb / profile.slots === x.listing.totalGb) && !x.listing.bundle && x.r.stock_state === 'in_stock');
+    // Could this be a real kit that merely does not say so? Every reason is "not stated" and the capacity, if stated, is one we accept.
+    const accepted = new Set(profile.acceptedTotalsGb.map(a => a.gb));
+    const nearMisses = rows.filter(x => x.reasons.length > 0 && x.reasons.every(t => /not stated/.test(t)) && (x.listing.totalGb == null || accepted.has(x.listing.totalGb)) && !x.listing.bundle);
     res.json({ profile: c.profile_id, window_days: days, total: rows.length, by_reason: byReason,
       cheapest: rows.slice(0, 15).map(line),
+      near_misses: nearMisses.slice(0, 15).map(line),
       singles: singles.slice(0, 10).map(x => ({ ...line(x), pair_price: Math.round(x.r.price * 2 * 100) / 100 })), single_module_sizes_gb: profile.acceptedTotalsGb.map(a => a.gb / profile.slots) });
   }));
 
