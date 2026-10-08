@@ -18,6 +18,7 @@ import { alertOnRepeatedFailures, inBackoff } from './scrape-health.js';
 import { pricesApiPause, pausePricesApi, pricesApiDue, markPricesApiRun } from './pricesapi-guard.js';
 import { PricesApiError } from '../sources/pricesapi.js';
 import { matchesQuery } from './query-match.js';
+import { mpnQueries, mpnDue, markMpnRun } from './ebay-queries.js';
 import { classifyMemory, matchesProfile, PROFILES } from './memory-classifier.js';
 
 export interface RefreshDeps {
@@ -54,6 +55,7 @@ export const DEFAULT_SEARCH_RETAILERS: RetailerId[] = [
   'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'awdit', 'wired2fire',
 ];   // Currys left out 2026-10-07: Cloudflare challenge, and its scraper calls a private JSON endpoint with a spoofed Referer
 const RETAILER_GAP_MS = 2_000;
+const EBAY_MPN_GAP_MS = 1_000;
 
 /**
  * Listing attributes for a component with a hardware profile (P1-3, P1-5). Returns {} when the
@@ -180,6 +182,20 @@ export async function refreshComponent(
       await attempt('ebay', async () => {
         const r = await deps.searchEbay!(component.search_query);
         if (r.error) return { offers: [], error: r.error };
+        // Part-number queries (ebay-queries.ts): find listings whose titles do not say "SO-DIMM". A failed extra query never fails the run.
+        const extra = mpnQueries(component);
+        if (extra.length > 0 && mpnDue(component.id)) {
+          markMpnRun(component.id);
+          const seen = new Set(r.listings.map(l => l.itemId));
+          for (const mpn of extra) {
+            await deps.sleep(EBAY_MPN_GAP_MS);
+            try {
+              const more = await deps.searchEbay!(mpn);
+              if (more.error) continue;
+              for (const l of more.listings) if (!seen.has(l.itemId)) { seen.add(l.itemId); r.listings.push(l); }
+            } catch { /* keep what the main query found */ }
+          }
+        }
         const hasProfile = !!(component.profile_id && PROFILES[component.profile_id]);
         const offers = r.listings.filter(eligibleEbayListing)
           .filter(l => hasProfile || matchesQuery(l.title, component.search_query))

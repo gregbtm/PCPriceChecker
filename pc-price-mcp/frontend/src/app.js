@@ -201,6 +201,13 @@ function app() {
         { key: 'max_offer_age_hours', label: 'Ignore offers older than (hours)', placeholder: '48' },
         { key: 'price_retention_days', label: 'Keep raw price rows for (days, 0 = forever)', placeholder: '365' },
         { key: 'auto_refresh_interval_minutes', label: 'Refresh every (minutes)', placeholder: '60' },
+        { key: 'options_cooldown_minutes', label: 'Gap between "worth a look" lists (minutes)', placeholder: '360' },
+        { key: 'alert_on_total', label: 'Compare price + delivery with the limits (type true to turn on)', placeholder: 'false' },
+        { key: 'ebay_mpn_every_hours', label: 'eBay part-number searches every (hours, 0 = every pass, "off")', placeholder: '6' },
+      ] },
+      { id: 'reliability', title: 'Reliability and politeness', help: 'The heartbeat URL (for example an Uptime Kuma push monitor) is pinged after every completed pass, so a monitor outside this app notices if it goes quiet. The identity is what every plain request sends; leave it empty to use the default, or add a contact address so a shop can reach you.', fields: [
+        { key: 'heartbeat_url', label: 'Heartbeat URL', placeholder: 'http://kuma.lan:3001/api/push/…?status=up&msg=OK' },
+        { key: 'scraper_user_agent', label: 'Request identity (User-Agent)', placeholder: 'PCPriceChecker (self-hosted price tracker; you@example.com)' },
       ] },
       { id: 'n8n', title: 'n8n (webhook)', help: 'The app posts every alert as JSON to this n8n Webhook node. Use the production URL, not /webhook-test/.', fields: [
         { key: 'webhook_url', label: 'Webhook URL', placeholder: 'http://NAS-IP:5678/webhook/pcpc' },

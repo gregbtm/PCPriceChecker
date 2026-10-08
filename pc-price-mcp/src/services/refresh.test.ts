@@ -449,3 +449,27 @@ describe('search_also: pinned product pages must not switch the searches off', (
     expect(boxRow.in_stock).toBe(0);
   });
 });
+
+describe('eBay part-number queries inside a refresh', () => {
+  const listing = (itemId: string, title: string, price: number) => ({ itemId, title, price, currency: 'GBP', condition: 'New', conditionId: '1000',
+    url: `https://www.ebay.co.uk/itm/${itemId}`, seller: 's', feedbackPct: 100, location: 'GB', freeShipping: true, shippingCost: 0, buyItNow: true });
+
+  it('merges listings found by part number, dedupes by item, and repeats only when due', async () => {
+    const c = fresh();
+    db.setComponentProfile(c.id, 'n5-air-ram');
+    const kw = listing('1', 'Fanxiang 64GB (2x32GB) DDR5 5600MHz SO-DIMM Laptop RAM Memory Kit', 492);
+    // A seller whose title never says SO-DIMM or DDR5: only a part-number search can find it, and only the known MPN makes it a match.
+    const hidden = listing('2', 'Crucial CT2K32G56C46S5 kit new sealed', 470);
+    const searchEbay = vi.fn(async (q: string) => ({ query: q, condition: 'any' as const, scrapedAt: '', durationMs: 1,
+      listings: q === 'ct2k32g56c46s5'.toUpperCase() ? [hidden, kw] : [kw] }));
+    const { deps } = makeDeps({}, { searchEbay, ebayConfigured: () => true });
+    await refreshComponent(db.getTrackedComponentById(c.id)!, ctx([]), deps);
+    const rows = db.getLatestPricePerRetailer(c.id, true, false);
+    expect(rows.map(r => r.url).sort()).toEqual(['https://www.ebay.co.uk/itm/1', 'https://www.ebay.co.uk/itm/2']);
+    expect(rows.find(r => r.url!.endsWith('/2'))!.profile_match).toBe(1);
+    const callsFirst = searchEbay.mock.calls.length;
+    expect(callsFirst).toBeGreaterThan(5);                       // keyword query plus every part number
+    await refreshComponent(db.getTrackedComponentById(c.id)!, ctx([]), deps);
+    expect(searchEbay.mock.calls.length).toBe(callsFirst + 1);   // second pass inside 6 h: keyword query only
+  });
+});
