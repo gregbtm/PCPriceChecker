@@ -1452,8 +1452,9 @@ const TOOLS = [
   {
     name: 'hotukdeals_search',
     description:
-      'Search HotUKDeals (UK\'s largest deal community) for PC component deals. ' +
-      'Surfaces flash sales, voucher codes, and time-limited offers that don\'t appear on retailer APIs. ' +
+      'Search recent HotUKDeals (UK\'s largest deal community) posts for PC component deals. ' +
+      'HotUKDeals\' own search is closed to robots, so this reads the newest ~30 items of its RAM, computers and electronics feeds ' +
+      'and filters them here: older deals will not appear. Deals are community posts, a lead to check at the merchant, not proof of price or stock. ' +
       'No API key required. Results include price, merchant, and deal description.',
     inputSchema: {
       type: 'object' as const,
@@ -1467,8 +1468,8 @@ const TOOLS = [
   {
     name: 'hotukdeals_hot',
     description:
-      'Get the latest hot deals from HotUKDeals computing category. ' +
-      'Shows trending deals ordered by recency. No API key required.',
+      'Get the latest deals from the HotUKDeals computers feed (category "computing") or its trending feed ("all"). ' +
+      'Newest first. No API key required.',
     inputSchema: {
       type: 'object' as const,
       properties: {
@@ -3475,9 +3476,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const { query, max_results } = HukdSearchSchema.parse(args);
         const result = await searchHukd(query, max_results);
         if (result.error) return ok(`HotUKDeals search failed: ${result.error}`);
-        if (!result.deals.length) return ok(`No HotUKDeals found for "${query}".`);
+        if (!result.deals.length) return ok(`No recent HotUKDeals posts match "${query}" (only the newest ~30 items of each feed are read).${result.note ? ` Note: ${result.note}.` : ''}`);
         const lines = [
           `## HotUKDeals — "${query}" (${result.deals.length} deals)`,
+          ...(result.note ? [`_${result.note}_`] : []),
           '',
           ...result.deals.map((d, i) => {
             const priceLine = d.price != null ? ` — ${fmt(d.price)}` : '';
