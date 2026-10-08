@@ -40,7 +40,7 @@ import {
 } from './sources/apify.js';
 import { budgetBuilder, buildVsBuy, upgradeAdvisor, type UseCase } from './services/build-advisor.js';
 import { checkCompatibility } from './services/compatibility.js';
-import { PROFILES } from './services/memory-classifier.js';
+import { PROFILES, classifyMemory, matchesProfile } from './services/memory-classifier.js';
 import { bestFields } from './services/component-summary.js';
 import { sendDailySummary } from './services/daily-summary.js';
 import { findCpuBenchmark, findGpuBenchmark, CPU_BENCHMARKS, GPU_BENCHMARKS } from './data/benchmarks.js';
@@ -197,6 +197,31 @@ export function startWebServer(port: number): void {
     }));
     res.json({ component: { id: c.id, name: c.name, alert_price: c.alert_price, consider_price: c.consider_price, profile_id: c.profile_id }, offers,
       market: marketView(id, c.alert_price) });
+  }));
+
+  /**
+   * What the classifier turned away, and why: reasons counted, and the cheapest rejected listings with their reasons. Also shows single modules
+   * (for example one 32GB stick) that could in principle be bought as a pair; pairing is NOT done automatically (identical module and seller are not known).
+   */
+  app.get('/api/components/:id/rejected', h(async (req, res) => {
+    const id = parseInt(param(req.params.id));
+    const c = db.getTrackedComponentById(id);
+    if (!c) { res.status(404).json({ error: 'Component not found' }); return; }
+    const profile = c.profile_id ? PROFILES[c.profile_id] : undefined;
+    if (!profile) { res.json({ profile: null, total: 0, by_reason: {}, cheapest: [], singles: [] }); return; }
+    const days = Math.min(Math.max(parseInt(String(req.query.days ?? '7')) || 7, 1), 60);
+    const rows = db.getRejectedOffers(id, days).map(r => {
+      const listing = classifyMemory(r.listing_name ?? '');
+      return { r, listing, reasons: matchesProfile(listing, profile).reasons };
+    });
+    const byReason: Record<string, number> = {};
+    for (const x of rows) for (const reason of x.reasons.length ? x.reasons : ['(no reason recorded)']) byReason[reason.replace(/\d+GB total/, 'N GB total')] = (byReason[reason.replace(/\d+GB total/, 'N GB total')] ?? 0) + 1;
+    const line = (x: typeof rows[number]) => ({ price: x.r.price, retailer: x.r.retailer, stock_state: x.r.stock_state, listing_name: x.r.listing_name, reasons: x.reasons, url: x.r.url, age_hours: Math.round((Date.now() - new Date(x.r.recorded_at.replace(' ', 'T') + 'Z').getTime()) / 3_600_000) });
+    const singles = rows.filter(x => x.listing.ddr === profile.ddr && x.listing.formFactor === profile.formFactor && x.listing.modules !== 2
+      && x.listing.totalGb != null && profile.acceptedTotalsGb.some(a => a.gb / profile.slots === x.listing.totalGb) && !x.listing.bundle && x.r.stock_state === 'in_stock');
+    res.json({ profile: c.profile_id, window_days: days, total: rows.length, by_reason: byReason,
+      cheapest: rows.slice(0, 15).map(line),
+      singles: singles.slice(0, 10).map(x => ({ ...line(x), pair_price: Math.round(x.r.price * 2 * 100) / 100 })), single_module_sizes_gb: profile.acceptedTotalsGb.map(a => a.gb / profile.slots) });
   }));
 
   app.get('/api/components/:id/history', h(async (req, res) => {
