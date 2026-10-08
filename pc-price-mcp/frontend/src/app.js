@@ -73,7 +73,7 @@ function app() {
     searchQuery: '',
     lastSearchQuery: '',
     searchSource: 'retailers',
-    selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'wired2fire', 'currys', 'argos', 'johnlewis'],
+    selectedRetailers: ['scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'wired2fire', 'insidetech', 'currys', 'argos', 'johnlewis'],
     allRetailers: [
       { id: 'currys',       label: 'Currys' },
       { id: 'argos',        label: 'Argos' },
@@ -87,6 +87,7 @@ function app() {
       { id: 'aria',         label: 'Aria PC' },
       { id: 'awdit',        label: 'AWD-IT' },
       { id: 'wired2fire',   label: 'Wired2Fire' },
+      { id: 'insidetech',   label: 'Inside-Tech' },
       { id: 'corsair',      label: 'Corsair UK' },
       { id: 'nzxt',         label: 'NZXT UK' },
       { id: 'coolermaster', label: 'Cooler Master UK' },

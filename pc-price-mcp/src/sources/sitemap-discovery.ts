@@ -11,6 +11,7 @@
  * robots.txt) could not be fetched from the build environment, and the product-page reads on the live NAS.
  */
 import * as db from '../db.js';
+import { scraperUserAgent } from '../services/scrape-policy.js';
 import { assertAllowedByRobots, RobotsDisallowedError } from '../services/robots.js';
 import { classifyMemory, matchesProfile, PROFILES } from '../services/memory-classifier.js';
 import { matchesQuery } from '../services/query-match.js';
@@ -20,6 +21,8 @@ import type { ScrapedProduct } from './url-scraper.js';
 export const SITEMAPS: Partial<Record<RetailerId, { retailer: string; urls: string[] }>> = {
   awdit: { retailer: 'AWD-IT', urls: ['https://www.awd-it.co.uk/media/sitemap/sitemap.xml'] },
   novatech: { retailer: 'Novatech', urls: ['https://www.novatech.co.uk/sitemap-products.xml'] },
+  // robots.txt is `Allow: /`; one 2.8 MB urlset of 15,727 addresses (2026-10-08). Product pages carry JSON-LD price and availability.
+  buykingston: { retailer: 'Buy Kingston', urls: ['https://www.buykingston.co.uk/sitemap.xml'] },
 };
 
 const TTL_MS = 24 * 3_600_000;
@@ -38,7 +41,7 @@ export function parseSitemapLocs(xml: string): { locs: string[]; isIndex: boolea
 
 async function fetchXml(url: string, fetchFn: typeof fetch): Promise<string> {
   await assertAllowedByRobots(url, fetchFn);
-  const res = await fetchFn(url, { headers: { 'User-Agent': 'PCPriceChecker (self-hosted price tracker)', Accept: 'application/xml,text/xml' }, signal: AbortSignal.timeout(60_000) });
+  const res = await fetchFn(url, { headers: { 'User-Agent': scraperUserAgent(), Accept: 'application/xml,text/xml' }, signal: AbortSignal.timeout(60_000) });
   if (!res.ok) throw new Error(`sitemap HTTP ${res.status}`);
   const len = Number(res.headers?.get?.('content-length') ?? 0);
   if (len > MAX_BYTES) throw new Error(`sitemap too large (${len} bytes)`);

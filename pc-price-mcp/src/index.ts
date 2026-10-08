@@ -62,7 +62,7 @@ const SearchSchema = z.object({
 });
 
 const ALL_RETAILER_ENUM = [
-  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'wired2fire',
+  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'wired2fire', 'insidetech', 'buykingston',
   'corsair', 'nzxt', 'coolermaster', 'lianli', 'fractal', 'thermaltake',
   'currys', 'argos', 'johnlewis',
 ] as const;

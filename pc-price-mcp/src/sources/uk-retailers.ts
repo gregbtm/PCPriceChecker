@@ -48,7 +48,7 @@ export interface RetailerSearchResult {
   error?: string;
 }
 
-export type RetailerId = 'scan' | 'overclockers' | 'ebuyer' | 'ccl' | 'box' | 'novatech' | 'aria' | 'awdit' | 'wired2fire'
+export type RetailerId = 'scan' | 'overclockers' | 'ebuyer' | 'ccl' | 'box' | 'novatech' | 'aria' | 'awdit' | 'wired2fire' | 'insidetech' | 'buykingston'
   | 'corsair' | 'nzxt' | 'coolermaster' | 'lianli' | 'fractal' | 'thermaltake'
   | 'currys' | 'argos' | 'johnlewis';
 
@@ -628,6 +628,10 @@ const RETAILER_FNS: Record<RetailerId, (q: string) => Promise<RetailerSearchResu
   aria: ariaSearch,
   awdit: awditSearch,
   wired2fire: (q) => searchWooStore('wired2fire', q),
+  insidetech: (q) => searchWooStore('insidetech', q),
+  // No search-page reader: it is read through its sitemap (SITEMAPS in sitemap-discovery.ts), which the scheduler tries first.
+  buykingston: async () => ({ retailer: 'Buy Kingston', results: [], scrapedAt: new Date().toISOString(), durationMs: 0,
+    error: 'Buy Kingston is read through its sitemap only; it has no search-page reader' }),
   corsair: corsairSearch,
   nzxt: nzxtSearch,
   coolermaster: coolerMasterSearch,
@@ -640,7 +644,7 @@ const RETAILER_FNS: Record<RetailerId, (q: string) => Promise<RetailerSearchResu
 };
 
 export const ALL_RETAILER_IDS: RetailerId[] = [
-  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'wired2fire',
+  'scan', 'overclockers', 'ebuyer', 'ccl', 'box', 'novatech', 'aria', 'awdit', 'wired2fire', 'insidetech', 'buykingston',
   'corsair', 'nzxt', 'coolermaster', 'lianli', 'fractal', 'thermaltake',
   'currys', 'argos', 'johnlewis',
 ];

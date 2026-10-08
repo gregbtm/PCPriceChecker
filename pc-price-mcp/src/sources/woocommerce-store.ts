@@ -12,8 +12,14 @@ import { assertAllowedByRobots, RobotsDisallowedError } from '../services/robots
 import type { RetailerResult, RetailerSearchResult } from './uk-retailers.js';
 import type { StockState } from '../services/stock-state.js';
 
-export const WOO_STORES: Record<string, { retailer: string; base: string }> = {
+/**
+ * `soDimmTerm`: the spelling this shop's text search matches for SO-DIMM. WooCommerce search is a substring match, so "so-dimm" finds
+ * only titles that hyphenate it. Wired2Fire hyphenates it (verified 2026-10-07); Inside-Tech does not (verified 2026-10-08: `search=sodimm`
+ * returned 18 products, `search=so-dimm` returned 6 barebone PCs that merely mention SO-DIMM slots).
+ */
+export const WOO_STORES: Record<string, { retailer: string; base: string; soDimmTerm?: string }> = {
   wired2fire: { retailer: 'Wired2Fire', base: 'https://wired2fire.co.uk' },
+  insidetech: { retailer: 'Inside-Tech', base: 'https://inside-tech.co.uk', soDimmTerm: 'sodimm' },
 };
 
 const UA = 'PCPriceChecker (self-hosted price tracker; github.com/gregbtm/PCPriceChecker)';
@@ -43,9 +49,9 @@ export function wooPrice(p: WooProduct): number | null {
 }
 
 /** A Store API text search matches every word, so a long query finds nothing: search the one distinctive word. */
-export function wooSearchTerm(query: string): string {
+export function wooSearchTerm(query: string, soDimmTerm = 'so-dimm'): string {
   const q = query.toLowerCase();
-  if (/so-?\s?dimm/.test(q)) return 'so-dimm';
+  if (/so-?\s?dimm/.test(q)) return soDimmTerm;
   const words = q.split(/\s+/).filter(w => w.length > 2);
   return words[0] ?? query;
 }
@@ -57,7 +63,7 @@ export async function searchWooStore(id: string, query: string, fetchFn: typeof 
     ({ retailer: cfg?.retailer ?? id, results, scrapedAt: new Date().toISOString(), durationMs: Date.now() - t0, error, emptyIsOk });
   if (!cfg) return done([], `unknown WooCommerce store "${id}"`);
 
-  const url = `${cfg.base}/wp-json/wc/store/v1/products?search=${encodeURIComponent(wooSearchTerm(query))}&per_page=40`;
+  const url = `${cfg.base}/wp-json/wc/store/v1/products?search=${encodeURIComponent(wooSearchTerm(query, cfg.soDimmTerm))}&per_page=40`;
   try {
     await assertAllowedByRobots(url, fetchFn);
     const res = await fetchFn(url, { headers: { 'User-Agent': UA, Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) });

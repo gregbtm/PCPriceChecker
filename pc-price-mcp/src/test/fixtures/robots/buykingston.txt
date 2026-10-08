@@ -1,0 +1,5 @@
+# Captured 2026-10-08 from https://www.buykingston.co.uk/robots.txt (honest User-Agent, HTTP 200).
+User-agent: *
+Allow: /
+
+Sitemap: https://www.buykingston.co.uk/sitemap.xml
