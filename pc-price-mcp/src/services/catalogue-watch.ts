@@ -25,9 +25,12 @@ export const NOTABLE_MIN_GB = 48;
 const key = (id: string) => `catalogue:${id}`;
 
 /** Slug text -> is it a DDR5 SO-DIMM product? The same classifier as for listings, so the two cannot disagree. */
+const SODIMM_WORDING = /so[\s-]?dimm|(?:laptop|notebook)\s+(?:memory|ram)/i;
 export function isDdr5Sodimm(slug: string): boolean {
   const m = classifyMemory(slug);
-  return m.ddr === 5 && m.formFactor === 'SODIMM' && !m.bundle;
+  // The census counts memory products, so the address must SAY so-dimm (or laptop memory): the classifier also reads the bare word
+  // "laptop" as SO-DIMM, which made a 15,727-address catalogue that sells laptops report 144 products where 16 are memory.
+  return m.ddr === 5 && m.formFactor === 'SODIMM' && !m.bundle && SODIMM_WORDING.test(slug);
 }
 
 export function takeCensus(urls: string[], slug: (u: string) => string, now = new Date()): CatalogueCensus {

@@ -66,3 +66,36 @@ describe('catalogue census', () => {
     expect(catalogueSummary(['novatech'], slugText)).toEqual([]);   // never read: no line rather than a made-up zero
   });
 });
+
+describe('Buy Kingston census: a catalogue that sells laptops (real addresses captured 2026-10-08)', () => {
+  const BK = parseSitemapLocs(readFileSync(new URL('../test/fixtures/buykingston-sitemap-excerpt.xml', import.meta.url), 'utf8')).locs;
+  const ALIENWARE_64 = BK.find(u => /alienware.*64-gb-ddr5/.test(u))!;
+  const THINKPAD_64 = BK.find(u => /thinkpad-p14s.*64-gb-ddr5/.test(u))!;
+  const KIT_64 = BK.find(u => /kf556s40ibk2-64-64gb/.test(u))!;
+
+  it('counts the SO-DIMM memory products and none of the laptops that merely state their RAM', () => {
+    // Before the fix the live census said 144 for the full sitemap: 128 of them laptops whose address says "laptop" and "ddr5".
+    expect(ALIENWARE_64 && THINKPAD_64 && KIT_64).toBeTruthy();
+    const c = takeCensus(BK, slugText);
+    expect(c.sodimm).toContain(KIT_64);
+    expect(c.sodimm).not.toContain(ALIENWARE_64);
+    expect(c.sodimm).not.toContain(THINKPAD_64);
+    expect(c.sodimm.every(u => /so-?dimm/i.test(u))).toBe(true);
+  });
+
+  it('a laptop with 64GB appearing later does not send a "new DDR5 SO-DIMM product" notification', async () => {
+    const notify = vi.fn();
+    const without = BK.filter(u => u !== ALIENWARE_64 && u !== THINKPAD_64);
+    await observeCatalogue('buykingston', 'Buy Kingston', without, slugText, notify as never);
+    await observeCatalogue('buykingston', 'Buy Kingston', BK, slugText, notify as never);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('while a genuinely new 64GB SO-DIMM kit still does', async () => {
+    const notify = vi.fn();
+    await observeCatalogue('buykingston', 'Buy Kingston', BK.filter(u => u !== KIT_64), slugText, notify as never);
+    await observeCatalogue('buykingston', 'Buy Kingston', BK, slugText, notify as never);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0][0]).toMatchObject({ type: 'new_product', url: KIT_64 });
+  });
+});

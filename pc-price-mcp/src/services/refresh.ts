@@ -112,17 +112,23 @@ export async function refreshComponent(
   const snapshots: db.PriceSnapshot[] = [];
   const attempted: string[] = [];
 
-  /** Returns false when the source was skipped because it is backing off (see scrape-health.ts), true when it ran. */
-  async function attempt(source: string, run: () => Promise<{ offers: db.PriceSnapshot[]; error?: string }>): Promise<boolean> {
+  /**
+   * Returns false when the source was skipped because it is backing off (see scrape-health.ts) or because `nothingToRead` says there was
+   * nothing to attempt, true when it ran. `nothingToRead` exists for the changedetection tier: with no watch on a URL nothing was read, and
+   * recording that as a successful run showed "changedetection:box.co.uk ok" 38 times a day for a shop it never read (found 2026-10-08).
+   */
+  async function attempt(source: string, run: () => Promise<{ offers: db.PriceSnapshot[]; error?: string; nothingToRead?: boolean }>): Promise<boolean> {
     if (inBackoff(source)) return false;
-    attempted.push(source);
     const t0 = Date.now();
     try {
-      const { offers, error } = await run();
+      const { offers, error, nothingToRead } = await run();
+      if (nothingToRead && !error && offers.length === 0) return false;
+      attempted.push(source);
       snapshots.push(...offers);
       db.recordScrapeRun({ componentId: component.id, source, durationMs: Date.now() - t0,
         ok: !error, error, offersFound: offers.length });
     } catch (e) {
+      attempted.push(source);
       db.recordScrapeRun({ componentId: component.id, source, durationMs: Date.now() - t0,
         ok: false, error: msg(e), offersFound: 0 });
     }
@@ -142,7 +148,7 @@ export async function refreshComponent(
         let reading: Awaited<ReturnType<NonNullable<typeof deps.readWatch>>> = null;
         await attempt(`changedetection:${domain}`, async () => {
           reading = await deps.readWatch!(url);
-          if (!reading) return { offers: [] };   // no watch on this URL (yet): not a failure, fall through to direct scraping
+          if (!reading) return { offers: [], nothingToRead: true };   // no watch on this URL (yet): not a run, fall through to direct scraping
           const state = reading.inStock ? 'in_stock' as const : 'out_of_stock' as const;
           return { offers: [{ source: 'changedetection', price: reading.price, currency: 'GBP',
             retailer: domain, url, inStock: reading.inStock, stockState: state }] };

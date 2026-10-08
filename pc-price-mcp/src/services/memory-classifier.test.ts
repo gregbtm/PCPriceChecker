@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyMemory, matchesProfile, N5_AIR_RAM } from './memory-classifier.js';
+import { describesWholeComputer, classifyMemory, matchesProfile, N5_AIR_RAM } from './memory-classifier.js';
 import { SCAN, SYNTHETIC } from '../test/fixtures.js';
 
 describe('classifyMemory on real Scan titles (docs/RESEARCH_AND_VERIFICATION.md section 2)', () => {
@@ -120,5 +120,33 @@ describe('bundles: a device sold WITH memory is not a memory kit (real eBay UK l
       'SK Hynix 2x 32GB (64GB) DDR5-5600MHZ SODIMM HMCG88AGBSA095N',
       'Origin Storage 64GB 2x32GB DDR5 5600MHz SODIMM 1Rx8 Non-ECC 1.1V',
     ]) expect(matchesProfile(classifyMemory(t), N5_AIR_RAM).match).toBe(true);
+  });
+});
+
+describe('a whole computer is not a memory kit, even when it says "laptop" and states its RAM (found on the owner NAS, 2026-10-08)', () => {
+  // Real JSON-LD name from buykingston.co.uk, captured 2026-10-08 (the page truncates it itself): GBP 2,056.63, out of stock.
+  const THINKPAD = 'Lenovo ThinkPad P14s Gen 5 (Intel) Intel Core Ultra 7 155H Laptop 36.8 cm (14.5inch) WQXGA 64 GB DDR5-SDRAM 1 TB SSD NVIDIA RTX 500 Ada Wi-Fi 6E (802.';
+  it('the ThinkPad read as "DDR5 SO-DIMM 64GB" before, and is now a bundle the N5 Air profile rejects', () => {
+    const l = classifyMemory(THINKPAD);
+    expect(l).toMatchObject({ ddr: 5, totalGb: 64, bundle: true });          // the memory words are all there; it is still a computer
+    const m = matchesProfile(l, N5_AIR_RAM);
+    expect(m.match).toBe(false);
+    expect(m.reasons.join()).toMatch(/bundle/);
+  });
+
+  it('real laptop addresses from the same sitemap are bundles too (an Alienware with 64GB, a Lenovo V15 with 8GB)', () => {
+    for (const slug of [
+      'alienware aa18250 intel core ultra 9 275hx laptop 457 cm 18 wqxga 64 gb ddr5 sdram 2 tb ssd nvidia geforce rtx 5090 wi fi 7 80211be windows 11 home uk english black',
+      'lenovo v v15 laptop 396 cm 156 full hd amd ryzen 5 7520u 8 gb lpddr5 sdram 512 gb ssd wi fi 5 80211ac windows 11 home black',
+    ]) expect(classifyMemory(slug).bundle, slug).toBe(true);
+  });
+
+  it('a memory kit stays a memory kit however many spec words its marketing carries (constructed titles, labelled as such)', () => {
+    // two markers (Core i7, Windows 11) but a kit's own wording: must NOT be hidden from alerts
+    expect(classifyMemory('Crucial 64GB (2x32GB) DDR5-5600 Laptop Memory, for Intel Core i7 and Windows 11').bundle).toBe(false);
+    expect(classifyMemory('Kingston FURY Impact 64GB DDR5 SODIMM kit, Windows 11 and Wi-Fi 6 laptops').bundle).toBe(false);
+    expect(describesWholeComputer('Kingston FURY Impact 64GB (2x32GB) DDR5 SODIMM Wi-Fi')).toBe(false);
+    expect(describesWholeComputer('Crucial 64GB DDR5 Laptop Memory for Windows 11')).toBe(false);   // one marker alone
+    expect(describesWholeComputer('x ssd wi-fi')).toBe(true);
   });
 });
